@@ -25,5 +25,5 @@ felix-hotel-new/
 
 ## Stato del progetto
 
-Progetto agli inizi: setup della struttura in corso. Dettagli e log di
-avanzamento in [`docs/CLAUDE.md`](docs/CLAUDE.md).
+Progetto agli inizi: setup della struttura in corso. Backend e
+frontend sono ancora da inizializzare.
