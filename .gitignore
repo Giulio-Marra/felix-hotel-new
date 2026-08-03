@@ -1,0 +1,29 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Documentazione/contesto locale, condivisa tra backend e frontend
+# ma mai pubblicata nel repository
+docs/
+
+# Java / Maven / Gradle (backend)
+backend/target/
+backend/build/
+*.class
+*.jar
+!*/wrapper/*.jar
+hs_err_pid*
+
+# Node / React (frontend)
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.env
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
