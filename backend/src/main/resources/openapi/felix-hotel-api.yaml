@@ -1,0 +1,110 @@
+openapi: 3.0.3
+info:
+  title: Felix Hotel API - Modelli
+  description: >
+    Contratto OpenAPI da cui vengono generati (a build-time, via
+    openapi-generator-maven-plugin) i DTO di richiesta/risposta usati dal
+    backend. Le rotte restano documentate a runtime da springdoc, letto
+    dalle annotazioni sui Controller: questo file e' la fonte di verita'
+    solo per la FORMA dei DTO (i "components/schemas"), non per gli
+    endpoint (paths lasciato vuoto di proposito).
+  version: 0.1.0
+paths: {}
+components:
+  schemas:
+
+    RegisterRequest:
+      type: object
+      description: Dati per la registrazione di un nuovo cliente (frontoffice)
+      required:
+        - nome
+        - cognome
+        - email
+        - password
+        - consensoPrivacy
+      properties:
+        nome:
+          type: string
+          minLength: 1
+          example: Mario
+        cognome:
+          type: string
+          minLength: 1
+          example: Rossi
+        email:
+          type: string
+          format: email
+          description: Usata anche come credenziale di login
+          example: mario.rossi@example.com
+        password:
+          type: string
+          minLength: 8
+          description: Password in chiaro (verra' salvata come hash BCrypt, mai in chiaro)
+          example: PasswordSicura123
+        telefono:
+          type: string
+          example: "+39 333 1234567"
+        dataNascita:
+          type: string
+          format: date
+          example: "1990-05-20"
+        consensoPrivacy:
+          type: boolean
+          description: >
+            Consenso al trattamento dei dati personali (GDPR): deve essere
+            true per completare la registrazione. Vincolo verificato nel
+            service applicativo, non esprimibile come constraint OpenAPI.
+
+    LoginRequest:
+      type: object
+      description: Credenziali di login, valide sia per clienti (Utente) sia per personale (Staff)
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: mario.rossi@example.com
+        password:
+          type: string
+          example: PasswordSicura123
+
+    AccountSummary:
+      type: object
+      description: >
+        Riepilogo essenziale di un account autenticato (cliente o
+        personale): formato unico perche' il login puo' autenticare
+        indifferentemente un Utente o uno Staff.
+      properties:
+        id:
+          type: integer
+          format: int64
+        nome:
+          type: string
+        cognome:
+          type: string
+        email:
+          type: string
+        ruolo:
+          type: string
+          description: "Nome del ruolo: ADMIN, STAFF o USER"
+          example: USER
+
+    AuthResponse:
+      type: object
+      description: Token JWT emesso e riepilogo dell'account autenticato
+      properties:
+        token:
+          type: string
+          description: "Token JWT da usare come header: Authorization: Bearer <token>"
+        tokenType:
+          type: string
+          example: Bearer
+        expiresInMs:
+          type: integer
+          format: int64
+          description: Scadenza del token in millisecondi da adesso
+          example: 3600000
+        account:
+          $ref: '#/components/schemas/AccountSummary'

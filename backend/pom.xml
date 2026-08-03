@@ -73,6 +73,13 @@
 			<version>3.1.0</version>
 		</dependency>
 
+		<!-- Richiesta dai DTO generati da openapi-generator-maven-plugin (contract-first, vedi build/plugins) -->
+		<dependency>
+			<groupId>org.openapitools</groupId>
+			<artifactId>jackson-databind-nullable</artifactId>
+			<version>0.2.6</version>
+		</dependency>
+
 		<!-- Generazione e validazione JWT: emettiamo e validiamo i token nella stessa app -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
@@ -132,6 +139,44 @@
 						</exclude>
 					</excludes>
 				</configuration>
+			</plugin>
+			<!--
+				Contract-first per i DTO: i modelli di richiesta/risposta si definiscono
+				nello spec OpenAPI (src/main/resources/openapi/felix-hotel-api.yaml) e si
+				generano da li' a build-time, non si scrivono a mano. Regola di progetto:
+				per aggiungere/modificare un DTO, si tocca prima lo YAML, poi si rigenera
+				(mvn generate-sources). Genera solo i modelli, non le interfacce API: i
+				Controller restano scritti a mano secondo il pattern Controller -> Service.
+			-->
+			<plugin>
+				<groupId>org.openapitools</groupId>
+				<artifactId>openapi-generator-maven-plugin</artifactId>
+				<version>7.24.0</version>
+				<executions>
+					<execution>
+						<id>generate-dto-auth</id>
+						<goals>
+							<goal>generate</goal>
+						</goals>
+						<configuration>
+							<inputSpec>${project.basedir}/src/main/resources/openapi/felix-hotel-api.yaml</inputSpec>
+							<generatorName>spring</generatorName>
+							<modelPackage>com.felixhotel.backend.dto.auth</modelPackage>
+							<generateApis>false</generateApis>
+							<generateApiTests>false</generateApiTests>
+							<generateApiDocumentation>false</generateApiDocumentation>
+							<generateModelTests>false</generateModelTests>
+							<generateModelDocumentation>false</generateModelDocumentation>
+							<generateSupportingFiles>false</generateSupportingFiles>
+							<generateMetadata>false</generateMetadata>
+							<configOptions>
+								<useSpringBoot3>true</useSpringBoot3>
+								<useBeanValidation>true</useBeanValidation>
+								<serializableModel>true</serializableModel>
+							</configOptions>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
