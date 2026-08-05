@@ -28,7 +28,26 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!--
+			Le versioni di Testcontainers non sono gestite dal parent di Spring Boot 4:
+			senza il BOM importato sotto, le dipendenze dei test non risolvono la versione.
+			2.0.5 e' la stessa che spring-boot-testcontainers 4.1.0 si porta dietro:
+			allinearla evita di ritrovarsi due versioni diverse sullo stesso classpath.
+		-->
+		<testcontainers.version>2.0.5</testcontainers.version>
 	</properties>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.testcontainers</groupId>
+				<artifactId>testcontainers-bom</artifactId>
+				<version>${testcontainers.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -124,6 +143,33 @@
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+		<!--
+			Testcontainers: i test di integrazione girano contro un Postgres vero avviato
+			in Docker, non contro un database in memoria. Motivo: lo schema lo possiede
+			Flyway e Hibernate lo valida (ddl-auto=validate), quindi un H2 non
+			verificherebbe niente di quello che gira davvero in produzione — e il DDL usa
+			costrutti Postgres. Effetto collaterale voluto: ogni esecuzione dei test
+			riapplica le migration da zero, quindi verifica anche quelle.
+			Richiede Docker attivo sulla macchina.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- In Testcontainers 2.x i moduli hanno il prefisso "testcontainers-":
+		     org.testcontainers:postgresql (nome 1.x) non esiste piu'. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -190,6 +236,30 @@
 								<documentationProvider>springdoc</documentationProvider>
 							</configOptions>
 						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!--
+				Due stadi di test separati, di proposito:
+				- surefire (`mvnw test`) esegue solo gli unitari (*Test): niente Spring,
+				  niente Docker, pochi secondi. Devono poter girare ovunque, sempre.
+				- failsafe (`mvnw verify`) esegue quelli di integrazione (*IT), che
+				  avviano il contesto Spring e un Postgres in Testcontainers.
+				Cosi' un test unitario non richiede Docker attivo, e in CI si possono
+				tenere i due stadi distinti. La convenzione di nome non e' decorativa:
+				e' cio' che decide quale plugin esegue cosa.
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>integration-test</goal>
+							<!-- verify fa fallire la build se un IT e' fallito: senza questo goal
+							     l'esito degli IT verrebbe registrato ma non bloccherebbe niente. -->
+							<goal>verify</goal>
+						</goals>
 					</execution>
 				</executions>
 			</plugin>
