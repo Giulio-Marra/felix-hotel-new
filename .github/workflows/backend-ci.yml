@@ -1,0 +1,68 @@
+# Pipeline di verifica del backend.
+#
+# Esegue la stessa cosa che si esegue in locale — `mvnw verify` — cioe' unitari
+# (surefire) e test di integrazione (failsafe) con un Postgres vero avviato da
+# Testcontainers. Sul runner di GitHub Docker c'e' gia', quindi non serve
+# dichiarare un service container: il database lo avvia Testcontainers da se',
+# esattamente come sulla macchina di sviluppo. Cosi' non esistono due
+# configurazioni di test diverse che possono divergere.
+name: Backend CI
+
+on:
+  push:
+    # Tutti i branch, non solo dev/main: il senso della pipeline e' accorgersi
+    # dei problemi mentre si lavora, non quando si integra.
+    branches: ['**']
+  pull_request:
+    branches: [main, dev]
+
+# Se si pusha piu' volte di seguito sullo stesso branch, la corsa precedente
+# viene annullata: interessa l'esito dell'ultimo commit, non di quelli superati.
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build e test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        # Il progetto Maven sta in backend/, non alla radice del repository.
+        working-directory: backend
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v4
+
+      - name: Installa JDK 21
+        uses: actions/setup-java@v4
+        with:
+          # Stessa major version usata in sviluppo: il progetto richiede Java 21
+          # e su una versione diversa la build fallirebbe (o peggio, passerebbe
+          # qui e non in locale).
+          java-version: '21'
+          distribution: 'temurin'
+          # Tiene in cache ~/.m2 fra un'esecuzione e l'altra: senza, ogni corsa
+          # riscarica tutte le dipendenze.
+          cache: 'maven'
+
+      - name: Build e test (unitari + integrazione)
+        # Non si passa nessun segreto: il profilo di test valorizza da se' i
+        # segnaposto (vedi src/test/resources/application-test.properties) e le
+        # credenziali del database le decide Testcontainers a runtime.
+        run: ./mvnw --batch-mode --no-transfer-progress clean verify
+
+      - name: Pubblica i risultati dei test
+        # Anche quando i test falliscono: e' esattamente il caso in cui i
+        # rapporti servono.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapporti-test
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          retention-days: 7
+          if-no-files-found: ignore
