@@ -1,16 +1,136 @@
 openapi: 3.0.3
 info:
-  title: Felix Hotel API - Modelli
+  title: Felix Hotel API
   description: >
     Contratto OpenAPI da cui vengono generati (a build-time, via
-    openapi-generator-maven-plugin) i DTO di richiesta/risposta usati dal
-    backend. Le rotte restano documentate a runtime da springdoc, letto
-    dalle annotazioni sui Controller: questo file e' la fonte di verita'
-    solo per la FORMA dei DTO (i "components/schemas"), non per gli
-    endpoint (paths lasciato vuoto di proposito).
+    openapi-generator-maven-plugin) sia i DTO di richiesta/risposta sia le
+    interfacce API dei Controller: questo file e' la fonte di verita' per
+    la FORMA dei DTO ("components/schemas") e per le rotte ("paths"). I
+    Controller implementano le interfacce generate, valorizzando solo il
+    corpo dei metodi (pattern Controller -> Service invariato).
   version: 0.1.0
-paths: {}
+paths:
+
+  /api/auth/register:
+    post:
+      tags:
+        - Auth
+      operationId: register
+      summary: Registrazione nuovo cliente
+      description: >
+        Crea un nuovo account cliente (ruolo USER). Nessuna autorizzazione
+        richiesta. **Non restituisce un token**: dopo la registrazione il
+        client deve chiamare /api/auth/login. Scelta deliberata — l'account
+        nasce con email non ancora verificata, autenticarlo subito
+        vanificherebbe la verifica.
+        Risposta: busta ApiBaseResponse con **AccountSummary** in 'data'.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account creato ('data' = AccountSummary, nessun token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Registrazione completata con successo
+                timestamp: 2026-08-05T10:15:30Z
+                data:
+                  id: 1
+                  nome: Mario
+                  cognome: Rossi
+                  email: mario.rossi@example.com
+                  ruolo: USER
+
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      operationId: login
+      summary: Login cliente o staff
+      description: >
+        Autentica un account (cliente o personale) via email/password e
+        restituisce **solo** il token JWT: i dati dell'account si
+        recuperano a parte, da /api/auth/me (da implementare). Nessuna
+        autorizzazione richiesta.
+        Risposta: busta ApiBaseResponse con **AuthResponse** in 'data'.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login riuscito, token JWT emesso ('data' = AuthResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Login effettuato con successo
+                timestamp: 2026-08-05T10:15:30Z
+                data:
+                  token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJtYXJpby5yb3NzaUBleGFtcGxlLmNvbSJ9
+                  tokenType: Bearer
+                  expiresInMs: 3600000
+
+  /api/auth/me:
+    get:
+      tags:
+        - Auth
+      operationId: me
+      summary: Dati dell'account autenticato
+      description: >
+        Restituisce il riepilogo dell'account a cui appartiene il token
+        usato per la chiamata. Non prende nessun parametro: l'utente e'
+        quello del token, non uno scelto da chi chiama.
+        Richiede autenticazione (qualsiasi ruolo).
+        Risposta: busta ApiBaseResponse con **AccountSummary** in 'data'.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dati dell'account autenticato ('data' = AccountSummary)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Dati account recuperati
+                timestamp: 2026-08-05T10:15:30Z
+                data:
+                  id: 1
+                  nome: Mario
+                  cognome: Rossi
+                  email: mario.rossi@example.com
+                  ruolo: USER
+        '401':
+          description: >
+            Token assente, non valido, scaduto, oppure account disattivato.
+            NOTA: il corpo di questa risposta non e' ancora la busta
+            standard — arrivera' con il GlobalExceptionHandler (branch
+            dedicato).
+
 components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Token JWT ottenuto da /api/auth/login, da inviare nell'header
+        Authorization come "Bearer <token>".
+
   schemas:
 
     RegisterRequest:
@@ -93,7 +213,10 @@ components:
 
     AuthResponse:
       type: object
-      description: Token JWT emesso e riepilogo dell'account autenticato
+      description: >
+        Token JWT emesso. Solo il token: i dati dell'account non stanno
+        qui, si recuperano da un endpoint dedicato (/api/auth/me, da
+        implementare) usando il token appena ottenuto.
       properties:
         token:
           type: string
@@ -106,5 +229,73 @@ components:
           format: int64
           description: Scadenza del token in millisecondi da adesso
           example: 3600000
-        account:
-          $ref: '#/components/schemas/AccountSummary'
+
+    ApiBaseResponse:
+      type: object
+      description: >
+        Busta di risposta standard di TUTTI gli endpoint non paginati:
+        status, messaggio, timestamp e il payload in 'data'. E' l'unica
+        busta non paginata del progetto — non si dichiara un envelope per
+        endpoint. Quale oggetto arrivi dentro 'data' e' indicato nella
+        description del singolo endpoint (OpenAPI non ha i generics: non
+        c'e' modo di scrivere qui "data: T" e tenere insieme un solo
+        schema).
+      required:
+        - status
+        - message
+        - timestamp
+      properties:
+        status:
+          type: integer
+          description: Codice di stato HTTP
+          example: 200
+        message:
+          type: string
+          description: Messaggio leggibile, di successo o di errore
+          example: Operazione completata con successo
+        timestamp:
+          type: string
+          format: date-time
+          description: Istante in cui e' stata generata la risposta
+        data:
+          type: object
+          description: >
+            Payload della risposta: l'oggetto (o l'array) richiesto, null
+            in caso di errore. Il tipo concreto e' documentato nella
+            description dell'endpoint che restituisce questa busta.
+
+    ApiBaseResponsePaginated:
+      description: >
+        Come ApiBaseResponse, ma per gli endpoint il cui 'data' e' una
+        pagina di risultati: aggiunge 'page' con i metadati di
+        paginazione. Schema separato (invece di 'page' sempre presente ma
+        nullable) cosi' le risposte non paginate non portano un campo
+        inutile.
+      allOf:
+        - $ref: '#/components/schemas/ApiBaseResponse'
+        - type: object
+          properties:
+            page:
+              $ref: '#/components/schemas/PageInfo'
+
+    PageInfo:
+      type: object
+      description: Metadati di paginazione
+      properties:
+        pageNumber:
+          type: integer
+          description: Numero di pagina corrente (0-based)
+          example: 0
+        pageSize:
+          type: integer
+          description: Dimensione della pagina
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          description: Numero totale di elementi su tutte le pagine
+          example: 134
+        totalPages:
+          type: integer
+          description: Numero totale di pagine
+          example: 7

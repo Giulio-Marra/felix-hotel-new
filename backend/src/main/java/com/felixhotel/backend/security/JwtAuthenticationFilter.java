@@ -46,7 +46,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 if (SecurityContextHolder.getContext().getAuthentication() == null) {
                     UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-                    if (jwtService.isTokenValid(token, userDetails.getUsername())) {
+                    // isEnabled() (= colonna 'attivo') va ricontrollato ad ogni richiesta, non solo
+                    // al login: altrimenti un account disattivato continuerebbe ad accedere con il
+                    // token gia' emesso fino alla sua scadenza. L'utente e' gia' caricato da DB qui,
+                    // quindi il controllo non costa una query in piu'.
+                    if (userDetails.isEnabled() && jwtService.isTokenValid(token, userDetails.getUsername())) {
                         var authToken = new UsernamePasswordAuthenticationToken(
                                 userDetails, null, userDetails.getAuthorities());
                         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

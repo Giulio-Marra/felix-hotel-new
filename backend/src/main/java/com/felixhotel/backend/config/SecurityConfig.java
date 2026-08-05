@@ -62,10 +62,16 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/auth/**",
+                                // Solo questi due endpoint di auth sono pubblici, elencati uno per uno:
+                                // un wildcard "/api/auth/**" renderebbe pubblico anche /api/auth/me e
+                                // qualsiasi endpoint di auth aggiunto in futuro, senza accorgersene.
+                                "/api/auth/register",
+                                "/api/auth/login",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**"
+                                "/v3/api-docs/**",
+                                // Lo spec YAML caricato da Swagger UI (vedi OpenApiSpecConfig)
+                                "/openapi/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

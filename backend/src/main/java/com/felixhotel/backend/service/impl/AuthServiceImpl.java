@@ -1,12 +1,13 @@
 package com.felixhotel.backend.service.impl;
 
-import com.felixhotel.backend.common.response.Result;
-import com.felixhotel.backend.dto.auth.AccountSummary;
-import com.felixhotel.backend.dto.auth.AuthResponse;
-import com.felixhotel.backend.dto.auth.LoginRequest;
-import com.felixhotel.backend.dto.auth.RegisterRequest;
+import com.felixhotel.backend.dto.ApiBaseResponse;
+import com.felixhotel.backend.dto.AuthResponse;
+import com.felixhotel.backend.dto.LoginRequest;
+import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.entity.Ruolo;
 import com.felixhotel.backend.entity.Utente;
+import com.felixhotel.backend.mapper.ApiResponseMapper;
+import com.felixhotel.backend.mapper.AuthMapper;
 import com.felixhotel.backend.mapper.UtenteMapper;
 import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
@@ -20,6 +21,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,14 +33,13 @@ import java.time.LocalDateTime;
  * Implementazione della logica di autenticazione. Nota di scope: qui si
  * gestisce solo l'errore di login (credenziali non valide -> 401), perche'
  * altrimenti un'eccezione di Spring Security senza gestore risalirebbe come
- * 500. La gestione centralizzata di tutte le eccezioni (busta ApiResponse
+ * 500. La gestione centralizzata di tutte le eccezioni (busta standard
  * anche sugli errori) e' rimandata a un branch dedicato successivo.
  */
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private static final String TOKEN_TYPE = "Bearer";
     private static final String RUOLO_USER = "USER";
 
     private final UtenteRepository utenteRepository;
@@ -48,6 +49,8 @@ public class AuthServiceImpl implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
     private final UtenteMapper utenteMapper;
+    private final AuthMapper authMapper;
+    private final ApiResponseMapper apiResponseMapper;
 
     /**
      * Registra un nuovo cliente (Utente) con ruolo USER. La registrazione
@@ -56,7 +59,7 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     @Transactional
-    public Result<AuthResponse> register(RegisterRequest request) {
+    public ApiBaseResponse register(RegisterRequest request) {
         // L'unicita' email va controllata su entrambe le popolazioni: utente.email e staff.email
         // sono due vincoli UNIQUE indipendenti in DB, altrimenti un cliente potrebbe registrarsi
         // con l'email di un account Staff/ADMIN esistente e "oscurarlo" ai login successivi
@@ -85,14 +88,11 @@ public class AuthServiceImpl implements AuthService {
 
         Utente salvato = utenteRepository.save(utente);
 
-        String token = jwtService.generateToken(salvato.getId(), salvato.getEmail(), ruoloUser.getNome());
-        AuthResponse response = new AuthResponse()
-                .token(token)
-                .tokenType(TOKEN_TYPE)
-                .expiresInMs(jwtService.getExpirationMs())
-                .account(utenteMapper.toAccountSummary(salvato));
-
-        return new Result<>(response, "Registrazione completata con successo");
+        // Nessun token qui: la registrazione crea l'account e basta, l'autenticazione si
+        // ottiene con una chiamata esplicita a /api/auth/login. L'account nasce con
+        // emailVerificata = false, autenticarlo subito vanificherebbe la verifica.
+        return apiResponseMapper.toResponse(HttpStatus.CREATED, "Registrazione completata con successo",
+                utenteMapper.toAccountSummary(salvato));
     }
 
     /**
@@ -101,7 +101,7 @@ public class AuthServiceImpl implements AuthService {
      * nuovo JWT.
      */
     @Override
-    public Result<AuthResponse> login(LoginRequest request) {
+    public ApiBaseResponse login(LoginRequest request) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
@@ -112,19 +112,34 @@ public class AuthServiceImpl implements AuthService {
 
         AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
         String token = jwtService.generateToken(principal.getUserId(), principal.getUsername(), principal.getRuoloNome());
-        AccountSummary account = new AccountSummary()
-                .id(principal.getUserId())
-                .nome(principal.getNome())
-                .cognome(principal.getCognome())
-                .email(principal.getUsername())
-                .ruolo(principal.getRuoloNome());
 
-        AuthResponse response = new AuthResponse()
-                .token(token)
-                .tokenType(TOKEN_TYPE)
-                .expiresInMs(jwtService.getExpirationMs())
-                .account(account);
+        // Solo il token: i dati dell'account li chiedera' il client all'endpoint dedicato.
+        AuthResponse response = authMapper.toAuthResponse(token, jwtService.getExpirationMs());
 
-        return new Result<>(response, "Login effettuato con successo");
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Login effettuato con successo", response);
+    }
+
+    /**
+     * Riepilogo dell'account autenticato. L'utente si legge dal
+     * SecurityContext e non da un parametro annotato
+     * {@code @AuthenticationPrincipal}: la firma del metodo la impone
+     * l'interfaccia generata dallo spec OpenAPI ({@code me()} senza
+     * argomenti), e aggiungere un parametro nel Controller non sarebbe un
+     * override — Spring mapperebbe il default method dell'interfaccia,
+     * che risponde 501.
+     */
+    @Override
+    public ApiBaseResponse me() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        // L'endpoint non e' in permitAll, quindi qui ci si arriva solo autenticati; il controllo
+        // resta perche' un utente anonimo avrebbe come principal la stringa "anonymousUser",
+        // che senza questo instanceof diventerebbe una ClassCastException (500 invece di 401).
+        if (authentication == null || !(authentication.getPrincipal() instanceof AppUserPrincipal principal)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nessun account autenticato");
+        }
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Dati account recuperati",
+                authMapper.toAccountSummary(principal));
     }
 }

@@ -1,6 +1,6 @@
 package com.felixhotel.backend.mapper;
 
-import com.felixhotel.backend.dto.auth.AccountSummary;
+import com.felixhotel.backend.dto.AccountSummary;
 import com.felixhotel.backend.entity.Utente;
 import org.springframework.stereotype.Component;
 
