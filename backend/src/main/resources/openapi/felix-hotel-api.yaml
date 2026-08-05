@@ -47,6 +47,12 @@ paths:
                   cognome: Rossi
                   email: mario.rossi@example.com
                   ruolo: USER
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/auth/login:
     post:
@@ -57,8 +63,8 @@ paths:
       description: >
         Autentica un account (cliente o personale) via email/password e
         restituisce **solo** il token JWT: i dati dell'account si
-        recuperano a parte, da /api/auth/me (da implementare). Nessuna
-        autorizzazione richiesta.
+        recuperano a parte, da /api/auth/me. Nessuna autorizzazione
+        richiesta.
         Risposta: busta ApiBaseResponse con **AuthResponse** in 'data'.
       requestBody:
         required: true
@@ -81,6 +87,12 @@ paths:
                   token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJtYXJpby5yb3NzaUBleGFtcGxlLmNvbSJ9
                   tokenType: Bearer
                   expiresInMs: 3600000
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/auth/me:
     get:
@@ -114,13 +126,95 @@ paths:
                   email: mario.rossi@example.com
                   ruolo: USER
         '401':
-          description: >
-            Token assente, non valido, scaduto, oppure account disattivato.
-            NOTA: il corpo di questa risposta non e' ancora la busta
-            standard — arrivera' con il GlobalExceptionHandler (branch
-            dedicato).
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
+
+  # Risposte d'errore riusabili: tutte usano la stessa busta ApiBaseResponse
+  # degli endpoint di successo (con 'data' null, tranne la validazione — vedi
+  # BadRequest). Si dichiarano qui una volta sola e si referenziano con $ref
+  # dai singoli endpoint, invece di riscriverle ad ogni rotta.
+  responses:
+
+    BadRequest:
+      description: >
+        Richiesta non valida: violazione dei vincoli dichiarati sullo schema
+        del body (@Valid), JSON malformato, tipo di parametro sbagliato, o
+        una regola applicativa sull'input (es. consenso privacy non
+        accettato). E' l'unico errore con 'data' valorizzato: quando
+        l'errore viene dalla validazione dei campi, 'data' contiene una
+        mappa nome-campo -> messaggio, cosi' il client puo' segnalare il
+        singolo input sbagliato senza interpretare il messaggio testuale.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiBaseResponse'
+          example:
+            status: 400
+            message: Dati non validi
+            timestamp: 2026-08-05T10:15:30Z
+            data:
+              password: deve contenere almeno 8 caratteri
+              email: deve essere un indirizzo email valido
+
+    Unauthorized:
+      description: >
+        Autenticazione assente o non valida: token mancante, malformato,
+        scaduto, account disattivato, oppure credenziali errate sul login.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiBaseResponse'
+          example:
+            status: 401
+            message: Autenticazione richiesta
+            timestamp: 2026-08-05T10:15:30Z
+            data: null
+
+    Forbidden:
+      description: >
+        Account autenticato ma senza i permessi necessari (ruolo
+        insufficiente). Diverso dal 401: qui l'identita' e' nota, non basta.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiBaseResponse'
+          example:
+            status: 403
+            message: Permessi insufficienti per questa operazione
+            timestamp: 2026-08-05T10:15:30Z
+            data: null
+
+    Conflict:
+      description: >
+        La richiesta e' formalmente valida ma confligge con lo stato
+        attuale della risorsa (es. email gia' registrata).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiBaseResponse'
+          example:
+            status: 409
+            message: Email gia' registrata
+            timestamp: 2026-08-05T10:15:30Z
+            data: null
+
+    InternalServerError:
+      description: >
+        Errore inatteso lato server. Il messaggio e' volutamente generico:
+        il dettaglio dell'eccezione resta nei log e non viene esposto al
+        client.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiBaseResponse'
+          example:
+            status: 500
+            message: Si e' verificato un errore imprevisto
+            timestamp: 2026-08-05T10:15:30Z
+            data: null
 
   securitySchemes:
     bearerAuth:
@@ -172,8 +266,10 @@ components:
           type: boolean
           description: >
             Consenso al trattamento dei dati personali (GDPR): deve essere
-            true per completare la registrazione. Vincolo verificato nel
-            service applicativo, non esprimibile come constraint OpenAPI.
+            true per completare la registrazione. Non e' esprimibile come
+            constraint OpenAPI (non esiste un "deve valere true"), quindi
+            il vincolo e' verificato nel service, che risponde 400 se il
+            consenso non e' stato dato.
 
     LoginRequest:
       type: object
@@ -215,8 +311,8 @@ components:
       type: object
       description: >
         Token JWT emesso. Solo il token: i dati dell'account non stanno
-        qui, si recuperano da un endpoint dedicato (/api/auth/me, da
-        implementare) usando il token appena ottenuto.
+        qui, si recuperano dall'endpoint dedicato /api/auth/me usando il
+        token appena ottenuto.
       properties:
         token:
           type: string
@@ -263,6 +359,9 @@ components:
             Payload della risposta: l'oggetto (o l'array) richiesto, null
             in caso di errore. Il tipo concreto e' documentato nella
             description dell'endpoint che restituisce questa busta.
+            Unica eccezione al "null in caso di errore": sugli errori di
+            validazione (400) 'data' porta la mappa nome-campo ->
+            messaggio dei campi rifiutati.
 
     ApiBaseResponsePaginated:
       description: >

@@ -6,6 +6,9 @@ import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.entity.Ruolo;
 import com.felixhotel.backend.entity.Utente;
+import com.felixhotel.backend.exception.BadRequestException;
+import com.felixhotel.backend.exception.ConflictException;
+import com.felixhotel.backend.exception.UnauthorizedException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.AuthMapper;
 import com.felixhotel.backend.mapper.UtenteMapper;
@@ -25,16 +28,18 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 
 /**
- * Implementazione della logica di autenticazione. Nota di scope: qui si
- * gestisce solo l'errore di login (credenziali non valide -> 401), perche'
- * altrimenti un'eccezione di Spring Security senza gestore risalirebbe come
- * 500. La gestione centralizzata di tutte le eccezioni (busta standard
- * anche sugli errori) e' rimandata a un branch dedicato successivo.
+ * Implementazione della logica di autenticazione.
+ *
+ * <p>Gli errori si sollevano come {@code ResponseStatusException} con lo
+ * status che il caso merita: a impacchettarli nella busta standard pensa il
+ * {@code GlobalExceptionHandler}, qui non si costruisce nessuna risposta
+ * d'errore a mano. Fa eccezione il login, che cattura
+ * l'{@code AuthenticationException} di Spring Security per poter rispondere
+ * "Credenziali non valide" invece del messaggio generico dell'handler.
  */
 @Service
 @RequiredArgsConstructor
@@ -64,8 +69,15 @@ public class AuthServiceImpl implements AuthService {
         // sono due vincoli UNIQUE indipendenti in DB, altrimenti un cliente potrebbe registrarsi
         // con l'email di un account Staff/ADMIN esistente e "oscurarlo" ai login successivi
         // (CustomUserDetailsService cerca prima tra gli Utente).
+        // Il consenso privacy (GDPR) deve essere esplicitamente true: OpenAPI puo' dichiarare
+        // il campo obbligatorio ma non che debba valere true, quindi il vincolo si verifica
+        // qui. E' un problema dell'input, non di stato: 400, non 409.
+        if (!Boolean.TRUE.equals(request.getConsensoPrivacy())) {
+            throw new BadRequestException("Il consenso al trattamento dei dati personali e' obbligatorio");
+        }
+
         if (utenteRepository.existsByEmail(request.getEmail()) || staffRepository.existsByEmail(request.getEmail())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email gia' registrata");
+            throw new ConflictException("Email gia' registrata");
         }
 
         Ruolo ruoloUser = ruoloRepository.findByNome(RUOLO_USER)
@@ -82,8 +94,10 @@ public class AuthServiceImpl implements AuthService {
         utente.setDataRegistrazione(LocalDateTime.now());
         utente.setAttivo(true);
         utente.setEmailVerificata(false);
-        utente.setConsensoPrivacy(request.getConsensoPrivacy());
-        utente.setDataConsenso(Boolean.TRUE.equals(request.getConsensoPrivacy()) ? LocalDateTime.now() : null);
+        // Arrivati qui il consenso e' per forza true (controllato sopra), quindi la data si
+        // valorizza sempre: e' l'istante in cui il consenso e' stato raccolto.
+        utente.setConsensoPrivacy(true);
+        utente.setDataConsenso(LocalDateTime.now());
         utente.setRuolo(ruoloUser);
 
         Utente salvato = utenteRepository.save(utente);
@@ -107,7 +121,9 @@ public class AuthServiceImpl implements AuthService {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
         } catch (AuthenticationException ex) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Credenziali non valide", ex);
+            // L'eccezione originale si conserva come cause: distingue nei log un utente
+            // inesistente da una password sbagliata, cosa che la risposta non fa apposta.
+            throw new UnauthorizedException("Credenziali non valide", ex);
         }
 
         AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
@@ -136,7 +152,7 @@ public class AuthServiceImpl implements AuthService {
         // resta perche' un utente anonimo avrebbe come principal la stringa "anonymousUser",
         // che senza questo instanceof diventerebbe una ClassCastException (500 invece di 401).
         if (authentication == null || !(authentication.getPrincipal() instanceof AppUserPrincipal principal)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Nessun account autenticato");
+            throw new UnauthorizedException("Nessun account autenticato");
         }
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Dati account recuperati",

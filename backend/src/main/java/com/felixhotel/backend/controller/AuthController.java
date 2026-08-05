@@ -10,10 +10,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Endpoint pubblici di autenticazione: registrazione clienti e login
- * (clienti e staff). Nessuna autorizzazione richiesta (vedi SecurityConfig,
- * "/api/auth/**" e' in permitAll). Rotte, DTO e busta di risposta vengono
- * da {@link AuthApi} (contract-first, generata da
+ * Endpoint di autenticazione: registrazione clienti e login (clienti e
+ * staff) sono pubblici — elencati per path esatto in SecurityConfig, non
+ * con un wildcard — mentre {@code /api/auth/me} richiede il token. Rotte,
+ * DTO e busta di risposta vengono da {@link AuthApi} (contract-first, generata da
  * openapi/felix-hotel-api.yaml, annotazioni Swagger incluse): qui si
  * implementa solo il corpo dei metodi.
  *

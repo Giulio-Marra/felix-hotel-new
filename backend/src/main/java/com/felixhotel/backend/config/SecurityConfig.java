@@ -1,11 +1,12 @@
 package com.felixhotel.backend.config;
 
+import com.felixhotel.backend.security.ApiAccessDeniedHandler;
+import com.felixhotel.backend.security.ApiAuthenticationEntryPoint;
 import com.felixhotel.backend.security.CustomUserDetailsService;
 import com.felixhotel.backend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -16,7 +17,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -38,6 +38,8 @@ public class SecurityConfig {
 
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ApiAuthenticationEntryPoint apiAuthenticationEntryPoint;
+    private final ApiAccessDeniedHandler apiAccessDeniedHandler;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -82,11 +84,14 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
-                // Senza entry point esplicito, una richiesta non autenticata su un endpoint protetto
-                // riceve 403: qui si vuole 401, com'e' dichiarato nel contratto OpenAPI. Il 403 resta
-                // per chi e' autenticato ma non autorizzato (ruolo insufficiente), dove ha senso.
-                .exceptionHandling(ex -> ex.authenticationEntryPoint(
-                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                // Errori che nascono qui nella filter chain, prima del DispatcherServlet: il
+                // GlobalExceptionHandler non li vede, quindi la busta standard gliela danno
+                // questi due. L'entry point serve anche a rispondere 401 invece del 403 che
+                // Spring Security darebbe di default a una richiesta non autenticata; il 403
+                // resta per chi e' autenticato ma non autorizzato, dove ha senso.
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(apiAuthenticationEntryPoint)
+                        .accessDeniedHandler(apiAccessDeniedHandler))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

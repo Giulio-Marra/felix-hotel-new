@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -24,6 +25,7 @@ import java.io.IOException;
  * token manca o non e' valido, la richiesta prosegue anonima: sara' la
  * {@code SecurityConfig} a bloccare gli endpoint protetti.
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -58,7 +60,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     }
                 }
             } catch (JwtException | UsernameNotFoundException ex) {
-                // Token assente/malformato/scaduto: nessuna autenticazione impostata, si prosegue anonimi.
+                // Token malformato/scaduto/di un utente sparito: nessuna autenticazione impostata,
+                // la richiesta prosegue anonima e sara' l'ApiAuthenticationEntryPoint a rispondere
+                // 401 sugli endpoint protetti. Qui non si rilancia niente: siamo nella filter chain,
+                // dove il GlobalExceptionHandler non arriva.
+                // Il log e' l'unico posto dove resta il motivo vero dello scarto: la risposta al
+                // client e' apposta indistinguibile tra token scaduto e token inventato.
+                log.debug("Token JWT scartato: {}", ex.getMessage());
             }
         }
 
