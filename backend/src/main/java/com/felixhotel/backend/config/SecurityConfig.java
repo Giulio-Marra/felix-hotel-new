@@ -5,6 +5,7 @@ import com.felixhotel.backend.security.ApiAuthenticationEntryPoint;
 import com.felixhotel.backend.security.CustomUserDetailsService;
 import com.felixhotel.backend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -33,6 +34,7 @@ import java.util.List;
  */
 @Configuration
 @EnableMethodSecurity
+@EnableConfigurationProperties(LoginRateLimitProperties.class)
 @RequiredArgsConstructor
 public class SecurityConfig {
 

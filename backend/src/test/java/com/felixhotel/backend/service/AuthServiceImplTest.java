@@ -1,8 +1,10 @@
 package com.felixhotel.backend.service;
 
+import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
+import com.felixhotel.backend.exception.TooManyRequestsException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.AuthMapper;
 import com.felixhotel.backend.mapper.UtenteMapper;
@@ -70,6 +72,8 @@ class AuthServiceImplTest {
     private AuthMapper authMapper;
     @Mock
     private ApiResponseMapper apiResponseMapper;
+    @Mock
+    private LoginAttemptService loginAttemptService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -154,6 +158,31 @@ class AuthServiceImplTest {
             assertThatThrownBy(() -> authService.register(richiesta))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("USER");
+        }
+    }
+
+    @Nested
+    @DisplayName("login")
+    class Login {
+
+        @Test
+        @DisplayName("se il ritardo antibrute force e' attivo non verifica nemmeno le credenziali")
+        void login_quandoRallentato_nonInterrogaAuthenticationManager() {
+            // given: il contatore dei tentativi ha gia' deciso che questa richiesta va rifiutata
+            LoginRequest richiesta = dati.loginRequest("mario.rossi@example.com", TestDataFactory.PASSWORD_VALIDA);
+            org.mockito.Mockito.doThrow(new TooManyRequestsException("Riprova fra 4 secondi"))
+                    .when(loginAttemptService).checkNotThrottled(richiesta.getEmail(), "203.0.113.7");
+
+            // when/then: 429, non 401
+            assertThatThrownBy(() -> authService.login(richiesta, "203.0.113.7"))
+                    .isInstanceOf(TooManyRequestsException.class)
+                    .extracting(ex -> ((TooManyRequestsException) ex).getStatus())
+                    .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+
+            // then: il controllo viene prima di tutto il resto. E' il punto della difesa —
+            // un attacco non deve costarci una lettura sul database e un confronto BCrypt
+            // (che e' lento di proposito) ad ogni tentativo.
+            verifyNoInteractions(authenticationManager, utenteRepository, staffRepository, jwtService);
         }
     }
 

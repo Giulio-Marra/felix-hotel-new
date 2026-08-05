@@ -65,6 +65,11 @@ paths:
         restituisce **solo** il token JWT: i dati dell'account si
         recuperano a parte, da /api/auth/me. Nessuna autorizzazione
         richiesta.
+        I tentativi falliti sono soggetti a un **ritardo progressivo**
+        (vedi la risposta 429): superati i primi, fra un tentativo e il
+        successivo va rispettata un'attesa che raddoppia ogni volta. Un
+        client che riprova in automatico deve leggere il 429 e aspettare,
+        non insistere.
         Risposta: busta ApiBaseResponse con **AuthResponse** in 'data'.
       requestBody:
         required: true
@@ -91,6 +96,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -198,6 +205,26 @@ components:
           example:
             status: 409
             message: Email gia' registrata
+            timestamp: 2026-08-05T10:15:30Z
+            data: null
+
+    TooManyRequests:
+      description: >
+        Troppi tentativi di accesso falliti, dalla stessa email o dallo
+        stesso indirizzo IP: la richiesta viene rifiutata senza nemmeno
+        guardare le credenziali. Non e' un blocco dell'account — che
+        resta accessibile a chi conosce la password — ma un'attesa
+        obbligatoria fra un tentativo e il successivo, che si allunga ad
+        ogni fallimento fino a un tetto di un minuto e si azzera da sola
+        dopo un quarto d'ora di inattivita' (o subito, dopo un accesso
+        riuscito). Il messaggio indica fra quanti secondi riprovare.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiBaseResponse'
+          example:
+            status: 429
+            message: Troppi tentativi di accesso falliti. Riprova fra 8 secondi
             timestamp: 2026-08-05T10:15:30Z
             data: null
 

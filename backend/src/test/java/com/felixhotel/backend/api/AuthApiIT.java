@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -201,6 +202,103 @@ class AuthApiIT extends IntegrationTestBase {
                     // direbbe a chi sonda quali email sono registrate.
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.status").value(401));
+        }
+    }
+
+    @Nested
+    @DisplayName("Ritardo progressivo sui login falliti")
+    class RitardoSuiLoginFalliti {
+
+        /**
+         * Indirizzi diversi da quello di default di MockMvc (127.0.0.1), per
+         * poter distinguere chi attacca da chi si limita a passare di li'.
+         */
+        private static final String IP_ATTACCANTE = "203.0.113.7";
+        private static final String IP_ESTRANEO = "198.51.100.4";
+
+        @Test
+        @DisplayName("dopo troppi tentativi falliti rifiuta con 429 anche la password giusta")
+        void login_dopoTroppiTentativiFalliti_risponde429() throws Exception {
+            // given: un account vero e i tentativi liberi consumati con password sbagliate
+            RegisterRequest registrazione = dati.registerRequest();
+            registraAccount(registrazione);
+            for (int i = 0; i < 3; i++) {
+                mockMvc.perform(loginDa(IP_ATTACCANTE, registrazione.getEmail(), "PasswordSbagliata999"))
+                        .andExpect(status().isUnauthorized());
+            }
+
+            // when: si riprova, stavolta con la password CORRETTA
+            mockMvc.perform(loginDa(IP_ATTACCANTE, registrazione.getEmail(), TestDataFactory.PASSWORD_VALIDA))
+                    // then: 429 nella busta standard. Che venga rifiutata anche la password
+                    // giusta e' il punto: la richiesta si ferma prima che le credenziali
+                    // vengano guardate, altrimenti la protezione non farebbe risparmiare
+                    // niente all'applicazione sotto attacco.
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.status").value(429))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Riprova")))
+                    .andExpect(jsonPath("$.timestamp").isNotEmpty())
+                    .andExpect(jsonPath("$.data").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("il ritardo di un account non tocca gli altri")
+        void login_conAltroAccount_nonEInfluenzatoDalRitardoAltrui() throws Exception {
+            // given: un account rallentato da tre tentativi falliti, e un secondo account
+            RegisterRequest rallentato = dati.registerRequest();
+            registraAccount(rallentato);
+            RegisterRequest indenne = dati.registerRequest();
+            registraAccount(indenne);
+            for (int i = 0; i < 3; i++) {
+                mockMvc.perform(loginDa(IP_ATTACCANTE, rallentato.getEmail(), "PasswordSbagliata999"))
+                        .andExpect(status().isUnauthorized());
+            }
+
+            // when/then: il secondo account entra senza attese. Il conteggio e' per email:
+            // se non lo fosse, basterebbe sbagliare qualche password per rendere il login
+            // lento a tutti.
+            mockMvc.perform(loginDa(IP_ATTACCANTE, indenne.getEmail(), TestDataFactory.PASSWORD_VALIDA))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.token").isNotEmpty());
+        }
+
+        @Test
+        @DisplayName("chi prova molte email diverse viene rallentato per indirizzo IP")
+        void login_conMolteEmailDiverseDalloStessoIp_risponde429() throws Exception {
+            // given: un account vero, e un IP che ha appena provato cinque email a caso
+            // (nessuna delle quali ha da sola superato la propria soglia)
+            RegisterRequest registrazione = dati.registerRequest();
+            registraAccount(registrazione);
+            for (int i = 0; i < 5; i++) {
+                mockMvc.perform(loginDa(IP_ATTACCANTE, dati.emailUnivoca(), TestDataFactory.PASSWORD_VALIDA))
+                        .andExpect(status().isUnauthorized());
+            }
+
+            // when/then: dallo stesso IP anche un login legittimo viene rifiutato. E' la
+            // difesa dal password spraying — provare una password probabile su tanti
+            // account — che il solo conteggio per email non vedrebbe mai.
+            mockMvc.perform(loginDa(IP_ATTACCANTE, registrazione.getEmail(), TestDataFactory.PASSWORD_VALIDA))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.status").value(429));
+
+            // ...mentre da un altro indirizzo lo stesso login passa. Questo pezzo verifica
+            // il cablaggio che nessun test unitario puo' vedere: che l'IP arrivi davvero
+            // dalla richiesta HTTP fino al contatore. Se il Controller non lo leggesse, il
+            // test sopra passerebbe lo stesso (tutto finirebbe in un unico contatore) e
+            // questo fallirebbe.
+            mockMvc.perform(loginDa(IP_ESTRANEO, registrazione.getEmail(), TestDataFactory.PASSWORD_VALIDA))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.token").isNotEmpty());
+        }
+
+        /** Richiesta di login che dichiara di arrivare dall'indirizzo IP indicato. */
+        private MockHttpServletRequestBuilder loginDa(String ip, String email, String password) throws Exception {
+            return post(LOGIN)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(dati.loginRequest(email, password)))
+                    .with(richiesta -> {
+                        richiesta.setRemoteAddr(ip);
+                        return richiesta;
+                    });
         }
     }
 

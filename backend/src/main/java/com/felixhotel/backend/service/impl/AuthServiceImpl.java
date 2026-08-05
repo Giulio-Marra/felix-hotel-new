@@ -18,6 +18,7 @@ import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.JwtService;
 import com.felixhotel.backend.service.AuthService;
+import com.felixhotel.backend.service.LoginAttemptService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -34,12 +35,13 @@ import java.time.LocalDateTime;
 /**
  * Implementazione della logica di autenticazione.
  *
- * <p>Gli errori si sollevano come {@code ResponseStatusException} con lo
- * status che il caso merita: a impacchettarli nella busta standard pensa il
- * {@code GlobalExceptionHandler}, qui non si costruisce nessuna risposta
- * d'errore a mano. Fa eccezione il login, che cattura
- * l'{@code AuthenticationException} di Spring Security per poter rispondere
- * "Credenziali non valide" invece del messaggio generico dell'handler.
+ * <p>Gli errori si sollevano come sottoclassi di {@code AppException}, ognuna
+ * delle quali porta con se' lo status che il caso merita: a impacchettarle
+ * nella busta standard pensa il {@code GlobalExceptionHandler}, qui non si
+ * costruisce nessuna risposta d'errore a mano. Fa eccezione il login, che
+ * cattura l'{@code AuthenticationException} di Spring Security per poter
+ * rispondere "Credenziali non valide" invece del messaggio generico
+ * dell'handler.
  */
 @Service
 @RequiredArgsConstructor
@@ -53,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
+    private final LoginAttemptService loginAttemptService;
     private final UtenteMapper utenteMapper;
     private final AuthMapper authMapper;
     private final ApiResponseMapper apiResponseMapper;
@@ -115,16 +118,31 @@ public class AuthServiceImpl implements AuthService {
      * nuovo JWT.
      */
     @Override
-    public ApiBaseResponse login(LoginRequest request) {
+    public ApiBaseResponse login(LoginRequest request, String clientIp) {
+        // Prima di ogni altra cosa, e in particolare prima di andare a leggere l'utente
+        // dal database: chi ha gia' accumulato troppi tentativi falliti viene fermato
+        // qui con un 429, senza che le credenziali vengano nemmeno guardate. E' il
+        // punto della difesa — l'attacco non deve costare niente a noi e molto a chi
+        // lo porta.
+        loginAttemptService.checkNotThrottled(request.getEmail(), clientIp);
+
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
         } catch (AuthenticationException ex) {
+            // Si conta qualunque motivo di fallimento (password sbagliata, utente
+            // inesistente, account disattivato): distinguerli darebbe a chi prova email
+            // a caso un modo per capire quali esistono, e comunque sono tutti tentativi
+            // di accesso non riusciti.
+            loginAttemptService.recordFailure(request.getEmail(), clientIp);
+
             // L'eccezione originale si conserva come cause: distingue nei log un utente
             // inesistente da una password sbagliata, cosa che la risposta non fa apposta.
             throw new UnauthorizedException("Credenziali non valide", ex);
         }
+
+        loginAttemptService.recordSuccess(request.getEmail(), clientIp);
 
         AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
         String token = jwtService.generateToken(principal.getUserId(), principal.getUsername(), principal.getRuoloNome());

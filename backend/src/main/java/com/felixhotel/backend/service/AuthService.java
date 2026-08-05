@@ -12,8 +12,8 @@ import com.felixhotel.backend.dto.RegisterRequest;
  * <p>I metodi restituiscono gia' la busta standard {@link ApiBaseResponse}:
  * status ed esito li conosce il Service, che e' l'unico a sapere com'e'
  * andata l'operazione (del resto e' gia' lui a decidere lo status degli
- * errori, con {@code ResponseStatusException}). Il Controller si limita a
- * girarla al client.
+ * errori, scegliendo quale sottoclasse di {@code AppException} lanciare). Il
+ * Controller si limita a girarla al client.
  */
 public interface AuthService {
 
@@ -24,8 +24,18 @@ public interface AuthService {
      */
     ApiBaseResponse register(RegisterRequest request);
 
-    /** Autentica un account (cliente o personale) e restituisce un JWT. */
-    ApiBaseResponse login(LoginRequest request);
+    /**
+     * Autentica un account (cliente o personale) e restituisce un JWT.
+     *
+     * @param clientIp indirizzo IP di chi sta chiamando, che serve solo a
+     *                 contare i tentativi falliti per origine (vedi
+     *                 {@link LoginAttemptService}). Arriva come stringa gia'
+     *                 estratta dal Controller: e' quest'ultimo il layer che
+     *                 conosce la richiesta HTTP, e passarlo cosi' evita di far
+     *                 entrare i tipi servlet nel Service. Puo' essere
+     *                 {@code null} se non determinabile.
+     */
+    ApiBaseResponse login(LoginRequest request, String clientIp);
 
     /**
      * Riepilogo dell'account autenticato, ricavato dal token della

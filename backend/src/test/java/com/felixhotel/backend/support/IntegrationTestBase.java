@@ -1,5 +1,6 @@
 package com.felixhotel.backend.support;
 
+import com.felixhotel.backend.service.LoginAttemptService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -51,11 +52,22 @@ public abstract class IntegrationTestBase {
     @Autowired
     protected ObjectMapper objectMapper;
 
+    /**
+     * Contatore dei tentativi di login falliti, azzerato prima di ogni test.
+     * Vive in memoria e il contesto Spring e' condiviso da tutta la suite:
+     * senza azzerarlo, i login sbagliati di proposito da un test resterebbero
+     * contati per quelli successivi, che chiamando dallo stesso indirizzo si
+     * vedrebbero rifiutare un login legittimo con un 429 uscito dal nulla.
+     */
+    @Autowired
+    private LoginAttemptService loginAttemptService;
+
     protected TestDataFactory dati;
 
     @BeforeEach
     void inizializzaDati() {
         dati = new TestDataFactory();
+        loginAttemptService.reset();
     }
 
     /** Serializza un oggetto nel JSON da mandare come body della richiesta. */
