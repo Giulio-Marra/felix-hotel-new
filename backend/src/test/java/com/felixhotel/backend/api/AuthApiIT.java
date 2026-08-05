@@ -1,12 +1,23 @@
 package com.felixhotel.backend.api;
 
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.entity.Utente;
+import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.support.IntegrationTestBase;
 import com.felixhotel.backend.support.TestDataFactory;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -32,6 +43,17 @@ class AuthApiIT extends IntegrationTestBase {
     private static final String REGISTER = "/api/auth/register";
     private static final String LOGIN = "/api/auth/login";
     private static final String ME = "/api/auth/me";
+
+    /** Serve a disattivare un account a database, senza passare da un endpoint che non esiste. */
+    @Autowired
+    private UtenteRepository utenteRepository;
+
+    /**
+     * Lo stesso segreto che usa l'applicazione (valorizzato dal profilo di test):
+     * permette di fabbricare token firmati correttamente ma con scadenza scelta.
+     */
+    @Value("${jwt.secret}")
+    private String jwtSecret;
 
     @Nested
     @DisplayName("POST /api/auth/register")
@@ -224,6 +246,97 @@ class AuthApiIT extends IntegrationTestBase {
                     // then: 401, il token viene scartato dal filtro e la richiesta resta anonima
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.status").value(401));
+        }
+    }
+
+    /**
+     * Casi in cui il token e' formalmente valido ma non deve piu' funzionare.
+     *
+     * <p>Sono due correzioni di sicurezza gia' applicate al progetto e finora
+     * verificate solo a mano, una volta sola: senza questi test tornerebbero
+     * indietro in silenzio alla prima modifica del filtro JWT.
+     */
+    @Nested
+    @DisplayName("Validita' del token oltre la firma")
+    class ValiditaToken {
+
+        @Test
+        @DisplayName("un account disattivato dopo il login non accede piu' col token gia' emesso")
+        void me_conAccountDisattivatoDopoIlLogin_risponde401() throws Exception {
+            // given: un account registrato, autenticato, che sta usando regolarmente il token
+            RegisterRequest registrazione = dati.registerRequest();
+            registraAccount(registrazione);
+            String token = ottieniToken(registrazione.getEmail());
+
+            mockMvc.perform(get(ME).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk());
+
+            // when: l'account viene disattivato mentre il suo token e' ancora valido
+            Utente utente = utenteRepository.findByEmail(registrazione.getEmail()).orElseThrow();
+            utente.setAttivo(false);
+            utenteRepository.save(utente);
+
+            // then: lo stesso token non vale piu'. Il filtro ricontrolla isEnabled() ad ogni
+            // richiesta proprio per questo: senza, l'account disattivato continuerebbe ad
+            // accedere fino alla scadenza naturale del token (fino a un'ora).
+            mockMvc.perform(get(ME).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.status").value(401));
+        }
+
+        @Test
+        @DisplayName("un account riattivato torna ad accedere con lo stesso token")
+        void me_conAccountRiattivato_rispondeDiNuovo200() throws Exception {
+            // given: un account disattivato, il cui token e' quindi rifiutato
+            RegisterRequest registrazione = dati.registerRequest();
+            registraAccount(registrazione);
+            String token = ottieniToken(registrazione.getEmail());
+
+            Utente utente = utenteRepository.findByEmail(registrazione.getEmail()).orElseThrow();
+            utente.setAttivo(false);
+            utenteRepository.save(utente);
+
+            // when: l'account viene riattivato
+            utente.setAttivo(true);
+            utenteRepository.save(utente);
+
+            // then: il token di prima torna a funzionare senza bisogno di rifare il login.
+            // Verifica il rovescio del test precedente: il controllo e' sullo stato attuale
+            // dell'account, non una revoca definitiva del token.
+            mockMvc.perform(get(ME).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.email").value(registrazione.getEmail()));
+        }
+
+        @Test
+        @DisplayName("un token scaduto viene rifiutato anche se la firma e' valida")
+        void me_conTokenScaduto_risponde401() throws Exception {
+            // given: un account esistente e un token firmato con la chiave giusta, ma gia'
+            // scaduto. Fabbricato qui invece di aspettare la scadenza vera (un'ora) o di
+            // avviare un secondo contesto con una scadenza artificiale.
+            RegisterRequest registrazione = dati.registerRequest();
+            registraAccount(registrazione);
+            String tokenScaduto = tokenScadutoPer(registrazione.getEmail());
+
+            // when/then: la firma e' valida, quindi a rifiutarlo puo' essere solo il controllo
+            // di scadenza — se sparisse, questo test diventerebbe verde con un 200
+            mockMvc.perform(get(ME).header("Authorization", "Bearer " + tokenScaduto))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.status").value(401));
+        }
+
+        /** Costruisce un JWT firmato con la chiave dell'applicazione ma con scadenza nel passato. */
+        private String tokenScadutoPer(String email) {
+            Instant unOraFa = Instant.now().minus(Duration.ofHours(1));
+            Instant mezzOraFa = Instant.now().minus(Duration.ofMinutes(30));
+
+            return Jwts.builder()
+                    .subject(email)
+                    .claim("role", "USER")
+                    .issuedAt(Date.from(unOraFa))
+                    .expiration(Date.from(mezzOraFa))
+                    .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
+                    .compact();
         }
     }
 
