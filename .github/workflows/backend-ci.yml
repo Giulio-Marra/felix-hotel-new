@@ -33,11 +33,13 @@ jobs:
         working-directory: backend
 
     steps:
+      # Versioni v5: le v4 girano su Node 20, deprecato sui runner GitHub, e
+      # setup-java@v4 non riceve piu' aggiornamenti.
       - name: Checkout del codice
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Installa JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           # Stessa major version usata in sviluppo: il progetto richiede Java 21
           # e su una versione diversa la build fallirebbe (o peggio, passerebbe
@@ -58,7 +60,7 @@ jobs:
         # Anche quando i test falliscono: e' esattamente il caso in cui i
         # rapporti servono.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rapporti-test
           path: |
