@@ -300,8 +300,6 @@ paths:
         Sostituisce **tutti** i campi modificabili della tipologia: e' una PUT,
         non una PATCH, quindi un campo omesso viene azzerato e non lasciato
         com'era. Riservato agli **ADMIN**.
-        Cambiare il prezzo non tocca le prenotazioni gia' fatte: il loro
-        importo e' uno snapshot preso alla creazione (vedi ANALISI_FUNZIONALE).
         Risposta: busta ApiBaseResponse con **TipologiaCameraResponse** in 'data'.
       security:
         - bearerAuth: []
@@ -681,10 +679,17 @@ components:
           minimum: 0
           maximum: 99999999.99
           description: >
-            Prezzo per notte in euro. Provvisorio per disegno: e' un prezzo
-            fisso, segnaposto finche' non esistera' un vero sistema di tariffe
-            stagionali (vedi ANALISI_FUNZIONALE). Il massimo corrisponde a
-            quanto entra nella colonna NUMERIC(10,2).
+            Prezzo per notte in euro, con **al massimo due decimali**: oltre,
+            la risposta e' 400. Il vincolo non e' esprimibile in modo utile
+            nello schema (OpenAPI ha multipleOf, ma il generatore Java non lo
+            traduce in nessuna annotazione), quindi lo verifica il service —
+            come per il consenso privacy in registrazione. Rifiutare e'
+            deliberato: la colonna e' NUMERIC(10,2) e accettare il valore
+            vorrebbe dire arrotondarlo senza dirlo a chi l'ha scritto.
+            Provvisorio per disegno: e' un prezzo fisso, segnaposto finche' non
+            esistera' un vero sistema di tariffe stagionali (vedi
+            ANALISI_FUNZIONALE). Il massimo corrisponde a quanto entra nella
+            colonna.
           example: 120.00
 
     TipologiaCameraResponse:

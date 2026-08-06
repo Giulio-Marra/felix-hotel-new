@@ -4,6 +4,7 @@ import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 import com.felixhotel.backend.entity.TipologiaCamera;
+import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
 import com.felixhotel.backend.exception.NotFoundException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
@@ -75,6 +76,8 @@ public class TipologiaCameraServiceImpl implements TipologiaCameraService {
     @Override
     @Transactional
     public ApiBaseResponse crea(TipologiaCameraRequest request) {
+        verificaPrezzo(request);
+
         if (tipologiaCameraRepository.existsByNomeIgnoreCase(request.getNome())) {
             throw new ConflictException("Esiste gia' una tipologia di camera con questo nome");
         }
@@ -97,6 +100,8 @@ public class TipologiaCameraServiceImpl implements TipologiaCameraService {
     @Override
     @Transactional
     public ApiBaseResponse aggiorna(Long id, TipologiaCameraRequest request) {
+        verificaPrezzo(request);
+
         TipologiaCamera tipologia = trovaOrElseThrow(id);
 
         // Escludendo se stessa: senza IdNot, salvare una tipologia senza cambiarle il
@@ -143,6 +148,32 @@ public class TipologiaCameraServiceImpl implements TipologiaCameraService {
         // 200 e non 204 perche' la busta standard vale per ogni endpoint del progetto,
         // e un 204 per definizione non ha corpo.
         return apiResponseMapper.toResponse(HttpStatus.OK, "Tipologia di camera eliminata", null);
+    }
+
+    /**
+     * Rifiuta un prezzo con piu' di due decimali.
+     *
+     * <p>Sembra un capriccio e non lo e': la colonna e' NUMERIC(10,2), quindi
+     * Postgres arrotonderebbe 120.999 a 121.00 <b>senza dirlo a nessuno</b>. Il
+     * guaio non e' l'arrotondamento in se', e' che la risposta al POST rimanda
+     * l'entity che abbiamo in memoria, dove il valore e' ancora quello scritto
+     * da chi chiama: la stessa risorsa direbbe 120.999 appena creata e 121.00
+     * alla lettura successiva. Su un prezzo, "dipende da quando lo chiedi" non
+     * e' una risposta accettabile.
+     *
+     * <p>Si rifiuta invece di arrotondare di nascosto: chi ha scritto tre
+     * decimali ha in mente un numero, ed e' meglio dirgli che non e'
+     * rappresentabile che cambiarglielo alle spalle. Come per il consenso
+     * privacy, il vincolo non e' esprimibile nello schema OpenAPI — che ha
+     * multipleOf, ma il generatore Java non lo traduce in nessuna annotazione —
+     * quindi vive qui ed e' dichiarato nella descrizione del campo.
+     */
+    private void verificaPrezzo(TipologiaCameraRequest request) {
+        // stripTrailingZeros prima del confronto: 120.100 vale 120.1 ed e'
+        // rappresentabile, anche se scritto con tre cifre dopo la virgola.
+        if (request.getPrezzoNotte().stripTrailingZeros().scale() > 2) {
+            throw new BadRequestException("Il prezzo per notte non puo' avere piu' di due decimali");
+        }
     }
 
     /** Lettura per id, con il 404 gia' pronto: e' il preambolo di tre metodi su cinque. */

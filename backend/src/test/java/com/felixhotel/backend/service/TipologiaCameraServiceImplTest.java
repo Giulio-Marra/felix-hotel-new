@@ -2,6 +2,7 @@ package com.felixhotel.backend.service;
 
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 import com.felixhotel.backend.entity.TipologiaCamera;
+import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
 import com.felixhotel.backend.exception.NotFoundException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
@@ -156,6 +157,43 @@ class TipologiaCameraServiceImplTest {
 
             // ...e la busta dichiara 201, non 200: e' una risorsa nuova
             verify(apiResponseMapper).toResponse(eq(HttpStatus.CREATED), anyString(), any());
+        }
+
+        @Test
+        @DisplayName("con un prezzo a piu' di due decimali solleva BadRequestException")
+        void crea_conPrezzoNonRappresentabile_sollevaBadRequest() {
+            // given: un prezzo che la colonna NUMERIC(10,2) non puo' contenere
+            TipologiaCameraRequest richiesta = dati.tipologiaCameraRequest()
+                    .prezzoNotte(new BigDecimal("120.999"));
+
+            // when/then: 400. Accettarlo vorrebbe dire lasciare che Postgres lo arrotondi
+            // a 121.00 in silenzio, mentre la risposta al POST rimanderebbe ancora 120.999:
+            // la stessa risorsa direbbe due prezzi diversi a seconda di quando la si chiede
+            assertThatThrownBy(() -> tipologiaCameraService.crea(richiesta))
+                    .isInstanceOf(BadRequestException.class)
+                    .extracting(ex -> ((BadRequestException) ex).getStatus())
+                    .isEqualTo(HttpStatus.BAD_REQUEST);
+
+            // then: il controllo viene prima di qualsiasi accesso ai dati
+            verify(tipologiaCameraRepository, never()).existsByNomeIgnoreCase(anyString());
+        }
+
+        @Test
+        @DisplayName("con un prezzo a due decimali scritti come tre lo accetta")
+        void crea_conZeriNonSignificativi_accetta() {
+            // given: 120.100 vale 120.1, che nella colonna ci sta benissimo — la terza
+            // cifra e' uno zero non significativo, non un centesimo in piu'
+            TipologiaCameraRequest richiesta = dati.tipologiaCameraRequest()
+                    .prezzoNotte(new BigDecimal("120.100"));
+            when(tipologiaCameraRepository.existsByNomeIgnoreCase(richiesta.getNome())).thenReturn(false);
+            when(tipologiaCameraRepository.saveAndFlush(any(TipologiaCamera.class)))
+                    .thenReturn(tipologiaEsistente());
+
+            // when/then: passa. Senza stripTrailingZeros il controllo guarderebbe la forma
+            // del numero invece del suo valore, e rifiuterebbe un prezzo valido
+            tipologiaCameraService.crea(richiesta);
+
+            verify(tipologiaCameraRepository).saveAndFlush(any(TipologiaCamera.class));
         }
 
         @Test

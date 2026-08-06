@@ -364,6 +364,53 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
         }
 
         @Test
+        @DisplayName("prendendo il nome di un'altra tipologia risponde 409")
+        void aggiornamento_conNomeDiUnAltra_risponde409() throws Exception {
+            // given: due tipologie distinte a catalogo
+            String token = tokenAdmin();
+            TipologiaCameraRequest prima = dati.tipologiaCameraRequest();
+            creaTipologia(token, prima);
+            long idSeconda = creaTipologia(token, dati.tipologiaCameraRequest());
+
+            // when: si prova a rinominare la seconda col nome della prima
+            mockMvc.perform(put(TIPOLOGIE + "/" + idSeconda)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.tipologiaCameraRequest().nome(prima.getNome()))))
+                    // then: 409. E' il rovescio del test sull'aggiornamento riuscito:
+                    // li' si verifica che il proprio nome non dia conflitto, qui che quello
+                    // di un'altra lo dia — senza entrambi, un controllo di unicita' rotto
+                    // in un verso solo passerebbe inosservato
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("con un prezzo a piu' di due decimali risponde 400")
+        void aggiornamento_conPrezzoNonRappresentabile_risponde400() throws Exception {
+            // given: una tipologia a catalogo
+            String token = tokenAdmin();
+            TipologiaCameraRequest originale = dati.tipologiaCameraRequest();
+            long id = creaTipologia(token, originale);
+
+            // when: le si assegna un prezzo con tre decimali
+            mockMvc.perform(put(TIPOLOGIE + "/" + id)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.tipologiaCameraRequest()
+                                    .nome(originale.getNome())
+                                    .prezzoNotte(new BigDecimal("120.999")))))
+                    // then: 400, e non un 200 con un prezzo arrotondato di nascosto
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+
+            // then: il prezzo originale e' rimasto quello. Verificare solo lo status
+            // direbbe che la risposta e' giusta, non che la scrittura non e' avvenuta
+            mockMvc.perform(get(TIPOLOGIE + "/" + id))
+                    .andExpect(jsonPath("$.data.prezzoNotte").value(120.00));
+        }
+
+        @Test
         @DisplayName("con id inesistente risponde 404")
         void aggiornamento_conIdInesistente_risponde404() throws Exception {
             // when: si aggiorna una tipologia che non c'e'
