@@ -34,7 +34,7 @@ import java.util.List;
  */
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(LoginRateLimitProperties.class)
+@EnableConfigurationProperties({LoginRateLimitProperties.class, CorsProperties.class})
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -42,6 +42,7 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ApiAuthenticationEntryPoint apiAuthenticationEntryPoint;
     private final ApiAccessDeniedHandler apiAccessDeniedHandler;
+    private final CorsProperties corsProperties;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -101,17 +102,27 @@ public class SecurityConfig {
     }
 
     /**
-     * CORS aperto verso il frontend in sviluppo locale (React su localhost,
-     * porta variabile). Da restringere ai domini reali quando si andra' in
-     * produzione.
+     * CORS costruito a partire dalle origini configurate, non da una lista
+     * scritta qui dentro: vedi {@link CorsProperties} per il perche'. Se non ne
+     * e' configurata nessuna — il default — nessuna origine esterna passa, che
+     * e' il comportamento giusto per un ambiente di cui non si sa niente.
+     *
+     * <p>{@code allowCredentials} resta <b>false</b>: l'autenticazione viaggia
+     * nell'header {@code Authorization} come Bearer token, che il browser non
+     * allega da solo. Metterlo a true dichiarerebbe un uso di cookie/credenziali
+     * implicite che questo progetto non fa, e sarebbe una promessa senza codice
+     * dietro (regola 17) — oltre a rendere davvero pericoloso un pattern largo
+     * come {@code http://localhost:*}. Va rimesso a true solo se un giorno il
+     * token passera' per un cookie, e in quel caso le origini dovranno essere
+     * esatte.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("http://localhost:*"));
+        configuration.setAllowedOriginPatterns(corsProperties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setAllowCredentials(true);
+        configuration.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

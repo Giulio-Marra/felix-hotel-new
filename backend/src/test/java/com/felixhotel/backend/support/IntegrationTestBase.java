@@ -1,9 +1,11 @@
 package com.felixhotel.backend.support;
 
+import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.service.LoginAttemptService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 // Spring Boot 4 ha spacchettato spring-boot-test-autoconfigure in moduli per tecnologia:
 // @AutoConfigureMockMvc vive in spring-boot-webmvc-test, non piu' sotto
 // org.springframework.boot.test.autoconfigure.web.servlet (package di Boot 3).
@@ -12,6 +14,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Base di ogni test di integrazione (classi {@code *IT}): avvia il contesto
@@ -39,6 +45,10 @@ import tools.jackson.databind.ObjectMapper;
 @ActiveProfiles("test")
 @Import(TestcontainersConfig.class)
 public abstract class IntegrationTestBase {
+
+    /** Rotte usate dagli helper qui sotto, che servono a piu' di un IT. */
+    protected static final String REGISTER = "/api/auth/register";
+    protected static final String LOGIN = "/api/auth/login";
 
     @Autowired
     protected MockMvc mockMvc;
@@ -73,5 +83,38 @@ public abstract class IntegrationTestBase {
     /** Serializza un oggetto nel JSON da mandare come body della richiesta. */
     protected String json(Object body) {
         return objectMapper.writeValueAsString(body);
+    }
+
+    /**
+     * Registra un account, fallendo il test se la registrazione non riesce.
+     * Sta qui e non in un singolo IT perche' "serve un account che esista"
+     * e' il presupposto di qualunque test che tocchi la sicurezza, non solo
+     * di quelli sugli endpoint di auth.
+     */
+    protected void registraAccount(RegisterRequest richiesta) throws Exception {
+        mockMvc.perform(post(REGISTER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(richiesta)))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * Esegue il login e restituisce il token JWT. Passa dall'endpoint reale
+     * invece di generare il token con JwtService: un token costruito a mano
+     * proverebbe solo che il filtro accetta i token che noi stessi sappiamo
+     * fabbricare, non che la catena login -> token -> uso funzioni davvero.
+     */
+    protected String ottieniToken(String email) throws Exception {
+        String risposta = mockMvc.perform(post(LOGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(dati.loginRequest(email, TestDataFactory.PASSWORD_VALIDA))))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String token = objectMapper.readTree(risposta).path("data").path("token").asString();
+        assertThat(token).as("token restituito dal login").isNotBlank();
+        return token;
     }
 }

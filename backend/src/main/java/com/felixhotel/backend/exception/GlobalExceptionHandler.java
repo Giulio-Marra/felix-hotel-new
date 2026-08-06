@@ -148,13 +148,28 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Ruolo insufficiente su un metodo annotato {@code @PreAuthorize}:
-     * l'utente e' autenticato (altrimenti sarebbe 401), ma non ha i permessi.
+     * Accesso negato da {@code @PreAuthorize}: <b>non</b> viene gestito qui, si
+     * rilancia perche' risalga fino all'{@code ExceptionTranslationFilter} di
+     * Spring Security, che e' l'unico a saper distinguere i due casi —
+     * <b>401</b> se chi chiama non e' autenticato (deve autenticarsi, e
+     * riprovare ha senso) e <b>403</b> se lo e' ma il ruolo non basta (riprovare
+     * non serve). Da qui la distinzione non si vede: rispondendo 403 sempre, un
+     * anonimo su un endpoint {@code permitAll} annotato {@code @PreAuthorize} si
+     * sentirebbe dire "permessi insufficienti" invece di "autenticati".
+     *
+     * <p>Il metodo esiste e si limita a rilanciare per una ragione precisa:
+     * senza, l'eccezione finirebbe nel catch-all {@link #handleGenerica} e
+     * diventerebbe un <b>500</b>, perche' {@code AccessDeniedException} e' pur
+     * sempre una {@code Exception} e l'advice ha la precedenza sulla filter
+     * chain. Toglierlo non riporta il comportamento a Spring: lo rompe.
+     *
+     * <p>La busta standard non si perde: a scriverla e' comunque codice nostro,
+     * {@code ApiAccessDeniedHandler} (403) o {@code ApiAuthenticationEntryPoint}
+     * (401), agganciati in {@code SecurityConfig}.
      */
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiBaseResponse> handleAccessoNegato(AccessDeniedException ex) {
-        log.debug("Accesso negato", ex);
-        return build(HttpStatus.FORBIDDEN, "Permessi insufficienti per questa operazione", null);
+    public void handleAccessoNegato(AccessDeniedException ex) throws AccessDeniedException {
+        throw ex;
     }
 
     /**

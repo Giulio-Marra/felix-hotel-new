@@ -29,7 +29,11 @@ public class CustomUserDetailsService implements UserDetailsService {
         return utenteRepository.findByEmail(email)
                 .map(this::toPrincipal)
                 .or(() -> staffRepository.findByEmail(email).map(this::toPrincipal))
-                .orElseThrow(() -> new UsernameNotFoundException("Nessun account trovato per l'email: " + email));
+                // Il messaggio non riporta l'email: e' un dato personale, e da qui finirebbe
+                // nei log ad ogni tentativo di accesso con un indirizzo inesistente — cioe'
+                // proprio durante un attacco, che riempirebbe i log di indirizzi altrui.
+                // Chi indaga sul serio ha comunque l'email nella richiesta.
+                .orElseThrow(() -> new UsernameNotFoundException("Nessun account trovato per l'email indicata"));
     }
 
     private AppUserPrincipal toPrincipal(Utente utente) {

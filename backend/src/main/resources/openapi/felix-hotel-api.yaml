@@ -20,9 +20,9 @@ paths:
       description: >
         Crea un nuovo account cliente (ruolo USER). Nessuna autorizzazione
         richiesta. **Non restituisce un token**: dopo la registrazione il
-        client deve chiamare /api/auth/login. Scelta deliberata — l'account
-        nasce con email non ancora verificata, autenticarlo subito
-        vanificherebbe la verifica.
+        client deve chiamare /api/auth/login. Scelta deliberata — il 201
+        restituisce la risorsa creata, non una sessione: creare l'account e
+        autenticarsi sono due operazioni distinte.
         Risposta: busta ApiBaseResponse con **AccountSummary** in 'data'.
       requestBody:
         required: true

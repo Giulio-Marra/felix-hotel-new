@@ -41,8 +41,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("API di autenticazione")
 class AuthApiIT extends IntegrationTestBase {
 
-    private static final String REGISTER = "/api/auth/register";
-    private static final String LOGIN = "/api/auth/login";
+    // REGISTER e LOGIN stanno in IntegrationTestBase insieme agli helper che li usano;
+    // ME serve solo qui.
     private static final String ME = "/api/auth/me";
 
     /** Serve a disattivare un account a database, senza passare da un endpoint che non esiste. */
@@ -134,6 +134,25 @@ class AuthApiIT extends IntegrationTestBase {
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.status").value(409))
                     .andExpect(jsonPath("$.message").exists());
+        }
+
+        @Test
+        @DisplayName("l'account nasce con l'email gia' verificata, perche' non c'e' verifica da fare")
+        void register_conDatiValidi_creaAccountConEmailVerificata() throws Exception {
+            // given: una richiesta di registrazione valida
+            RegisterRequest richiesta = dati.registerRequest();
+
+            // when: si registra l'account
+            registraAccount(richiesta);
+
+            // then: emailVerificata e' true a database. Non e' un dettaglio cosmetico: finche'
+            // non esiste un flusso di verifica (invio, token di conferma, login bloccato
+            // finche' non e' confermata) il campo a false descriverebbe un controllo che
+            // nessuna riga di codice applica. Questo test va cambiato insieme a quel flusso —
+            // e il fatto che fallisca sara' il promemoria che il campo ha ricominciato a
+            // significare qualcosa.
+            Utente salvato = utenteRepository.findByEmail(richiesta.getEmail()).orElseThrow();
+            assertThat(salvato.isEmailVerificata()).isTrue();
         }
 
         @Test
@@ -438,31 +457,4 @@ class AuthApiIT extends IntegrationTestBase {
         }
     }
 
-    /** Registra un account, fallendo il test se la registrazione non riesce. */
-    private void registraAccount(RegisterRequest richiesta) throws Exception {
-        mockMvc.perform(post(REGISTER)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(richiesta)))
-                .andExpect(status().isCreated());
-    }
-
-    /**
-     * Esegue il login e restituisce il token JWT. Passa dall'endpoint reale
-     * invece di generare il token con JwtService: un token costruito a mano
-     * proverebbe solo che il filtro accetta i token che noi stessi sappiamo
-     * fabbricare, non che la catena login -> token -> uso funzioni davvero.
-     */
-    private String ottieniToken(String email) throws Exception {
-        String risposta = mockMvc.perform(post(LOGIN)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(dati.loginRequest(email, TestDataFactory.PASSWORD_VALIDA))))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-
-        String token = objectMapper.readTree(risposta).path("data").path("token").asString();
-        assertThat(token).as("token restituito dal login").isNotBlank();
-        return token;
-    }
 }

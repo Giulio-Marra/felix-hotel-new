@@ -96,7 +96,14 @@ public class AuthServiceImpl implements AuthService {
         utente.setDataNascita(request.getDataNascita());
         utente.setDataRegistrazione(LocalDateTime.now());
         utente.setAttivo(true);
-        utente.setEmailVerificata(false);
+        // L'account nasce gia' verificato perche' un flusso di verifica non esiste: non c'e'
+        // modo di spedire l'email, ne' un token di conferma, ne' un controllo che impedisca
+        // il login a chi non ha confermato. Lasciare il campo a false lo farebbe sembrare un
+        // vincolo attivo mentre il login autenticherebbe comunque tutti (regola 17: niente
+        // promesse senza il codice che le mantiene). Torna a false il giorno che la verifica
+        // esistera' davvero — invio, token con scadenza e login bloccato finche' non e'
+        // confermata — e non un momento prima.
+        utente.setEmailVerificata(true);
         // Arrivati qui il consenso e' per forza true (controllato sopra), quindi la data si
         // valorizza sempre: e' l'istante in cui il consenso e' stato raccolto.
         utente.setConsensoPrivacy(true);
@@ -106,8 +113,9 @@ public class AuthServiceImpl implements AuthService {
         Utente salvato = utenteRepository.save(utente);
 
         // Nessun token qui: la registrazione crea l'account e basta, l'autenticazione si
-        // ottiene con una chiamata esplicita a /api/auth/login. L'account nasce con
-        // emailVerificata = false, autenticarlo subito vanificherebbe la verifica.
+        // ottiene con una chiamata esplicita a /api/auth/login. Il 201 restituisce la
+        // risorsa appena creata, non una sessione: sono due operazioni distinte e chi
+        // registra per conto d'altri (un domani, dal backoffice) non deve ritrovarsi loggato.
         return apiResponseMapper.toResponse(HttpStatus.CREATED, "Registrazione completata con successo",
                 utenteMapper.toAccountSummary(salvato));
     }
