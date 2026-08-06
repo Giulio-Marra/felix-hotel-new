@@ -91,10 +91,14 @@ class SecurityConfigIT extends IntegrationTestBase {
         void preAuthorize_senzaAutenticazione_risponde401() throws Exception {
             // given/when: nessun token
             mockMvc.perform(get(SoloAdminTestController.PATH))
-                    // then: 401 e non 403. La differenza e' informativa: 401 dice
-                    // "autenticati e riprova", 403 dice "non insistere". A distinguerli e'
-                    // la filter chain, che sa se c'e' un'autenticazione; l'advice, da solo,
-                    // risponderebbe 403 a tutti e due.
+                    // then: 401 e non 403. Attenzione a cosa prova davvero questo test: la
+                    // rotta non e' fra i permitAll, quindi la richiesta viene fermata dalla
+                    // regola anyRequest().authenticated() e il @PreAuthorize non entra
+                    // nemmeno in gioco. Il caso in cui e' il @PreAuthorize a scattare su un
+                    // anonimo — endpoint permitAll piu' annotazione — oggi non esiste in
+                    // produzione e non e' esercitabile da qui senza cambiare SecurityConfig.
+                    // Il test resta perche' fissa la coppia 401/403 vista dal client: preso
+                    // insieme al precedente, dice che i due casi danno risposte diverse.
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.status").value(401));
         }

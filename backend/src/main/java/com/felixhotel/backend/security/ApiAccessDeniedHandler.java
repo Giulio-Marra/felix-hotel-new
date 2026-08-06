@@ -18,10 +18,15 @@ import java.io.IOException;
  * <p>Gemello di {@link ApiAuthenticationEntryPoint}: stesso motivo di
  * esistere (l'errore nasce prima del DispatcherServlet, quindi il
  * {@code GlobalExceptionHandler} non lo intercetta), stesso formato di
- * risposta. Il 403 sollevato da {@code @PreAuthorize} su un metodo, invece,
- * passa dal dispatcher e lo gestisce l'advice: i due percorsi producono la
- * stessa busta apposta, cosi' il client non vede differenze — verificato a
- * runtime su entrambe le strade.
+ * risposta.
+ *
+ * <p>Ci arriva <b>anche</b> il 403 sollevato da {@code @PreAuthorize} dentro un
+ * metodo, che pure nasce dopo il dispatcher: l'advice non lo gestisce, lo
+ * rilancia apposta perche' risalga fin qui (vedi
+ * {@code GlobalExceptionHandler.handleAccessoNegato}). Il motivo e' che a
+ * questo livello si sa se chi chiama e' autenticato o no, e quindi si puo'
+ * rispondere 401 invece di 403 a chi non lo e'. Effetto collaterale utile:
+ * tutte le negazioni di permesso escono da un punto solo, con la stessa busta.
  */
 @Slf4j
 @Component
