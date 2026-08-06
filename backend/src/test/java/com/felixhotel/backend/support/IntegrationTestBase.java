@@ -2,6 +2,7 @@ package com.felixhotel.backend.support;
 
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.service.LoginAttemptService;
+import com.felixhotel.backend.service.RegistrationAttemptService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -72,12 +73,28 @@ public abstract class IntegrationTestBase {
     @Autowired
     private LoginAttemptService loginAttemptService;
 
+    /**
+     * Contatore delle registrazioni, azzerato prima di ogni test per lo stesso
+     * motivo del precedente — con un'aggravante: qui si conta ogni tentativo, non
+     * solo quelli falliti, quindi anche il semplice {@link #registraAccount}
+     * consuma il budget dell'indirizzo da cui MockMvc chiama.
+     *
+     * <p><b>Il vincolo che ne deriva</b>: dentro un singolo test le registrazioni
+     * fatte dallo stesso indirizzo sono un numero limitato — quante lo dice
+     * {@code felix.security.registration.tentativi-liberi-ip} nel profilo di test,
+     * dove e' scritto anche il conto esatto. A chi ne servissero di piu' basta
+     * cambiare indirizzo alla richiesta.
+     */
+    @Autowired
+    private RegistrationAttemptService registrationAttemptService;
+
     protected TestDataFactory dati;
 
     @BeforeEach
     void inizializzaDati() {
         dati = new TestDataFactory();
         loginAttemptService.reset();
+        registrationAttemptService.reset();
     }
 
     /** Serializza un oggetto nel JSON da mandare come body della richiesta. */

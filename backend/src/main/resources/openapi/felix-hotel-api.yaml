@@ -23,6 +23,12 @@ paths:
         client deve chiamare /api/auth/login. Scelta deliberata — il 201
         restituisce la risorsa creata, non una sessione: creare l'account e
         autenticarsi sono due operazioni distinte.
+        Le registrazioni sono soggette a un **ritardo progressivo per
+        indirizzo IP** (vedi la risposta 429): superate le prime, fra una
+        registrazione e la successiva va rispettata un'attesa che raddoppia
+        ogni volta. A differenza del login qui si contano **tutti** i
+        tentativi e non solo quelli falliti: e' proprio la creazione di
+        account a macchina che si vuole impedire.
         Risposta: busta ApiBaseResponse con **AccountSummary** in 'data'.
       requestBody:
         required: true
@@ -51,6 +57,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -210,14 +218,19 @@ components:
 
     TooManyRequests:
       description: >
-        Troppi tentativi di accesso falliti, dalla stessa email o dallo
-        stesso indirizzo IP: la richiesta viene rifiutata senza nemmeno
-        guardare le credenziali. Non e' un blocco dell'account — che
-        resta accessibile a chi conosce la password — ma un'attesa
-        obbligatoria fra un tentativo e il successivo, che si allunga ad
-        ogni fallimento fino a un tetto di un minuto e si azzera da sola
-        dopo un quarto d'ora di inattivita' (o subito, dopo un accesso
-        riuscito). Il messaggio indica fra quanti secondi riprovare.
+        Troppi tentativi ravvicinati su un endpoint pubblico e costoso: la
+        richiesta viene rifiutata **prima** di essere elaborata, quindi non
+        ha nessun effetto. Non e' mai un blocco definitivo, ma un'attesa
+        obbligatoria fra un tentativo e il successivo, che raddoppia ad ogni
+        tentativo di troppo fino a un tetto e si azzera da sola dopo un
+        periodo di inattivita'. Il messaggio indica fra quanto riprovare, ed
+        e' l'unico posto in cui l'attesa residua viene comunicata: la busta
+        non ha un campo dedicato. Un client che riprova in automatico deve
+        leggerlo e aspettare, non insistere.
+        Cosa faccia scattare il limite dipende dall'endpoint — sul login i
+        tentativi falliti per email e per indirizzo IP, sulla registrazione
+        tutte le registrazioni dello stesso indirizzo — ed e' descritto sul
+        singolo endpoint.
       content:
         application/json:
           schema:

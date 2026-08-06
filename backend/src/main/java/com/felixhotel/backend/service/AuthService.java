@@ -21,8 +21,15 @@ public interface AuthService {
      * Registra un nuovo cliente (ruolo USER) e ne restituisce il riepilogo.
      * Non emette alcun token: per autenticarsi serve una chiamata esplicita
      * a {@link #login}.
+     *
+     * @param clientIp indirizzo IP di chi sta chiamando, che serve a contare le
+     *                 registrazioni per origine (vedi
+     *                 {@link RegistrationAttemptService}). Arriva come stringa
+     *                 gia' estratta dal Controller, per le stesse ragioni dette
+     *                 su {@link #login}. Puo' essere {@code null} se non
+     *                 determinabile.
      */
-    ApiBaseResponse register(RegisterRequest request);
+    ApiBaseResponse register(RegisterRequest request, String clientIp);
 
     /**
      * Autentica un account (cliente o personale) e restituisce un JWT.

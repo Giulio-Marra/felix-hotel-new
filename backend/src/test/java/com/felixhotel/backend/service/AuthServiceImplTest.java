@@ -54,6 +54,9 @@ import static org.mockito.Mockito.when;
 @DisplayName("AuthServiceImpl")
 class AuthServiceImplTest {
 
+    /** Indirizzo di chi chiama, che il Controller estrae dalla richiesta e passa al service. */
+    private static final String IP = "203.0.113.7";
+
     @Mock
     private UtenteRepository utenteRepository;
     @Mock
@@ -74,6 +77,8 @@ class AuthServiceImplTest {
     private ApiResponseMapper apiResponseMapper;
     @Mock
     private LoginAttemptService loginAttemptService;
+    @Mock
+    private RegistrationAttemptService registrationAttemptService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -90,13 +95,52 @@ class AuthServiceImplTest {
     class Register {
 
         @Test
+        @DisplayName("se il limite di registrazioni e' scattato non tocca nemmeno il database")
+        void register_quandoRallentato_nonInterrogaIRepository() {
+            // given: il contatore delle registrazioni ha gia' deciso di rifiutare questo indirizzo
+            RegisterRequest richiesta = dati.registerRequest();
+            org.mockito.Mockito.doThrow(new TooManyRequestsException("Riprova fra 1 minuto"))
+                    .when(registrationAttemptService).checkNotThrottled(IP);
+
+            // when/then: 429, non 400 ne' 409
+            assertThatThrownBy(() -> authService.register(richiesta, IP))
+                    .isInstanceOf(TooManyRequestsException.class)
+                    .extracting(ex -> ((TooManyRequestsException) ex).getStatus())
+                    .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+
+            // then: il controllo viene prima di tutto il resto, consenso privacy compreso.
+            // E' il punto della difesa — la registrazione di troppo non deve costarci ne'
+            // una query ne' un hash BCrypt, che e' lento di proposito.
+            verifyNoInteractions(utenteRepository, staffRepository, ruoloRepository, passwordEncoder);
+        }
+
+        @Test
+        @DisplayName("conta il tentativo anche quando la registrazione viene rifiutata")
+        void register_qualunqueEsito_contaIlTentativo() {
+            // given: una richiesta che passa il limite di frequenza ma verra' rifiutata dopo
+            RegisterRequest richiesta = dati.registerRequest();
+            when(utenteRepository.existsByEmail(richiesta.getEmail())).thenReturn(true);
+
+            // when: la registrazione fallisce con un conflitto
+            assertThatThrownBy(() -> authService.register(richiesta, IP))
+                    .isInstanceOf(ConflictException.class);
+
+            // then: il tentativo e' stato contato lo stesso. E' la differenza rispetto al
+            // login, dove si contano solo i fallimenti: qui l'abuso e' la frequenza, quindi
+            // conta ogni chiamata — anche quelle che riescono, che sono anzi il risultato
+            // che si vuole limitare. Se si contassero solo i successi, basterebbe martellare
+            // con un'email gia' registrata per non farsi mai rallentare.
+            verify(registrationAttemptService).recordAttempt(IP);
+        }
+
+        @Test
         @DisplayName("senza consenso privacy solleva BadRequestException e non tocca il database")
         void register_senzaConsensoPrivacy_sollevaBadRequest() {
             // given: una richiesta valida tranne il consenso privacy
             RegisterRequest richiesta = dati.registerRequest().consensoPrivacy(false);
 
             // when/then: il consenso e' un problema dell'input, quindi 400 e non 409
-            assertThatThrownBy(() -> authService.register(richiesta))
+            assertThatThrownBy(() -> authService.register(richiesta, IP))
                     .isInstanceOf(BadRequestException.class)
                     .hasMessageContaining("consenso")
                     .extracting(ex -> ((BadRequestException) ex).getStatus())
@@ -115,7 +159,7 @@ class AuthServiceImplTest {
             when(utenteRepository.existsByEmail(richiesta.getEmail())).thenReturn(true);
 
             // when/then: 409, conflitto con lo stato attuale dei dati
-            assertThatThrownBy(() -> authService.register(richiesta))
+            assertThatThrownBy(() -> authService.register(richiesta, IP))
                     .isInstanceOf(ConflictException.class)
                     .extracting(ex -> ((ConflictException) ex).getStatus())
                     .isEqualTo(HttpStatus.CONFLICT);
@@ -137,7 +181,7 @@ class AuthServiceImplTest {
             // utente.email e staff.email sono due UNIQUE indipendenti, e chi si registra
             // con l'email di uno STAFF ne oscurerebbe i login successivi
             // (CustomUserDetailsService cerca prima fra gli Utente).
-            assertThatThrownBy(() -> authService.register(richiesta))
+            assertThatThrownBy(() -> authService.register(richiesta, IP))
                     .isInstanceOf(ConflictException.class);
 
             verify(utenteRepository, never()).save(org.mockito.ArgumentMatchers.any());
@@ -155,7 +199,7 @@ class AuthServiceImplTest {
             // when/then: e' un errore di configurazione del database, non una colpa di chi
             // chiama: deve restare un 500 (IllegalStateException, gestita dal catch-all)
             // e non diventare una AppException con status 4xx
-            assertThatThrownBy(() -> authService.register(richiesta))
+            assertThatThrownBy(() -> authService.register(richiesta, IP))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("USER");
         }
@@ -171,10 +215,10 @@ class AuthServiceImplTest {
             // given: il contatore dei tentativi ha gia' deciso che questa richiesta va rifiutata
             LoginRequest richiesta = dati.loginRequest("mario.rossi@example.com", TestDataFactory.PASSWORD_VALIDA);
             org.mockito.Mockito.doThrow(new TooManyRequestsException("Riprova fra 4 secondi"))
-                    .when(loginAttemptService).checkNotThrottled(richiesta.getEmail(), "203.0.113.7");
+                    .when(loginAttemptService).checkNotThrottled(richiesta.getEmail(), IP);
 
             // when/then: 429, non 401
-            assertThatThrownBy(() -> authService.login(richiesta, "203.0.113.7"))
+            assertThatThrownBy(() -> authService.login(richiesta, IP))
                     .isInstanceOf(TooManyRequestsException.class)
                     .extracting(ex -> ((TooManyRequestsException) ex).getStatus())
                     .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
@@ -211,7 +255,7 @@ class AuthServiceImplTest {
         RegisterRequest richiesta = dati.registerRequest().consensoPrivacy(false);
 
         // when: la registrazione fallisce
-        assertThatThrownBy(() -> authService.register(richiesta)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> authService.register(richiesta, IP)).isInstanceOf(BadRequestException.class);
 
         // then: nessuna busta e nessun DTO costruito. Serve a tenere fermo il confine
         // della regola di progetto: i DTO li assembla il mapper, e solo se c'e' qualcosa

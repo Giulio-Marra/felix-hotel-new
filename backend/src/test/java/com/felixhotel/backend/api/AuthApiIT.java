@@ -170,6 +170,113 @@ class AuthApiIT extends IntegrationTestBase {
     }
 
     @Nested
+    @DisplayName("Limite di frequenza sulle registrazioni")
+    class LimiteSulleRegistrazioni {
+
+        /**
+         * Indirizzi diversi da quello di default di MockMvc (127.0.0.1), che e'
+         * quello da cui registrano tutti gli altri test: usarne di propri tiene
+         * questo conteggio separato dal loro.
+         */
+        private static final String IP_ATTACCANTE = "203.0.113.20";
+        private static final String IP_ESTRANEO = "198.51.100.20";
+
+        /**
+         * Registrazioni che passano senza attesa: le tre concesse dal profilo di
+         * test ({@code felix.security.registration.tentativi-liberi-ip}) piu'
+         * quella che supera la soglia.
+         *
+         * <p>Il "piu' uno" non e' un margine di sicurezza, e' come funziona il
+         * meccanismo — qui e sul login allo stesso modo: il tentativo viene prima
+         * lasciato passare e solo dopo contato, quindi quello che fa scattare il
+         * ritardo lo subisce chi arriva dopo di lui, non lui stesso. Serve a non
+         * far peggiorare l'attesa a chi sta gia' aspettando, che trasformerebbe il
+         * ritardo progressivo in un blocco.
+         */
+        private static final int REGISTRAZIONI_SENZA_ATTESA = 4;
+
+        @Test
+        @DisplayName("dopo troppe registrazioni dallo stesso indirizzo risponde 429")
+        void register_dopoTroppeRegistrazioni_risponde429() throws Exception {
+            // given: un indirizzo che ha consumato tutte le registrazioni libere, tutte
+            // andate a buon fine
+            for (int i = 0; i < REGISTRAZIONI_SENZA_ATTESA; i++) {
+                mockMvc.perform(registrazioneDa(IP_ATTACCANTE, dati.registerRequest()))
+                        .andExpect(status().isCreated());
+            }
+
+            // when: prova a crearne un altro, con dati perfettamente validi
+            mockMvc.perform(registrazioneDa(IP_ATTACCANTE, dati.registerRequest()))
+                    // then: 429 nella busta standard. Che vengano rifiutate anche le
+                    // richieste valide e' il punto: a differenza del login qui non c'e'
+                    // nessun "tentativo fallito" da contare — e' la frequenza in se' a
+                    // essere l'abuso, perche' ogni chiamata ci costa un BCrypt e una
+                    // scrittura.
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.status").value(429))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Riprova")))
+                    .andExpect(jsonPath("$.timestamp").isNotEmpty())
+                    .andExpect(jsonPath("$.data").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("il limite di un indirizzo non tocca gli altri")
+        void register_daAltroIndirizzo_nonEInfluenzatoDalLimiteAltrui() throws Exception {
+            // given: un indirizzo portato oltre la soglia, fino a vedersi rifiutare la
+            // richiesta di troppo (il rifiuto e' asserito: senza, un giro andato storto
+            // per un altro motivo lascerebbe passare il test dicendo poco)
+            for (int i = 0; i < REGISTRAZIONI_SENZA_ATTESA; i++) {
+                mockMvc.perform(registrazioneDa(IP_ATTACCANTE, dati.registerRequest()))
+                        .andExpect(status().isCreated());
+            }
+            mockMvc.perform(registrazioneDa(IP_ATTACCANTE, dati.registerRequest()))
+                    .andExpect(status().isTooManyRequests());
+
+            // when/then: da un altro indirizzo la registrazione passa. Verifica il
+            // cablaggio che nessun test unitario puo' vedere: che l'IP arrivi davvero
+            // dalla richiesta HTTP fino al contatore. Se il Controller non lo leggesse,
+            // il test precedente passerebbe comunque (tutto in un contatore solo) e
+            // questo fallirebbe.
+            mockMvc.perform(registrazioneDa(IP_ESTRANEO, dati.registerRequest()))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.id").isNumber());
+        }
+
+        @Test
+        @DisplayName("anche le registrazioni rifiutate consumano il limite")
+        void register_conRichiesteRifiutate_consumaComunqueIlLimite() throws Exception {
+            // given: un indirizzo che ha esaurito le registrazioni libere sbagliando ogni
+            // volta il consenso privacy, quindi senza creare nemmeno un account
+            for (int i = 0; i < REGISTRAZIONI_SENZA_ATTESA; i++) {
+                mockMvc.perform(registrazioneDa(IP_ATTACCANTE, dati.registerRequest().consensoPrivacy(false)))
+                        .andExpect(status().isBadRequest());
+            }
+
+            // when/then: la richiesta successiva viene rallentata lo stesso. Contare solo
+            // le registrazioni riuscite lascerebbe aperta la strada a chi martella
+            // l'endpoint con richieste destinate a fallire (email gia' presa, consenso
+            // negato): a noi costano comunque una query, ed e' per questo che si contano
+            // tutte quelle che arrivano al service. Restano fuori — di proposito — solo
+            // quelle fermate prima dallo schema (@Valid) o da un JSON illeggibile, che
+            // non costano ne' database ne' BCrypt.
+            mockMvc.perform(registrazioneDa(IP_ATTACCANTE, dati.registerRequest()))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.status").value(429));
+        }
+
+        /** Richiesta di registrazione che dichiara di arrivare dall'indirizzo IP indicato. */
+        private MockHttpServletRequestBuilder registrazioneDa(String ip, RegisterRequest richiesta) throws Exception {
+            return post(REGISTER)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(json(richiesta))
+                    .with(request -> {
+                        request.setRemoteAddr(ip);
+                        return request;
+                    });
+        }
+    }
+
+    @Nested
     @DisplayName("POST /api/auth/login")
     class Login {
 

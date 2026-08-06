@@ -3,17 +3,15 @@ package com.felixhotel.backend.service;
 import com.felixhotel.backend.config.LoginRateLimitProperties;
 import com.felixhotel.backend.exception.TooManyRequestsException;
 import com.felixhotel.backend.service.impl.LoginAttemptServiceImpl;
+import com.felixhotel.backend.support.OrologioDiTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +28,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * una suite che per verificare un'attesa di otto secondi ne dormisse otto
  * smetterebbe subito di essere eseguita, e un test che non si esegue non
  * protegge niente.
+ *
+ * <p>Il meccanismo del ritardo e' condiviso con la protezione delle
+ * registrazioni ({@code ContatoreTentativi}), quindi questi test lo coprono per
+ * entrambe: {@code RegistrationAttemptServiceImplTest} verifica solo cio' che
+ * quel service decide di suo.
  */
 @DisplayName("LoginAttemptServiceImpl")
 class LoginAttemptServiceImplTest {
@@ -300,35 +303,4 @@ class LoginAttemptServiceImplTest {
         }
     }
 
-    /**
-     * Orologio che avanza solo quando glielo si dice: permette di verificare
-     * attese e scadenze senza che la suite debba davvero aspettarle.
-     */
-    private static final class OrologioDiTest extends Clock {
-
-        private Instant adesso;
-
-        private OrologioDiTest(Instant partenza) {
-            this.adesso = partenza;
-        }
-
-        void avanza(Duration quanto) {
-            adesso = adesso.plus(quanto);
-        }
-
-        @Override
-        public Instant instant() {
-            return adesso;
-        }
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-    }
 }

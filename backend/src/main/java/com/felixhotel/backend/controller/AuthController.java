@@ -34,8 +34,9 @@ public class AuthController implements AuthApi {
      * chiamata risolve la richiesta di quel momento, quindi il campo e' sicuro
      * anche con piu' richieste in parallelo.
      *
-     * <p>Serve solo a leggere l'IP di chi chiama, che il login usa per contare i
-     * tentativi falliti per origine. Sta qui e non nel Service di proposito: il
+     * <p>Serve solo a leggere l'IP di chi chiama, che login e registrazione usano
+     * per contare per origine i tentativi (falliti, nel primo caso; tutti, nel
+     * secondo). Sta qui e non nel Service di proposito: il
      * layer web e' questo, e il Service riceve una semplice stringa invece di
      * dipendere dai tipi servlet. L'alternativa sarebbe stata un parametro nella
      * firma del metodo, che pero' non e' nostra — la impone l'interfaccia
@@ -45,7 +46,7 @@ public class AuthController implements AuthApi {
 
     @Override
     public ResponseEntity<ApiBaseResponse> register(RegisterRequest request) {
-        ApiBaseResponse response = authService.register(request);
+        ApiBaseResponse response = authService.register(request, clientIp());
         return ResponseEntity.status(response.getStatus()).body(response);
     }
 

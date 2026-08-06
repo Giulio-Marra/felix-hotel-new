@@ -34,7 +34,8 @@ import java.util.List;
  */
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties({LoginRateLimitProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({LoginRateLimitProperties.class, RegistrationRateLimitProperties.class,
+        CorsProperties.class})
 @RequiredArgsConstructor
 public class SecurityConfig {
 

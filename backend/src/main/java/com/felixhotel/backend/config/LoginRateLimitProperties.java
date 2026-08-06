@@ -30,7 +30,13 @@ import java.time.Duration;
  *
  * @param tentativiLiberiEmail fallimenti tollerati sulla stessa email prima che
  *                             il ritardo cominci ad applicarsi. Tenuto basso: e'
- *                             la difesa dell'account preso di mira.
+ *                             la difesa dell'account preso di mira. Sul conto
+ *                             esatto — il tentativo si conta dopo averlo lasciato
+ *                             passare, quindi ne passa sempre uno in piu' della
+ *                             soglia — vedi
+ *                             {@link RegistrationRateLimitProperties}, dove il
+ *                             ragionamento e' scritto per esteso: il meccanismo
+ *                             e' lo stesso per entrambi.
  * @param tentativiLiberiIp    fallimenti tollerati dallo stesso indirizzo IP
  *                             prima del ritardo. Piu' alto del precedente perche'
  *                             dietro un IP possono esserci molte persone

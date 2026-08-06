@@ -19,6 +19,7 @@ import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.JwtService;
 import com.felixhotel.backend.service.AuthService;
 import com.felixhotel.backend.service.LoginAttemptService;
+import com.felixhotel.backend.service.RegistrationAttemptService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -56,6 +57,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
     private final LoginAttemptService loginAttemptService;
+    private final RegistrationAttemptService registrationAttemptService;
     private final UtenteMapper utenteMapper;
     private final AuthMapper authMapper;
     private final ApiResponseMapper apiResponseMapper;
@@ -67,7 +69,24 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     @Transactional
-    public ApiBaseResponse register(RegisterRequest request) {
+    public ApiBaseResponse register(RegisterRequest request, String clientIp) {
+        // Prima di ogni altra cosa, e in particolare prima di toccare il database e di
+        // calcolare l'hash della password: chi ha gia' registrato troppi account da questo
+        // indirizzo viene fermato qui con un 429. E' il punto della difesa — il tentativo
+        // di troppo non deve costarci ne' una query ne' un BCrypt.
+        // Resta fuori dal risparmio una cosa sola: il metodo e' @Transactional, quindi la
+        // transazione viene aperta da Spring prima di arrivare a questa riga. Costa un
+        // EntityManager e non una connessione (Hibernate la prende alla prima query, che
+        // qui non c'e'), e spostare il controllo piu' a monte vorrebbe dire metterlo nel
+        // Controller — cioe' logica di sicurezza in un layer che per convenzione non ne ha.
+        registrationAttemptService.checkNotThrottled(clientIp);
+
+        // Il tentativo si conta subito e a prescindere da come andra' a finire: qui non e'
+        // il fallimento a essere sospetto (come nel login) ma la frequenza. Contare solo le
+        // registrazioni riuscite lascerebbe fuori chi martella l'endpoint con email gia'
+        // esistenti, che a noi costa comunque una query per ogni chiamata.
+        registrationAttemptService.recordAttempt(clientIp);
+
         // L'unicita' email va controllata su entrambe le popolazioni: utente.email e staff.email
         // sono due vincoli UNIQUE indipendenti in DB, altrimenti un cliente potrebbe registrarsi
         // con l'email di un account Staff/ADMIN esistente e "oscurarlo" ai login successivi
