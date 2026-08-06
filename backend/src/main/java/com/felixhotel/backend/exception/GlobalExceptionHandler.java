@@ -2,6 +2,9 @@ package com.felixhotel.backend.exception;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Path;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -114,6 +117,48 @@ public class GlobalExceptionHandler {
                         : "valore non valido"));
 
         return build(HttpStatus.BAD_REQUEST, "Dati non validi", errori);
+    }
+
+    /**
+     * Validazione fallita sui <b>parametri</b> di path e query (un id minore di
+     * 1, una dimensione di pagina oltre il massimo), non sul body.
+     *
+     * <p>E' un percorso diverso da {@link #handleValidation} e non una sua
+     * variante: i vincoli sui parametri non passano dal binding del body, li
+     * applica l'AOP di Spring ({@code MethodValidationInterceptor}) perche' le
+     * interfacce generate dallo spec sono annotate {@code @Validated}. Il tipo
+     * di eccezione e' un altro, e senza questo handler finirebbe nel catch-all:
+     * chi chiede una pagina troppo grande si vedrebbe rispondere <b>500</b>,
+     * cioe' "e' un guasto nostro", quando ha semplicemente sbagliato richiesta.
+     *
+     * <p>La risposta ha la stessa forma della validazione del body — 400 con la
+     * mappa in {@code data} — perche' per chi chiama i due casi sono lo stesso:
+     * un valore che non rispetta il contratto.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiBaseResponse> handleVincoliParametri(ConstraintViolationException ex) {
+        Map<String, String> errori = new LinkedHashMap<>();
+
+        for (ConstraintViolation<?> violazione : ex.getConstraintViolations()) {
+            errori.merge(nomeParametro(violazione), violazione.getMessage(),
+                    (esistente, nuovo) -> esistente + "; " + nuovo);
+        }
+
+        return build(HttpStatus.BAD_REQUEST, "Dati non validi", errori);
+    }
+
+    /**
+     * Nome del parametro che ha violato il vincolo. Il percorso completo
+     * include il metodo che lo dichiara ({@code elencaTipologieCamera.size}):
+     * al client serve solo l'ultimo pezzo, che e' il nome che ha scritto lui
+     * nella query string — il resto e' un dettaglio interno.
+     */
+    private String nomeParametro(ConstraintViolation<?> violazione) {
+        String ultimo = null;
+        for (Path.Node nodo : violazione.getPropertyPath()) {
+            ultimo = nodo.getName();
+        }
+        return ultimo != null ? ultimo : violazione.getPropertyPath().toString();
     }
 
     /**

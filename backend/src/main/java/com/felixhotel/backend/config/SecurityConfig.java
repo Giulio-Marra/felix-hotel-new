@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -69,6 +70,17 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // Il catalogo si legge senza autenticarsi: e' quello che il sito mostra a
+                        // chi passa di li'. Solo in lettura, pero' — il metodo fa parte della
+                        // regola, quindi POST/PUT/DELETE sugli stessi path NON sono compresi e
+                        // ricadono nel default autenticato piu' il @PreAuthorize del Controller.
+                        // Il "/*" copre l'id del dettaglio ed e' un solo segmento: diverso dal
+                        // "/**" vietato dalla convenzione, che aprirebbe anche i sottopercorsi
+                        // ancora da scrivere (es. le dotazioni di una tipologia).
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/tipologie-camera",
+                                "/api/tipologie-camera/*"
+                        ).permitAll()
                         .requestMatchers(
                                 // Solo questi due endpoint di auth sono pubblici, elencati uno per uno:
                                 // un wildcard "/api/auth/**" renderebbe pubblico anche /api/auth/me e

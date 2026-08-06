@@ -2,7 +2,9 @@ package com.felixhotel.backend.support;
 
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
+import java.math.BigDecimal;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -54,5 +56,28 @@ public class TestDataFactory {
         return new LoginRequest()
                 .email(email)
                 .password(password);
+    }
+
+    /**
+     * Nome di tipologia mai usato prima in questa esecuzione. Stessa ragione
+     * delle email: il nome e' unico in database (indice su lower(nome)) e il
+     * database non viene ripulito fra un test e l'altro, quindi due test che
+     * usassero "Doppia" si romperebbero a vicenda con un 409.
+     */
+    public String nomeTipologiaUnivoco() {
+        return "Doppia " + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
+    }
+
+    /**
+     * Tipologia di camera valida in ogni campo. Come per la registrazione, i
+     * test partono da questa e cambiano solo il campo che vogliono verificare
+     * ({@code tipologiaCameraRequest().capienzaMax(0)}).
+     */
+    public TipologiaCameraRequest tipologiaCameraRequest() {
+        return new TipologiaCameraRequest()
+                .nome(nomeTipologiaUnivoco())
+                .descrizione("Camera doppia con vista sul giardino")
+                .capienzaMax(2)
+                .prezzoNotte(new BigDecimal("120.00"));
     }
 }

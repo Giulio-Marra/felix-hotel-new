@@ -1,0 +1,14 @@
+-- Il nome di una tipologia di camera deve essere unico.
+--
+-- Non era nel V1 e ci si accorge del perche' provando a usarlo: due righe
+-- "Doppia Superior" nel listino non sono un caso d'uso, sono un errore di
+-- inserimento — e il catalogo pubblico le mostrerebbe entrambe.
+--
+-- L'indice e' su lower(nome) e non un semplice UNIQUE sulla colonna perche'
+-- "Doppia" e "doppia" sono lo stesso nome per chiunque legga il sito, ma due
+-- valori diversi per un vincolo case-sensitive: con UNIQUE(nome) il duplicato
+-- entrerebbe comunque, basta cambiare una maiuscola. Il service fa lo stesso
+-- confronto (existsByNomeIgnoreCase) per poter rispondere 409 con un messaggio
+-- comprensibile; quello vero e' questo, ed e' l'unico che regge anche quando
+-- due richieste arrivano insieme.
+CREATE UNIQUE INDEX uq_tipologia_camera_nome ON tipologia_camera (lower(nome));

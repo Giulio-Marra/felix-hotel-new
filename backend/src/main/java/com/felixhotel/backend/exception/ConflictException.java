@@ -17,4 +17,14 @@ public class ConflictException extends AppException {
     public ConflictException(String message) {
         super(HttpStatus.CONFLICT, message);
     }
+
+    /**
+     * Variante che conserva l'eccezione originale nei log. Serve quando il
+     * conflitto lo scopre il database e non il nostro controllo preventivo
+     * (violazione di un vincolo di unicita' o di chiave esterna): il messaggio
+     * che leggiamo noi dice quale vincolo, quello che leggera' il client no.
+     */
+    public ConflictException(String message, Throwable cause) {
+        super(HttpStatus.CONFLICT, message, cause);
+    }
 }
