@@ -24,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 
 import java.util.ArrayList;
@@ -264,6 +265,30 @@ class MediaCameraServiceImplTest {
                     .hasMessageContaining(String.valueOf(MASSIMO_FOTO_PER_TIPOLOGIA));
 
             verify(mediaCameraRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("se il vincolo scatta al salvataggio traduce comunque in ConflictException")
+        void aggiungi_conViolazioneAlSalvataggio_sollevaConflict() {
+            // given: il controllo preventivo non trova niente, ma fra quel momento e la
+            // scrittura una richiesta gemella ha inserito la stessa url
+            MediaCameraRequest richiesta = dati.mediaCameraRequest();
+            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA))
+                    .thenReturn(Optional.of(tipologiaEsistente()));
+            when(mediaCameraRepository.existsByTipologiaCameraIdAndUrl(ID_TIPOLOGIA, richiesta.getUrl()))
+                    .thenReturn(false);
+            when(mediaCameraRepository.countByTipologiaCameraId(ID_TIPOLOGIA)).thenReturn(0L);
+            when(mediaCameraRepository.massimoOrdine(ID_TIPOLOGIA)).thenReturn(-1);
+            when(mediaCameraRepository.saveAndFlush(any(MediaCamera.class)))
+                    .thenThrow(new DataIntegrityViolationException("uq_media_camera_tipologia_url"));
+
+            // when/then: 409 e non il 500 che l'eccezione darebbe se uscisse cosi' com'e'.
+            // E' il motivo per cui si usa saveAndFlush e non save: al commit la violazione
+            // arriverebbe fuori da questo metodo, dove non c'e' piu' nessuno a tradurla
+            assertThatThrownBy(() -> mediaCameraService.aggiungi(ID_TIPOLOGIA, richiesta))
+                    .isInstanceOf(ConflictException.class)
+                    .extracting(ex -> ((ConflictException) ex).getStatus())
+                    .isEqualTo(HttpStatus.CONFLICT);
         }
 
         @Test
