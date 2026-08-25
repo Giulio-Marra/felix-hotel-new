@@ -3,7 +3,7 @@ package com.felixhotel.backend.service;
 import com.felixhotel.backend.config.RegistrationRateLimitProperties;
 import com.felixhotel.backend.exception.TooManyRequestsException;
 import com.felixhotel.backend.service.impl.RegistrationAttemptServiceImpl;
-import com.felixhotel.backend.support.OrologioDiTest;
+import com.felixhotel.backend.support.OrologioPilotato;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,11 +42,11 @@ class RegistrationAttemptServiceImplTest {
     private static final Duration RITARDO_MASSIMO = Duration.ofMinutes(4);
     private static final Duration FINESTRA = Duration.ofHours(1);
 
-    private OrologioDiTest orologio;
+    private OrologioPilotato orologio;
 
     @BeforeEach
     void inizializza() {
-        orologio = new OrologioDiTest(Instant.parse("2026-08-06T10:00:00Z"));
+        orologio = new OrologioPilotato(Instant.parse("2026-08-06T10:00:00Z"));
     }
 
     /**

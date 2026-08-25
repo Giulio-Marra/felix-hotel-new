@@ -31,7 +31,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @RequiredArgsConstructor
-public class StaffDiTest {
+public class CreatoreStaff {
 
     private final StaffRepository staffRepository;
     private final RuoloRepository ruoloRepository;

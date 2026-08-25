@@ -2,8 +2,8 @@ package com.felixhotel.backend.api;
 
 import com.felixhotel.backend.dto.MediaCameraRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.support.CreatoreStaff;
 import com.felixhotel.backend.support.IntegrationTestBase;
-import com.felixhotel.backend.support.StaffDiTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -49,11 +49,11 @@ class MediaCameraApiIT extends IntegrationTestBase {
 
     /** Crea account del personale a database: non esiste un endpoint per farlo. */
     @Autowired
-    private StaffDiTest staffDiTest;
+    private CreatoreStaff creatoreStaff;
 
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
-        staffDiTest.creaAdmin(email);
+        creatoreStaff.creaAdmin(email);
         return ottieniToken(email);
     }
 
@@ -65,7 +65,7 @@ class MediaCameraApiIT extends IntegrationTestBase {
      */
     private String tokenStaff() throws Exception {
         String email = dati.emailUnivoca();
-        staffDiTest.creaStaff(email);
+        creatoreStaff.creaStaff(email);
         return ottieniToken(email);
     }
 

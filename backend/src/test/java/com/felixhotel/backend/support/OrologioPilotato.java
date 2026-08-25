@@ -20,11 +20,11 @@ import java.time.ZoneOffset;
  * regola del dominio che dipenda dalla data — scadenze di prenotazione, calcolo
  * delle notti.
  */
-public final class OrologioDiTest extends Clock {
+public final class OrologioPilotato extends Clock {
 
     private Instant adesso;
 
-    public OrologioDiTest(Instant partenza) {
+    public OrologioPilotato(Instant partenza) {
         this.adesso = partenza;
     }
 

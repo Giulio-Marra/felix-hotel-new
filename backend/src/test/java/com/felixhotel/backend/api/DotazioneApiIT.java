@@ -2,8 +2,8 @@ package com.felixhotel.backend.api;
 
 import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.support.CreatoreStaff;
 import com.felixhotel.backend.support.IntegrationTestBase;
-import com.felixhotel.backend.support.StaffDiTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -47,7 +47,7 @@ class DotazioneApiIT extends IntegrationTestBase {
 
     /** Crea account del personale a database: non esiste un endpoint per farlo. */
     @Autowired
-    private StaffDiTest staffDiTest;
+    private CreatoreStaff creatoreStaff;
 
     /**
      * Serve a leggere e a riempire la tabella di legame
@@ -62,7 +62,7 @@ class DotazioneApiIT extends IntegrationTestBase {
     /** Token di un amministratore, l'unico ruolo che puo' scrivere nell'elenco. */
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
-        staffDiTest.creaAdmin(email);
+        creatoreStaff.creaAdmin(email);
         return ottieniToken(email);
     }
 

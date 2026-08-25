@@ -2,8 +2,8 @@ package com.felixhotel.backend.api;
 
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
+import com.felixhotel.backend.support.CreatoreStaff;
 import com.felixhotel.backend.support.IntegrationTestBase;
-import com.felixhotel.backend.support.StaffDiTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -52,7 +52,7 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
 
     /** Crea account del personale a database: non esiste un endpoint per farlo. */
     @Autowired
-    private StaffDiTest staffDiTest;
+    private CreatoreStaff creatoreStaff;
 
     /**
      * Serve a inserire una camera che referenzi una tipologia, per provare che
@@ -67,7 +67,7 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
     /** Token di un amministratore, l'unico ruolo che puo' scrivere nel catalogo. */
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
-        staffDiTest.creaAdmin(email);
+        creatoreStaff.creaAdmin(email);
         return ottieniToken(email);
     }
 
@@ -239,7 +239,7 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
         void creazione_conTokenStaff_risponde403() throws Exception {
             // given: un account del personale con ruolo STAFF, non ADMIN
             String email = dati.emailUnivoca();
-            staffDiTest.creaStaff(email);
+            creatoreStaff.creaStaff(email);
             String token = ottieniToken(email);
 
             // when: prova a inserire una tipologia

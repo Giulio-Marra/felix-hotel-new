@@ -3,8 +3,8 @@ package com.felixhotel.backend.api;
 import com.felixhotel.backend.dto.CameraRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.StatoCamera;
+import com.felixhotel.backend.support.CreatoreStaff;
 import com.felixhotel.backend.support.IntegrationTestBase;
-import com.felixhotel.backend.support.StaffDiTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class CameraApiIT extends IntegrationTestBase {
 
     /** Crea account del personale a database: non esiste un endpoint per farlo. */
     @Autowired
-    private StaffDiTest staffDiTest;
+    private CreatoreStaff creatoreStaff;
 
     /**
      * Serve a inserire una prenotazione che referenzi una camera, per provare che
@@ -63,14 +63,14 @@ class CameraApiIT extends IntegrationTestBase {
 
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
-        staffDiTest.creaAdmin(email);
+        creatoreStaff.creaAdmin(email);
         return ottieniToken(email);
     }
 
     /** Token del personale non amministratore: il ruolo che qui, per la prima volta, conta. */
     private String tokenStaff() throws Exception {
         String email = dati.emailUnivoca();
-        staffDiTest.creaStaff(email);
+        creatoreStaff.creaStaff(email);
         return ottieniToken(email);
     }
 

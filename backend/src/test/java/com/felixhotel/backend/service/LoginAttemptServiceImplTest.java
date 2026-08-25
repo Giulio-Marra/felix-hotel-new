@@ -3,7 +3,7 @@ package com.felixhotel.backend.service;
 import com.felixhotel.backend.config.LoginRateLimitProperties;
 import com.felixhotel.backend.exception.TooManyRequestsException;
 import com.felixhotel.backend.service.impl.LoginAttemptServiceImpl;
-import com.felixhotel.backend.support.OrologioDiTest;
+import com.felixhotel.backend.support.OrologioPilotato;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * molti piu' di quelli di {@code AuthServiceImplTest}: si verifica una
  * decisione presa dal codice, non un cablaggio.
  *
- * <p>Il tempo e' pilotato da {@link OrologioDiTest} e non aspettato davvero:
+ * <p>Il tempo e' pilotato da {@link OrologioPilotato} e non aspettato davvero:
  * una suite che per verificare un'attesa di otto secondi ne dormisse otto
  * smetterebbe subito di essere eseguita, e un test che non si esegue non
  * protegge niente.
@@ -46,11 +46,11 @@ class LoginAttemptServiceImplTest {
     private static final Duration RITARDO_MASSIMO = Duration.ofSeconds(8);
     private static final Duration FINESTRA = Duration.ofMinutes(10);
 
-    private OrologioDiTest orologio;
+    private OrologioPilotato orologio;
 
     @BeforeEach
     void inizializza() {
-        orologio = new OrologioDiTest(Instant.parse("2026-08-05T10:00:00Z"));
+        orologio = new OrologioPilotato(Instant.parse("2026-08-05T10:00:00Z"));
     }
 
     /**
