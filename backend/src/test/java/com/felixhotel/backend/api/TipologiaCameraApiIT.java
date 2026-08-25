@@ -271,7 +271,12 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
                     .andExpect(jsonPath("$.status").value(201))
                     .andExpect(jsonPath("$.data.id").isNumber())
                     .andExpect(jsonPath("$.data.nome").value(richiesta.getNome()))
-                    .andExpect(jsonPath("$.data.prezzoNotte").value(120.00));
+                    .andExpect(jsonPath("$.data.prezzoNotte").value(120.00))
+                    // e le dotazioni ci sono come array vuoto, non come campo assente: una
+                    // tipologia appena creata non ne ha, e il client deve poter scrivere
+                    // data.dotazioni.length senza prima chiedersi se il campo esista
+                    .andExpect(jsonPath("$.data.dotazioni").isArray())
+                    .andExpect(jsonPath("$.data.dotazioni").isEmpty());
         }
 
         @Test
