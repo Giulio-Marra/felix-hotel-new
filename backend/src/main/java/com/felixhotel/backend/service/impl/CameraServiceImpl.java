@@ -210,9 +210,18 @@ public class CameraServiceImpl implements CameraService {
      * Risolve la tipologia indicata nella richiesta. Il 400 e non il 404 e' la
      * stessa scelta gia' fatta per gli id delle dotazioni: qui il 404 e'
      * riservato alla camera dell'URL.
+     *
+     * <p>Passa da {@code trovaSenzaCollezioni} e non da {@code findById}: alla
+     * camera della tipologia serve il riferimento, e nella risposta questa
+     * compare in sintesi (id e nome). Con {@code findById} ogni scrittura si
+     * tirerebbe dietro anche le sue dotazioni, per via dell'{@code @EntityGraph}
+     * dichiarato la' — uno spreco notato il 2026-08-25 e lasciato aperto perche'
+     * con un chiamante solo il rimedio costava piu' di quanto risparmiasse. Da
+     * quando la galleria delle foto fa lo stesso, i chiamanti sono due ed e' il
+     * metodo di lettura a giustificarsi, non l'eccezione.
      */
     private TipologiaCamera trovaTipologiaOrElseThrow(Long tipologiaCameraId) {
-        return tipologiaCameraRepository.findById(tipologiaCameraId)
+        return tipologiaCameraRepository.trovaSenzaCollezioni(tipologiaCameraId)
                 .orElseThrow(() -> new BadRequestException(
                         "La tipologia di camera indicata non esiste: " + tipologiaCameraId));
     }

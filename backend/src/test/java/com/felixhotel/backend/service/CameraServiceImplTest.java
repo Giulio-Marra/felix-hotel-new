@@ -156,7 +156,7 @@ class CameraServiceImplTest {
             // given: numero libero e tipologia esistente
             CameraRequest richiesta = dati.cameraRequest(ID_TIPOLOGIA);
             when(cameraRepository.existsByNumeroIgnoreCase(richiesta.getNumero())).thenReturn(false);
-            when(tipologiaCameraRepository.findById(ID_TIPOLOGIA))
+            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA))
                     .thenReturn(Optional.of(tipologiaEsistente()));
             when(cameraRepository.saveAndFlush(any(Camera.class))).thenReturn(cameraEsistente());
 
@@ -183,7 +183,7 @@ class CameraServiceImplTest {
             // given: il numero e' libero ma la tipologia indicata non c'e'
             CameraRequest richiesta = dati.cameraRequest(ID_TIPOLOGIA);
             when(cameraRepository.existsByNumeroIgnoreCase(richiesta.getNumero())).thenReturn(false);
-            when(tipologiaCameraRepository.findById(ID_TIPOLOGIA)).thenReturn(Optional.empty());
+            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.empty());
 
             // when/then: 400. Il 404 di questi endpoint significa "questa camera non
             // esiste": usarlo anche per un id dentro il corpo renderebbe indistinguibili
@@ -220,7 +220,7 @@ class CameraServiceImplTest {
             // l'indice unico — la richiesta gemella arrivata nel frattempo
             CameraRequest richiesta = dati.cameraRequest(ID_TIPOLOGIA);
             when(cameraRepository.existsByNumeroIgnoreCase(richiesta.getNumero())).thenReturn(false);
-            when(tipologiaCameraRepository.findById(ID_TIPOLOGIA))
+            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA))
                     .thenReturn(Optional.of(tipologiaEsistente()));
             when(cameraRepository.saveAndFlush(any(Camera.class)))
                     .thenThrow(new DataIntegrityViolationException("uq_camera_numero"));
@@ -264,7 +264,7 @@ class CameraServiceImplTest {
             when(cameraRepository.findById(ID)).thenReturn(Optional.of(esistente));
             when(cameraRepository.existsByNumeroIgnoreCaseAndIdNot(esistente.getNumero(), ID))
                     .thenReturn(false);
-            when(tipologiaCameraRepository.findById(ID_TIPOLOGIA))
+            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA))
                     .thenReturn(Optional.of(tipologiaEsistente()));
             when(cameraRepository.saveAndFlush(any(Camera.class))).thenReturn(esistente);
 
