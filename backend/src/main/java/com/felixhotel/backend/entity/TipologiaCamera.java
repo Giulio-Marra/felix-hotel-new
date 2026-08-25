@@ -88,6 +88,12 @@ public class TipologiaCamera extends BaseAuditableEntity {
      * dotazioni arrivano con una seconda query sola per l'intera pagina, invece
      * di una per riga.
      *
+     * <p>Il 50 non e' un numero a caso: la pagina piu' grande che il contratto
+     * permette e' di 100 elementi (il tetto su {@code size}), quindi con questo
+     * valore l'elenco piu' pesante possibile costa <b>due</b> query in tutto.
+     * Se un domani quel tetto cambia, va rivisto anche questo — sono lo stesso
+     * numero visto da due punti diversi.
+     *
      * <p>Sul <b>dettaglio</b> non c'e' quel problema — una riga sola, nessuna
      * paginazione — e infatti li' il repository usa {@code @EntityGraph}: e' la
      * regola 15 applicata alla query che ne ha bisogno, non all'entita'.

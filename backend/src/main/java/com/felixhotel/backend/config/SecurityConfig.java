@@ -75,8 +75,12 @@ public class SecurityConfig {
                         // regola, quindi POST/PUT/DELETE sugli stessi path NON sono compresi e
                         // ricadono nel default autenticato piu' il @PreAuthorize del Controller.
                         // Il "/*" copre l'id del dettaglio ed e' un solo segmento: diverso dal
-                        // "/**" vietato dalla convenzione, che aprirebbe anche i sottopercorsi
-                        // ancora da scrivere (es. le dotazioni di una tipologia).
+                        // "/**" vietato dalla convenzione, che aprirebbe in lettura anche i
+                        // sottopercorsi. I sottopercorsi non sono piu' un'ipotesi —
+                        // /api/tipologie-camera/{id}/dotazioni esiste — e per ora nessuno di
+                        // essi risponde in GET; il giorno che ne nascesse uno (le prenotazioni
+                        // di una tipologia, le sue statistiche) con un "/**" sarebbe pubblico
+                        // dal primo minuto, senza che nessuno l'abbia deciso.
                         .requestMatchers(HttpMethod.GET,
                                 "/api/tipologie-camera",
                                 "/api/tipologie-camera/*",
