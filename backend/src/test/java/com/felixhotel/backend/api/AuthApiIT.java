@@ -290,7 +290,8 @@ class AuthApiIT extends IntegrationTestBase {
             // when: si effettua il login con le stesse credenziali
             mockMvc.perform(post(LOGIN)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(json(dati.loginRequest(registrazione.getEmail(), TestDataFactory.PASSWORD_VALIDA))))
+                            .content(json(dati.loginRequest(
+                                    registrazione.getEmail(), TestDataFactory.PASSWORD_VALIDA))))
                     // then: 200 con il solo token (i dati dell'account si chiedono a /me)
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value(200))

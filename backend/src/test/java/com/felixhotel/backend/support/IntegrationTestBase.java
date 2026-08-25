@@ -6,12 +6,12 @@ import com.felixhotel.backend.service.RegistrationAttemptService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 // Spring Boot 4 ha spacchettato spring-boot-test-autoconfigure in moduli per tecnologia:
 // @AutoConfigureMockMvc vive in spring-boot-webmvc-test, non piu' sotto
 // org.springframework.boot.test.autoconfigure.web.servlet (package di Boot 3).
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;

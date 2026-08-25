@@ -172,7 +172,8 @@ public class AuthServiceImpl implements AuthService {
         loginAttemptService.recordSuccess(request.getEmail(), clientIp);
 
         AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
-        String token = jwtService.generateToken(principal.getUserId(), principal.getUsername(), principal.getRuoloNome());
+        String token = jwtService.generateToken(
+                principal.getUserId(), principal.getUsername(), principal.getRuoloNome());
 
         // Solo il token: i dati dell'account li chiedera' il client all'endpoint dedicato.
         AuthResponse response = authMapper.toAuthResponse(token, jwtService.getExpirationMs());

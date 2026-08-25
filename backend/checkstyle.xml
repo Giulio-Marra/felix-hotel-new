@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+    Regolamento di stile scritto su misura per questo progetto.
+
+    **Perche' non un regolamento importato.** Quello di Google (o di Sun) porta
+    centinaia di regole decise per altri progetti: il limite di riga a 100
+    segnalerebbe 168 righe che oggi stanno benissimo, e la reazione normale a un
+    cancello che suona sempre e' allargarlo — cioe' toglierlo. Qui dentro c'e'
+    solo cio' che il codice **gia' rispetta**, misurato il 2026-08-25 prima di
+    scrivere una riga di configurazione: si parte da zero violazioni, quindi
+    zero e' una soglia che si puo' davvero mantenere (regola 22).
+
+    **A cosa serve, visto che il codice e' gia' pulito.** Non a ripulire ma a
+    **non dipendere da chi se ne accorge**: e' lo stesso argomento della soglia
+    di copertura, messa quando si stava gia' al 95%. SpotBugs cerca difetti,
+    non disordine — questo e' il buco che copre.
+
+    **Cosa NON c'e' dentro, di proposito**: indentazione, spaziature, ordine dei
+    membri, javadoc obbligatorio, nomi. Sono le regole che generano diff enormi e
+    discussioni, e nessuna di esse ha mai fatto danno su questo progetto. Se un
+    giorno servira', si aggiunge la regola **dopo** aver misurato quante
+    violazioni produce, non prima.
+-->
+<module name="Checker">
+
+    <!--
+        Tutto quel che sta qui dentro blocca la build. Non esistono avvisi: un
+        rilievo che non ferma niente e' una riga di log che si impara a saltare
+        (regola 22).
+    -->
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <!--
+        Un file deve finire con un a capo. Oggi ci finiscono tutti e 88.
+        Il separatore accettato e' qualunque, di proposito: i sorgenti di questo
+        progetto sono CRLF nel working tree (Windows) e far dipendere la build
+        dal fine riga vorrebbe dire romperla al primo che clona con un'altra
+        configurazione di git. Quel che conta qui e' solo l'a capo finale, che
+        evita i diff in cui l'ultima riga risulta modificata per il solo fatto
+        di essere stata terminata.
+    -->
+    <module name="NewlineAtEndOfFile">
+        <property name="lineSeparator" value="lf_cr_crlf"/>
+    </module>
+
+    <!--
+        Niente tab: l'indentazione e' a spazi. Un file misto si legge diverso a
+        seconda di come e' configurato l'editor di chi lo apre, ed e' esattamente
+        il tipo di differenza che sporca un diff senza dire niente.
+        Violazione trovata alla misura: BackendApplication.java, corretto in
+        questo stesso branch.
+    -->
+    <module name="FileTabCharacter">
+        <property name="eachLine" value="true"/>
+    </module>
+
+    <!--
+        Righe fino a 120 caratteri.
+
+        Il numero e' misurato, non copiato: a 120 il codice attuale ha **due**
+        violazioni (corrette qui), a 100 ne avrebbe 168 — cioe' mezzo progetto da
+        riformattare per guadagnare quasi niente. Il limite serve a impedire la
+        riga da duecento caratteri che non si legge, non a imporre una colonna.
+
+        Escluse le righe che contengono solo un URL o un import: spezzarle non le
+        rende leggibili, le rende sbagliate.
+    -->
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^package .*|^import .*|^ *\* *https?://.*|^ *// *https?://.*"/>
+    </module>
+
+    <!--
+        Niente spazi in fondo alle righe. Oggi non ce n'e' nemmeno uno: e' una
+        di quelle cose che nessuno introduce apposta e che, una volta entrate,
+        compaiono nei diff di chiunque salvi il file dopo.
+    -->
+    <module name="RegexpSingleline">
+        <property name="format" value="[ \t]+$"/>
+        <property name="message" value="Spazi o tab in fondo alla riga."/>
+    </module>
+
+    <module name="TreeWalker">
+
+        <!--
+            Import inutilizzati e import ripetuti. Sono il residuo tipico di un
+            refactor: la classe non si usa piu', l'import resta, e chi legge
+            crede che quella dipendenza ci sia ancora.
+            processJavadoc a true perche' un import citato solo da un {@link} e'
+            usato davvero — in questo progetto i javadoc sono fitti (regola 5),
+            quindi senza questa proprieta' il cancello direbbe di togliere import
+            che servono.
+        -->
+        <module name="UnusedImports">
+            <property name="processJavadoc" value="true"/>
+        </module>
+        <module name="RedundantImport"/>
+
+        <!--
+            Niente import con l'asterisco. Nascondono da dove arriva un nome e
+            fanno litigare due package che espongono la stessa classe — in questo
+            progetto succede davvero: `StatoCamera` esiste sia nel dominio sia fra
+            i DTO generati dallo spec.
+        -->
+        <module name="AvoidStarImport"/>
+
+        <!--
+            Ordine degli import: prima tutto il resto in ordine alfabetico, poi
+            una riga vuota, poi java/javax, poi gli statici. E' il modo in cui
+            l'IDE li scrive gia' da solo, quindi la regola non chiede a nessuno di
+            cambiare abitudini: chiede che l'abitudine valga anche per chi
+            rinomina una classe a mano, che e' il caso in cui salta.
+
+            **Aggiunta dopo averla vista servire.** Non era nel piano di questo
+            branch: e' entrata perche' rinominando i due file di supporto ho
+            lasciato il nome nuovo nella posizione del vecchio, e nessuno degli
+            altri controlli se ne e' accorto. Misurata prima di attivarla, come
+            tutte le altre: sei violazioni in tre file, corrette qui.
+        -->
+        <module name="CustomImportOrder">
+            <property name="customImportOrderRules"
+                      value="THIRD_PARTY_PACKAGE###STANDARD_JAVA_PACKAGE###STATIC"/>
+            <property name="standardPackageRegExp" value="^(java|javax)\."/>
+            <property name="separateLineBetweenGroups" value="true"/>
+            <property name="sortImportsInGroupAlphabetically" value="true"/>
+        </module>
+
+    </module>
+
+</module>

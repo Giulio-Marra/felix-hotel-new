@@ -449,6 +449,72 @@
 					</execution>
 				</executions>
 			</plugin>
+			<!--
+				Checkstyle: l'unico dei tre cancelli che guarda la **forma** del codice.
+				SpotBugs cerca difetti e JaCoCo conta quanto e' esercitato: nessuno dei
+				due si accorge di un file con i tab o di un import rimasto li' dopo un
+				refactor. Il regolamento e' scritto su misura in checkstyle.xml — il
+				perche' sta scritto in cima a quel file.
+				Come gli altri due sta su `verify` e non in un passo del workflow: un
+				controllo che vive solo in CI non esiste sulla macchina di chi scrive, lo
+				si scopre dopo aver pushato e si impara a ignorarlo (regola 22).
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-checkstyle-plugin</artifactId>
+				<version>3.6.0</version>
+				<dependencies>
+					<!--
+						Il plugin si porta dietro una versione vecchia di Checkstyle: la si
+						sovrascrive qui, altrimenti il regolamento andrebbe scritto contro un
+						motore di anni fa.
+					-->
+					<dependency>
+						<groupId>com.puppycrawl.tools</groupId>
+						<artifactId>checkstyle</artifactId>
+						<version>10.21.4</version>
+					</dependency>
+				</dependencies>
+				<configuration>
+					<configLocation>checkstyle.xml</configLocation>
+					<!--
+						Le cartelle sono elencate a mano invece di lasciare che il plugin
+						prenda i source root del progetto: fra quelli c'e' anche
+						target/generated-sources, dove vivono DTO e interfacce prodotti dallo
+						YAML. Sono codice che la regola 12 vieta di modificare a mano, quindi
+						segnalarne lo stile vorrebbe dire aprire rilievi che nessuno puo'
+						chiudere — la stessa esclusione che hanno gia' JaCoCo e SpotBugs.
+					-->
+					<sourceDirectories>
+						<sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+					</sourceDirectories>
+					<!--
+						Anche i test, che qui sono piu' codice del main ed e' dove sta il peso
+						(regola 16). Una delle due righe troppo lunghe trovate alla misura
+						stava proprio in un IT.
+					-->
+					<includeTestSourceDirectory>true</includeTestSourceDirectory>
+					<testSourceDirectories>
+						<testSourceDirectory>${project.basedir}/src/test/java</testSourceDirectory>
+					</testSourceDirectories>
+					<!--
+						I rilievi si leggono nel log della build, non in un file dentro
+						target/ che nessuno apre. E' gia' il default di questo goal, ed e'
+						scritto lo stesso: e' la meta' che rende utile un cancello.
+					-->
+					<logViolationsToConsole>true</logViolationsToConsole>
+					<failsOnError>true</failsOnError>
+				</configuration>
+				<executions>
+					<execution>
+						<id>stile</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 

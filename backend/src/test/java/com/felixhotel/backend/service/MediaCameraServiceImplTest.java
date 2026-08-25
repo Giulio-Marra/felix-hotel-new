@@ -1,6 +1,5 @@
 package com.felixhotel.backend.service;
 
-import com.felixhotel.backend.dto.MediaCameraOrdineRequest;
 import com.felixhotel.backend.dto.MediaCameraRequest;
 import com.felixhotel.backend.dto.MediaCameraResponse;
 import com.felixhotel.backend.entity.MediaCamera;

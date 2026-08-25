@@ -55,18 +55,18 @@ jobs:
         # segnaposto (vedi src/test/resources/application-test.properties) e le
         # credenziali del database le decide Testcontainers a runtime.
         #
-        # Un comando solo, ed e' voluto: SpotBugs e la soglia di copertura sono
-        # legati alla fase `verify` nel pom, non a un passo di questo file. Cosi'
-        # `mvnw verify` fa la stessa identica cosa qui e sulla macchina di
-        # sviluppo — un passo dichiarato solo qui sarebbe un cancello che in
+        # Un comando solo, ed e' voluto: SpotBugs, Checkstyle e la soglia di
+        # copertura sono legati alla fase `verify` nel pom, non a un passo di questo
+        # file. Cosi' `mvnw verify` fa la stessa identica cosa qui e sulla macchina
+        # di sviluppo — un passo dichiarato solo qui sarebbe un cancello che in
         # locale non esiste, e lo si scoprirebbe sempre dopo aver pushato.
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
 
       - name: Pubblica i rapporti
         # Anche — soprattutto — quando qualcosa fallisce: e' il caso in cui i
-        # rapporti servono. Ci sono anche quelli di SpotBugs e JaCoCo, perche' un
-        # cancello che blocca senza far vedere cosa ha trovato costringe a
-        # riprodurre in locale quello che la CI sapeva gia'.
+        # rapporti servono. Ci sono anche quelli di SpotBugs, Checkstyle e JaCoCo,
+        # perche' un cancello che blocca senza far vedere cosa ha trovato costringe
+        # a riprodurre in locale quello che la CI sapeva gia'.
         if: always()
         uses: actions/upload-artifact@v5
         with:
@@ -76,5 +76,6 @@ jobs:
             backend/target/failsafe-reports/
             backend/target/site/jacoco/
             backend/target/spotbugsXml.xml
+            backend/target/checkstyle-result.xml
           retention-days: 7
           if-no-files-found: ignore
