@@ -3,6 +3,7 @@ package com.felixhotel.backend.controller;
 import com.felixhotel.backend.api.TipologieCameraApi;
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
+import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 import com.felixhotel.backend.service.TipologiaCameraService;
 import lombok.RequiredArgsConstructor;
@@ -72,6 +73,14 @@ public class TipologiaCameraController implements TipologieCameraApi {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiBaseResponse> eliminaTipologiaCamera(Long id) {
         ApiBaseResponse response = tipologiaCameraService.elimina(id);
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
+
+    @Override
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiBaseResponse> impostaDotazioniTipologiaCamera(
+            Long id, TipologiaCameraDotazioniRequest request) {
+        ApiBaseResponse response = tipologiaCameraService.impostaDotazioni(id, request);
         return ResponseEntity.status(response.getStatus()).body(response);
     }
 }

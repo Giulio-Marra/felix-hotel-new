@@ -179,6 +179,10 @@ paths:
                     descrizione: Camera doppia con vista sul giardino
                     capienzaMax: 2
                     prezzoNotte: 120.00
+                    dotazioni:
+                      - id: 1
+                        nome: Wi-Fi
+                        descrizione: Connessione senza fili gratuita in tutta la struttura
                 page:
                   pageNumber: 0
                   pageSize: 20
@@ -225,6 +229,10 @@ paths:
                   descrizione: Camera doppia con vista sul giardino
                   capienzaMax: 2
                   prezzoNotte: 120.00
+                  dotazioni:
+                    - id: 1
+                      nome: Wi-Fi
+                      descrizione: Connessione senza fili gratuita in tutta la struttura
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -266,6 +274,10 @@ paths:
                   descrizione: Camera doppia con vista sul giardino
                   capienzaMax: 2
                   prezzoNotte: 120.00
+                  dotazioni:
+                    - id: 1
+                      nome: Wi-Fi
+                      descrizione: Connessione senza fili gratuita in tutta la struttura
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -282,6 +294,10 @@ paths:
         Sostituisce **tutti** i campi modificabili della tipologia: e' una PUT,
         non una PATCH, quindi un campo omesso viene azzerato e non lasciato
         com'era. Riservato agli **ADMIN**.
+        **Le dotazioni non fanno parte di questo schema e non vengono
+        toccate**: hanno un endpoint proprio
+        (PUT /api/tipologie-camera/{id}/dotazioni). Non e' un'eccezione alla
+        semantica della PUT — sono una risorsa a se', non un campo di questa.
         Risposta: busta ApiBaseResponse con **TipologiaCameraResponse** in 'data'.
       security:
         - bearerAuth: []
@@ -310,6 +326,10 @@ paths:
                   descrizione: Camera doppia con vista sul mare
                   capienzaMax: 2
                   prezzoNotte: 145.00
+                  dotazioni:
+                    - id: 1
+                      nome: Wi-Fi
+                      descrizione: Connessione senza fili gratuita in tutta la struttura
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -364,6 +384,74 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/tipologie-camera/{id}/dotazioni:
+
+    put:
+      tags:
+        - TipologieCamera
+      operationId: impostaDotazioniTipologiaCamera
+      summary: Imposta le dotazioni di una tipologia di camera
+      description: >
+        Sostituisce **l'intero insieme** delle dotazioni assegnate alla
+        tipologia con quello ricevuto: quelle elencate restano o vengono
+        aggiunte, quelle assenti vengono staccate. Un array vuoto le toglie
+        tutte. Riservato agli **ADMIN**.
+        E' una PUT e non due rotte di aggiunta/rimozione perche' l'operazione
+        vera del backoffice e' "questa camera offre esattamente questo": una
+        sola chiamata, idempotente, che non lascia stati intermedi se il
+        client la ripete.
+        Se uno degli id non corrisponde a nessuna dotazione la risposta e'
+        **400** e non 404: il 404 di questo endpoint significa "questa
+        tipologia non esiste", e usarlo anche per gli id nel corpo
+        renderebbe le due cose indistinguibili proprio quando servono due
+        rimedi diversi.
+        Risposta: busta ApiBaseResponse con **TipologiaCameraResponse** in
+        'data', gia' aggiornata con le dotazioni appena impostate.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdTipologiaCamera'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TipologiaCameraDotazioniRequest'
+      responses:
+        '200':
+          description: Dotazioni impostate ('data' = TipologiaCameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Dotazioni della tipologia aggiornate
+                timestamp: 2026-08-25T10:15:30Z
+                data:
+                  id: 1
+                  nome: Doppia Superior
+                  descrizione: Camera doppia con vista sul giardino
+                  capienzaMax: 2
+                  prezzoNotte: 120.00
+                  dotazioni:
+                    - id: 2
+                      nome: Aria condizionata
+                      descrizione: Climatizzatore con regolazione indipendente
+                    - id: 1
+                      nome: Wi-Fi
+                      descrizione: Connessione senza fili gratuita in tutta la struttura
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -927,9 +1015,9 @@ components:
     TipologiaCameraResponse:
       type: object
       description: >
-        Tipologia di camera come viene restituita al client. Non porta ancora
-        le dotazioni ne' le foto: quelle arrivano con le entita' dedicate, che
-        non fanno parte di questo giro.
+        Tipologia di camera come viene restituita al client, dotazioni
+        comprese. Le foto no: quelle arrivano con l'entita' dedicata, che non
+        fa parte di questo giro.
       properties:
         id:
           type: integer
@@ -947,6 +1035,42 @@ components:
         prezzoNotte:
           type: number
           example: 120.00
+        dotazioni:
+          type: array
+          description: >
+            Dotazioni assegnate alla tipologia, in ordine alfabetico di nome.
+            Array vuoto se non ne ha nessuna. Non si impostano dallo schema di
+            scrittura della tipologia ma da
+            PUT /api/tipologie-camera/{id}/dotazioni.
+          items:
+            $ref: '#/components/schemas/DotazioneResponse'
+
+    TipologiaCameraDotazioniRequest:
+      type: object
+      description: >
+        Insieme completo delle dotazioni da assegnare a una tipologia di
+        camera. E' una sostituzione, non un'aggiunta: cio' che non compare
+        nella lista viene staccato.
+      required:
+        - dotazioniIds
+      properties:
+        dotazioniIds:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          description: >
+            Id delle dotazioni da assegnare. **Array vuoto = nessuna
+            dotazione**, ed e' il modo per toglierle tutte: e' un valore
+            legittimo, non un errore. Ripetere lo stesso id non e' un errore
+            nemmeno quello — un insieme e' un insieme, e la seconda copia
+            viene semplicemente ignorata. Il tetto di 100 elementi c'e' per lo
+            stesso motivo del tetto sulle pagine: una lista senza limite e' un
+            modo per far fare al server un lavoro deciso da chi chiama.
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+          example: [1, 2]
 
     DotazioneRequest:
       type: object

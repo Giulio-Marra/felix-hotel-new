@@ -3,9 +3,12 @@ package com.felixhotel.backend.support;
 import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -89,7 +92,17 @@ public class TestDataFactory {
      * l'altro.
      */
     public String nomeDotazioneUnivoco() {
-        return "Wi-Fi " + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
+        return nomeDotazioneUnivoco("Wi-Fi");
+    }
+
+    /**
+     * Come sopra, ma con un prefisso scelto da chi chiama. Serve ai test che
+     * verificano l'<b>ordinamento</b> delle dotazioni: li' i nomi devono essere
+     * univoci — il vincolo vale comunque — e insieme in un ordine alfabetico
+     * noto, che con un prefisso solo non sarebbe esprimibile.
+     */
+    public String nomeDotazioneUnivoco(String prefisso) {
+        return prefisso + " " + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
     }
 
     /**
@@ -101,5 +114,15 @@ public class TestDataFactory {
         return new DotazioneRequest()
                 .nome(nomeDotazioneUnivoco())
                 .descrizione("Connessione senza fili gratuita in tutta la struttura");
+    }
+
+    /**
+     * Richiesta che assegna a una tipologia esattamente le dotazioni indicate.
+     * Senza argomenti produce l'insieme vuoto, che e' il modo legittimo di
+     * toglierle tutte e non un caso limite da evitare.
+     */
+    public TipologiaCameraDotazioniRequest dotazioniIdsRequest(Long... ids) {
+        return new TipologiaCameraDotazioniRequest()
+                .dotazioniIds(new LinkedHashSet<>(Arrays.asList(ids)));
     }
 }

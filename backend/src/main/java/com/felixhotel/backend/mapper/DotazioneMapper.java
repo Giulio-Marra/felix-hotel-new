@@ -4,7 +4,9 @@ import com.felixhotel.backend.dto.DotazioneResponse;
 import com.felixhotel.backend.entity.Dotazione;
 import org.springframework.stereotype.Component;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Conversione Entity -> DTO per {@link Dotazione}. Scritta a mano per scelta di
@@ -33,5 +35,23 @@ public class DotazioneMapper {
      */
     public List<DotazioneResponse> toResponseList(List<Dotazione> dotazioni) {
         return dotazioni.stream().map(this::toResponse).toList();
+    }
+
+    /**
+     * Versione per le dotazioni di una tipologia di camera, che sono un
+     * {@link Set} e quindi non hanno un ordine proprio.
+     *
+     * <p>L'ordine va deciso qui e non dalla query: senza, la stessa scheda di
+     * camera elencherebbe le proprie dotazioni in una sequenza diversa da una
+     * lettura all'altra, e il frontend le mostrerebbe a caso. Il confronto
+     * ignora le maiuscole per la stessa ragione per cui le ignora il vincolo di
+     * unicita': "Wi-Fi" e "aria condizionata" vanno ordinate come le leggerebbe
+     * una persona, non secondo il codice dei caratteri.
+     */
+    public List<DotazioneResponse> toResponseListOrdinata(Set<Dotazione> dotazioni) {
+        return dotazioni.stream()
+                .sorted(Comparator.comparing(Dotazione::getNome, String.CASE_INSENSITIVE_ORDER))
+                .map(this::toResponse)
+                .toList();
     }
 }

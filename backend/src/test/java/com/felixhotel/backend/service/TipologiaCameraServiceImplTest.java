@@ -1,12 +1,14 @@
 package com.felixhotel.backend.service;
 
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
+import com.felixhotel.backend.entity.Dotazione;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
 import com.felixhotel.backend.exception.NotFoundException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.TipologiaCameraMapper;
+import com.felixhotel.backend.repository.DotazioneRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.service.impl.TipologiaCameraServiceImpl;
 import com.felixhotel.backend.support.TestDataFactory;
@@ -60,6 +62,8 @@ class TipologiaCameraServiceImplTest {
 
     @Mock
     private TipologiaCameraRepository tipologiaCameraRepository;
+    @Mock
+    private DotazioneRepository dotazioneRepository;
     @Mock
     private TipologiaCameraMapper tipologiaCameraMapper;
     @Mock
@@ -330,6 +334,127 @@ class TipologiaCameraServiceImplTest {
                     .isInstanceOf(ConflictException.class)
                     .extracting(ex -> ((ConflictException) ex).getStatus())
                     .isEqualTo(HttpStatus.CONFLICT);
+        }
+    }
+
+    @Nested
+    @DisplayName("impostaDotazioni")
+    class ImpostaDotazioni {
+
+        /** Dotazione gia' esistente a database, con nome e id dati. */
+        private Dotazione dotazione(Long id, String nome) {
+            Dotazione dotazione = new Dotazione();
+            dotazione.setId(id);
+            dotazione.setNome(nome);
+            return dotazione;
+        }
+
+        @Test
+        @DisplayName("con tipologia inesistente solleva NotFoundException senza cercare le dotazioni")
+        void impostaDotazioni_conTipologiaInesistente_sollevaNotFound() {
+            // given: nessuna tipologia con quell'id
+            when(tipologiaCameraRepository.findById(ID)).thenReturn(Optional.empty());
+
+            // when/then: 404
+            assertThatThrownBy(() -> tipologiaCameraService.impostaDotazioni(ID, dati.dotazioniIdsRequest(1L)))
+                    .isInstanceOf(NotFoundException.class)
+                    .extracting(ex -> ((NotFoundException) ex).getStatus())
+                    .isEqualTo(HttpStatus.NOT_FOUND);
+
+            // then: l'ordine conta. Risolvere prima gli id delle dotazioni farebbe dare
+            // 400 ("questi id non vanno bene") a chi in realta' ha sbagliato la tipologia
+            verify(dotazioneRepository, never()).findAllById(any());
+        }
+
+        @Test
+        @DisplayName("con un id di dotazione inesistente solleva BadRequestException elencandolo")
+        void impostaDotazioni_conIdDotazioneInesistente_sollevaBadRequest() {
+            // given: la tipologia c'e', ma delle due dotazioni chieste ne esiste una sola
+            when(tipologiaCameraRepository.findById(ID)).thenReturn(Optional.of(tipologiaEsistente()));
+            when(dotazioneRepository.findAllById(any())).thenReturn(List.of(dotazione(4L, "Wi-Fi")));
+
+            // when/then: 400 e non 404 — il 404 di questo metodo vuol dire "la tipologia
+            // non esiste", e usarlo anche qui renderebbe indistinguibili due errori che si
+            // riparano in modo diverso. Il messaggio dice *quale* id non va bene: senza,
+            // il client dovrebbe indovinare
+            assertThatThrownBy(() -> tipologiaCameraService.impostaDotazioni(ID, dati.dotazioniIdsRequest(4L, 9L)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("9")
+                    .extracting(ex -> ((BadRequestException) ex).getStatus())
+                    .isEqualTo(HttpStatus.BAD_REQUEST);
+
+            // then: niente e' stato scritto
+            verify(tipologiaCameraRepository, never()).saveAndFlush(any());
+        }
+
+        @Test
+        @DisplayName("con id validi sostituisce l'insieme invece di aggiungersi a quello vecchio")
+        void impostaDotazioni_conIdValidi_sostituisceInsieme() {
+            // given: una tipologia che ha gia' una dotazione, e la richiesta ne chiede
+            // altre due — quella di prima non e' nell'elenco
+            TipologiaCamera esistente = tipologiaEsistente();
+            esistente.getDotazioni().add(dotazione(1L, "Minibar"));
+
+            Dotazione aria = dotazione(2L, "Aria condizionata");
+            Dotazione wifi = dotazione(3L, "Wi-Fi");
+
+            when(tipologiaCameraRepository.findById(ID)).thenReturn(Optional.of(esistente));
+            when(dotazioneRepository.findAllById(any())).thenReturn(List.of(aria, wifi));
+            when(tipologiaCameraRepository.saveAndFlush(any(TipologiaCamera.class))).thenReturn(esistente);
+
+            // when: si impostano le dotazioni
+            tipologiaCameraService.impostaDotazioni(ID, dati.dotazioniIdsRequest(2L, 3L));
+
+            // then: l'insieme e' esattamente quello richiesto. E' il punto dell'endpoint:
+            // una PUT sostituisce, non aggiunge — se il Minibar sopravvivesse, chiedere
+            // "questa camera offre esattamente questo" non funzionerebbe
+            ArgumentCaptor<TipologiaCamera> salvata = ArgumentCaptor.forClass(TipologiaCamera.class);
+            verify(tipologiaCameraRepository).saveAndFlush(salvata.capture());
+
+            assertThat(salvata.getValue().getDotazioni()).containsExactlyInAnyOrder(aria, wifi);
+            verify(apiResponseMapper).toResponse(eq(HttpStatus.OK), anyString(), any());
+        }
+
+        @Test
+        @DisplayName("con lista vuota toglie tutte le dotazioni")
+        void impostaDotazioni_conListaVuota_svuotaInsieme() {
+            // given: una tipologia con due dotazioni assegnate
+            TipologiaCamera esistente = tipologiaEsistente();
+            esistente.getDotazioni().add(dotazione(1L, "Minibar"));
+            esistente.getDotazioni().add(dotazione(2L, "Wi-Fi"));
+
+            when(tipologiaCameraRepository.findById(ID)).thenReturn(Optional.of(esistente));
+            when(dotazioneRepository.findAllById(any())).thenReturn(List.of());
+            when(tipologiaCameraRepository.saveAndFlush(any(TipologiaCamera.class))).thenReturn(esistente);
+
+            // when: si manda l'insieme vuoto
+            tipologiaCameraService.impostaDotazioni(ID, dati.dotazioniIdsRequest());
+
+            // then: non ne resta nessuna. L'array vuoto e' il modo previsto di toglierle
+            // tutte, non un caso limite da rifiutare: senza questo test, un controllo
+            // "se e' vuoto non fare niente" aggiunto per prudenza passerebbe inosservato
+            ArgumentCaptor<TipologiaCamera> salvata = ArgumentCaptor.forClass(TipologiaCamera.class);
+            verify(tipologiaCameraRepository).saveAndFlush(salvata.capture());
+
+            assertThat(salvata.getValue().getDotazioni()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("se una dotazione sparisce durante la scrittura risponde 400 e non 500")
+        void impostaDotazioni_conDotazioneCancellataNelFrattempo_sollevaBadRequest() {
+            // given: gli id risultano validi al controllo, ma la scrittura viola la chiave
+            // esterna — e' la dotazione cancellata da un'altra richiesta nel frattempo,
+            // che nessun controllo preventivo puo' vedere
+            when(tipologiaCameraRepository.findById(ID)).thenReturn(Optional.of(tipologiaEsistente()));
+            when(dotazioneRepository.findAllById(any())).thenReturn(List.of(dotazione(4L, "Wi-Fi")));
+            when(tipologiaCameraRepository.saveAndFlush(any(TipologiaCamera.class)))
+                    .thenThrow(new DataIntegrityViolationException("fk tipologia_camera_dotazione -> dotazione"));
+
+            // when/then: 400 e non 500. La richiesta e' arrivata tardi, non e' rotto niente
+            assertThatThrownBy(() -> tipologiaCameraService.impostaDotazioni(ID, dati.dotazioniIdsRequest(4L)))
+                    .isInstanceOf(BadRequestException.class)
+                    .extracting(ex -> ((BadRequestException) ex).getStatus())
+                    .isEqualTo(HttpStatus.BAD_REQUEST);
         }
     }
 }

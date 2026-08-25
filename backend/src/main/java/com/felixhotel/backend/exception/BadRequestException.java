@@ -18,4 +18,14 @@ public class BadRequestException extends AppException {
     public BadRequestException(String message) {
         super(HttpStatus.BAD_REQUEST, message);
     }
+
+    /**
+     * Variante che conserva l'eccezione originale nei log, gemella di quella
+     * gia' presente su {@link ConflictException}. Serve quando a scoprire
+     * l'input sbagliato e' il database e non un nostro controllo preventivo:
+     * il vincolo violato interessa a noi, non a chi ha fatto la richiesta.
+     */
+    public BadRequestException(String message, Throwable cause) {
+        super(HttpStatus.BAD_REQUEST, message, cause);
+    }
 }

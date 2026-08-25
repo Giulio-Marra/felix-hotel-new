@@ -2,15 +2,22 @@ package com.felixhotel.backend.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Tipologia di camera offerta dalla struttura (Singola, Doppia Superior,
@@ -62,4 +69,40 @@ public class TipologiaCamera extends BaseAuditableEntity {
      */
     @Column(name = "prezzo_notte", nullable = false, precision = 10, scale = 2)
     private BigDecimal prezzoNotte;
+
+    /**
+     * Dotazioni offerte da questa tipologia. La relazione e' many-to-many e la
+     * tabella di legame esiste dal V1.
+     *
+     * <p><b>Il lato proprietario e' questo</b>, ed e' l'unico che c'e':
+     * {@link Dotazione} non ha la collezione inversa perche' nessun caso d'uso
+     * la chiede, e una relazione bidirezionale che nessuno legge sarebbe solo
+     * un secondo posto da tenere allineato.
+     *
+     * <p><b>{@code @BatchSize} e non {@code @EntityGraph} sull'elenco.</b> La
+     * differenza conta e non e' un dettaglio di ottimizzazione: chiedere il
+     * fetch di una collezione dentro una query paginata costringe Hibernate a
+     * caricare <b>tutte</b> le righe e a impaginare in memoria (avvisa con
+     * HHH90003004), cioe' a fare l'esatto contrario di quel che la paginazione
+     * serve a evitare. Col batch la pagina resta decisa dal database e le
+     * dotazioni arrivano con una seconda query sola per l'intera pagina, invece
+     * di una per riga.
+     *
+     * <p>Sul <b>dettaglio</b> non c'e' quel problema — una riga sola, nessuna
+     * paginazione — e infatti li' il repository usa {@code @EntityGraph}: e' la
+     * regola 15 applicata alla query che ne ha bisogno, non all'entita'.
+     *
+     * <p>{@code LinkedHashSet} inizializzato subito: un {@code Set} perche' la
+     * chiave primaria della tabella di legame e' la coppia (tipologia,
+     * dotazione) e la stessa dotazione non puo' comparire due volte; gia'
+     * costruito perche' un'entity appena creata deve poter ricevere
+     * {@code addAll} senza che nessuno debba ricordarsi di inizializzarla.
+     */
+    @BatchSize(size = 50)
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "tipologia_camera_dotazione",
+            joinColumns = @JoinColumn(name = "tipologia_camera_id"),
+            inverseJoinColumns = @JoinColumn(name = "dotazione_id"))
+    private Set<Dotazione> dotazioni = new LinkedHashSet<>();
 }

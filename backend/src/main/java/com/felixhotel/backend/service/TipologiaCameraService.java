@@ -2,6 +2,7 @@ package com.felixhotel.backend.service;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
+import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
 /**
@@ -44,4 +45,17 @@ public interface TipologiaCameraService {
      * {@code ConflictException} se qualcosa la referenzia ancora.
      */
     ApiBaseResponse elimina(Long id);
+
+    /**
+     * Sostituisce l'intero insieme delle dotazioni assegnate alla tipologia:
+     * quelle elencate restano o vengono aggiunte, quelle assenti staccate. Una
+     * lista vuota le toglie tutte, ed e' un valore legittimo.
+     *
+     * <p>Solleva {@code NotFoundException} se la tipologia non esiste e
+     * {@code BadRequestException} se uno degli id non corrisponde a nessuna
+     * dotazione — due status diversi di proposito: il 404 dice "la tipologia
+     * che hai indicato nell'URL non c'e'", il 400 "gli id che mi hai mandato
+     * dentro non sono buoni", e sono due cose da riparare in modo diverso.
+     */
+    ApiBaseResponse impostaDotazioni(Long id, TipologiaCameraDotazioniRequest request);
 }

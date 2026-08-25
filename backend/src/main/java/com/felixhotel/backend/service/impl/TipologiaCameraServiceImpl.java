@@ -2,13 +2,16 @@ package com.felixhotel.backend.service.impl;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
+import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
+import com.felixhotel.backend.entity.Dotazione;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
 import com.felixhotel.backend.exception.NotFoundException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.TipologiaCameraMapper;
+import com.felixhotel.backend.repository.DotazioneRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.service.TipologiaCameraService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Implementazione del catalogo delle tipologie di camera.
@@ -44,6 +51,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class TipologiaCameraServiceImpl implements TipologiaCameraService {
 
     private final TipologiaCameraRepository tipologiaCameraRepository;
+
+    /**
+     * Serve solo a risolvere gli id ricevuti da {@link #impostaDotazioni}. Le
+     * dotazioni hanno un Service proprio, ma chiamarlo da qui vorrebbe dire
+     * farsi restituire delle buste HTTP da spacchettare per leggere delle
+     * righe: fra due Service che si parlano e un repository usato per quello
+     * che e', il repository e' la dipendenza onesta.
+     */
+    private final DotazioneRepository dotazioneRepository;
+
     private final TipologiaCameraMapper tipologiaCameraMapper;
     private final ApiResponseMapper apiResponseMapper;
 
@@ -148,6 +165,79 @@ public class TipologiaCameraServiceImpl implements TipologiaCameraService {
         // 200 e non 204 perche' la busta standard vale per ogni endpoint del progetto,
         // e un 204 per definizione non ha corpo.
         return apiResponseMapper.toResponse(HttpStatus.OK, "Tipologia di camera eliminata", null);
+    }
+
+    /**
+     * Sostituisce l'insieme delle dotazioni assegnate alla tipologia.
+     *
+     * <p><b>Perche' un endpoint suo e non un campo di {@code TipologiaCameraRequest}.</b>
+     * Le dotazioni sono righe di un'altra tabella, non un attributo di questa:
+     * infilarle nella PUT della tipologia vorrebbe dire che chi cambia un prezzo
+     * deve rimandare anche l'elenco delle dotazioni, e che dimenticarselo le
+     * cancella tutte. Tenerle separate rende ogni chiamata responsabile di una
+     * cosa sola.
+     *
+     * <p><b>Gli id sconosciuti danno 400, non 404.</b> Il 404 di questo endpoint
+     * ha gia' un significato — la tipologia nell'URL non esiste — e riusarlo per
+     * gli id nel corpo renderebbe indistinguibili due situazioni che si
+     * riparano in modo diverso. Il messaggio elenca quali id non sono buoni:
+     * dire "una delle dotazioni non esiste" lascerebbe al client il compito di
+     * indovinare quale.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse impostaDotazioni(Long id, TipologiaCameraDotazioniRequest request) {
+        TipologiaCamera tipologia = trovaOrElseThrow(id);
+
+        // Il DTO generato espone un Set (uniqueItems nello spec), quindi gli id ripetuti
+        // sono gia' collassati qui: mandare due volte la stessa dotazione non e' un
+        // errore, e' solo un modo ridondante di chiedere la stessa cosa.
+        Set<Long> idsRichiesti = request.getDotazioniIds();
+        List<Dotazione> dotazioni = dotazioneRepository.findAllById(idsRichiesti);
+
+        if (dotazioni.size() != idsRichiesti.size()) {
+            throw new BadRequestException(
+                    "Dotazioni inesistenti: " + elencaIdMancanti(idsRichiesti, dotazioni));
+        }
+
+        // Si svuota e si riempie la collezione esistente invece di assegnarne una nuova:
+        // e' quella che Hibernate sta osservando, e sostituirla gli farebbe perdere di
+        // vista le modifiche.
+        tipologia.getDotazioni().clear();
+        tipologia.getDotazioni().addAll(dotazioni);
+
+        TipologiaCamera salvata = salvaGestendoLaDotazioneSparita(tipologia);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Dotazioni della tipologia aggiornate",
+                tipologiaCameraMapper.toResponse(salvata));
+    }
+
+    /** Gli id richiesti che non hanno trovato riscontro, in chiaro e in ordine. */
+    private String elencaIdMancanti(Set<Long> idsRichiesti, List<Dotazione> trovate) {
+        Set<Long> idsTrovati = trovate.stream().map(Dotazione::getId).collect(Collectors.toSet());
+
+        return idsRichiesti.stream()
+                .filter(idRichiesto -> !idsTrovati.contains(idRichiesto))
+                .sorted()
+                .map(String::valueOf)
+                .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Scrive subito per poter tradurre in 400 la violazione della chiave esterna
+     * verso {@code dotazione}. E' la stessa rete del controllo sui duplicati: fra
+     * il {@code findAllById} qui sopra e la scrittura ci sta una richiesta che
+     * cancella una di quelle dotazioni, e senza il flush esplicito l'errore
+     * arriverebbe al commit — cioe' fuori da questo metodo — e tornerebbe al
+     * client come 500 invece che come "quegli id non vanno piu' bene".
+     */
+    private TipologiaCamera salvaGestendoLaDotazioneSparita(TipologiaCamera tipologia) {
+        try {
+            return tipologiaCameraRepository.saveAndFlush(tipologia);
+        } catch (DataIntegrityViolationException ex) {
+            throw new BadRequestException(
+                    "Una delle dotazioni indicate non esiste piu': ricarica l'elenco e riprova", ex);
+        }
     }
 
     /**

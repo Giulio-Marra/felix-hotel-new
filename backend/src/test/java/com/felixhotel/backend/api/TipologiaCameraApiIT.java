@@ -10,9 +10,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -35,6 +38,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>un endpoint che risponde <b>404</b> e uno che risponde <b>409</b> per un
  *       vincolo del database e non per un controllo nostro.</li>
  * </ul>
+ *
+ * <p>Copre anche il sottopercorso {@code /{id}/dotazioni}, che e' il primo
+ * endpoint del progetto a modificare una <b>relazione</b> invece di una riga.
  *
  * <p>Come gli altri IT, ogni test verifica <b>sia lo status HTTP sia la forma
  * della busta</b>: il codice da solo lascerebbe scoperta meta' della convenzione.
@@ -512,6 +518,285 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
             // risposta e' giusta, non che la cancellazione non e' avvenuta lo stesso
             mockMvc.perform(get(TIPOLOGIE + "/" + id))
                     .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("PUT /api/tipologie-camera/{id}/dotazioni")
+    class Dotazioni {
+
+        /**
+         * Crea una dotazione col nome dato e ne restituisce l'id. Il nome arriva
+         * gia' reso univoco da {@code TestDataFactory}: il database non viene
+         * ripulito fra un test e l'altro, quindi due test che usassero "Wi-Fi"
+         * secco si romperebbero a vicenda con un 409.
+         */
+        private long creaDotazione(String token, String nome) throws Exception {
+            String risposta = mockMvc.perform(post("/api/dotazioni")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioneRequest().nome(nome))))
+                    .andExpect(status().isCreated())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+
+            return objectMapper.readTree(risposta).path("data").path("id").asLong();
+        }
+
+        /**
+         * Cerca una tipologia nell'elenco paginato pubblico, scorrendo le pagine
+         * finche' non la trova.
+         *
+         * <p>Non si guarda solo la prima pagina: l'elenco e' condiviso da tutta la
+         * suite e cresce ad ogni test che crea una tipologia, quindi "sta nella
+         * prima pagina" e' vero oggi e sara' falso quando i test saranno di piu' —
+         * cioe' un test che passa finche' non serve davvero.
+         */
+        private JsonNode cercaNellElenco(long idTipologia) throws Exception {
+            int pagina = 0;
+            while (true) {
+                String risposta = mockMvc.perform(get(TIPOLOGIE)
+                                .param("page", String.valueOf(pagina))
+                                .param("size", "100"))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+
+                JsonNode busta = objectMapper.readTree(risposta);
+                for (JsonNode elemento : busta.path("data")) {
+                    if (elemento.path("id").asLong() == idTipologia) {
+                        return elemento;
+                    }
+                }
+
+                if (++pagina >= busta.path("page").path("totalPages").asInt()) {
+                    throw new AssertionError(
+                            "tipologia " + idTipologia + " non trovata in nessuna pagina dell'elenco");
+                }
+            }
+        }
+
+        /** Imposta le dotazioni di una tipologia, fallendo il test se non riesce. */
+        private void impostaDotazioni(String token, long idTipologia, Long... idsDotazioni) throws Exception {
+            mockMvc.perform(put(TIPOLOGIE + "/" + idTipologia + "/dotazioni")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest(idsDotazioni))))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("da anonimo risponde 401")
+        void dotazioni_daAnonimo_risponde401() throws Exception {
+            // given: una tipologia a catalogo
+            long id = creaTipologia(tokenAdmin(), dati.tipologiaCameraRequest());
+
+            // when: si prova a impostarne le dotazioni senza token
+            mockMvc.perform(put(TIPOLOGIE + "/" + id + "/dotazioni")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest())))
+                    // then: 401. Il sottopercorso non e' coperto dal permitAll delle GET,
+                    // che si ferma a un segmento solo: e' la ragione per cui in
+                    // SecurityConfig c'e' "/*" e non "/**"
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.status").value(401));
+        }
+
+        @Test
+        @DisplayName("con un token da cliente risponde 403")
+        void dotazioni_conTokenUtente_risponde403() throws Exception {
+            // given: una tipologia e un cliente qualsiasi
+            long id = creaTipologia(tokenAdmin(), dati.tipologiaCameraRequest());
+
+            RegisterRequest cliente = dati.registerRequest();
+            registraAccount(cliente);
+            String tokenCliente = ottieniToken(cliente.getEmail());
+
+            // when: il cliente prova a cambiare le dotazioni della camera
+            mockMvc.perform(put(TIPOLOGIE + "/" + id + "/dotazioni")
+                            .header("Authorization", "Bearer " + tokenCliente)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest())))
+                    // then: 403 — e' un'operazione da backoffice
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+        }
+
+        @Test
+        @DisplayName("da ADMIN assegna le dotazioni e le restituisce in ordine alfabetico")
+        void dotazioni_daAdmin_assegnaEOrdina() throws Exception {
+            // given: una tipologia e due dotazioni, create in ordine inverso a quello
+            // alfabetico proprio per vedere se l'ordine della risposta viene deciso
+            String token = tokenAdmin();
+            long idTipologia = creaTipologia(token, dati.tipologiaCameraRequest());
+
+            String nomeWifi = dati.nomeDotazioneUnivoco("Wi-Fi");
+            String nomeAria = dati.nomeDotazioneUnivoco("Aria condizionata");
+            long idWifi = creaDotazione(token, nomeWifi);
+            long idAria = creaDotazione(token, nomeAria);
+
+            // when: si assegnano entrambe, mandando per prima la Wi-Fi
+            mockMvc.perform(put(TIPOLOGIE + "/" + idTipologia + "/dotazioni")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest(idWifi, idAria))))
+                    // then: 200 con la tipologia gia' aggiornata, dotazioni in ordine
+                    // alfabetico e non nell'ordine in cui sono state mandate. Un Set non ha
+                    // un ordine proprio: senza deciderlo noi, la stessa scheda elencherebbe
+                    // le sue dotazioni in sequenza diversa a ogni lettura, e il frontend le
+                    // mostrerebbe a caso
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(200))
+                    .andExpect(jsonPath("$.data.id").value(idTipologia))
+                    .andExpect(jsonPath("$.data.dotazioni.length()").value(2))
+                    .andExpect(jsonPath("$.data.dotazioni[0].nome").value(nomeAria))
+                    .andExpect(jsonPath("$.data.dotazioni[1].nome").value(nomeWifi));
+        }
+
+        @Test
+        @DisplayName("sostituisce l'insieme invece di aggiungersi a quello precedente")
+        void dotazioni_conSecondaChiamata_sostituisceInsieme() throws Exception {
+            // given: una tipologia con due dotazioni gia' assegnate
+            String token = tokenAdmin();
+            long idTipologia = creaTipologia(token, dati.tipologiaCameraRequest());
+            long idWifi = creaDotazione(token, dati.nomeDotazioneUnivoco("Wi-Fi"));
+            long idAria = creaDotazione(token, dati.nomeDotazioneUnivoco("Aria condizionata"));
+            impostaDotazioni(token, idTipologia, idWifi, idAria);
+
+            // when: si richiama l'endpoint con la sola Wi-Fi
+            mockMvc.perform(put(TIPOLOGIE + "/" + idTipologia + "/dotazioni")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest(idWifi))))
+                    // then: resta solo quella. E' il senso della PUT: il client dichiara
+                    // l'insieme completo, non un delta — se l'aria condizionata
+                    // sopravvivesse, "questa camera offre esattamente questo" non sarebbe
+                    // esprimibile con nessuna chiamata
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.dotazioni.length()").value(1))
+                    .andExpect(jsonPath("$.data.dotazioni[0].id").value(idWifi));
+        }
+
+        @Test
+        @DisplayName("con lista vuota toglie tutte le dotazioni")
+        void dotazioni_conListaVuota_svuota() throws Exception {
+            // given: una tipologia con una dotazione assegnata
+            String token = tokenAdmin();
+            long idTipologia = creaTipologia(token, dati.tipologiaCameraRequest());
+            long idWifi = creaDotazione(token, dati.nomeDotazioneUnivoco("Wi-Fi"));
+            impostaDotazioni(token, idTipologia, idWifi);
+
+            // when: si manda l'insieme vuoto
+            mockMvc.perform(put(TIPOLOGIE + "/" + idTipologia + "/dotazioni")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest())))
+                    // then: 200 e nessuna dotazione. L'array vuoto e' il modo previsto di
+                    // toglierle tutte, non un caso limite da rifiutare
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.dotazioni").isArray())
+                    .andExpect(jsonPath("$.data.dotazioni.length()").value(0));
+
+            // then: e la dotazione esiste ancora — staccata, non cancellata
+            mockMvc.perform(get("/api/dotazioni/" + idWifi)).andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("con un id di dotazione inesistente risponde 400 dicendo quale")
+        void dotazioni_conIdInesistente_risponde400() throws Exception {
+            // given: una tipologia e una dotazione vera
+            String token = tokenAdmin();
+            long idTipologia = creaTipologia(token, dati.tipologiaCameraRequest());
+            long idWifi = creaDotazione(token, dati.nomeDotazioneUnivoco("Wi-Fi"));
+
+            // when: si chiede di assegnare anche un id che non esiste
+            mockMvc.perform(put(TIPOLOGIE + "/" + idTipologia + "/dotazioni")
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest(idWifi, 999999999L))))
+                    // then: 400 e non 404 — il 404 qui vuol dire "questa tipologia non
+                    // esiste", e riusarlo renderebbe i due casi indistinguibili. Il
+                    // messaggio nomina l'id colpevole invece di dire "uno di questi"
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value(containsString("999999999")));
+
+            // then: e la tipologia e' rimasta senza dotazioni — il rifiuto non ha
+            // assegnato "quelle buone" a meta'
+            mockMvc.perform(get(TIPOLOGIE + "/" + idTipologia))
+                    .andExpect(jsonPath("$.data.dotazioni.length()").value(0));
+        }
+
+        @Test
+        @DisplayName("con tipologia inesistente risponde 404")
+        void dotazioni_conTipologiaInesistente_risponde404() throws Exception {
+            // when: si impostano le dotazioni di una tipologia che non c'e'
+            mockMvc.perform(put(TIPOLOGIE + "/999999999/dotazioni")
+                            .header("Authorization", "Bearer " + tokenAdmin())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.dotazioniIdsRequest())))
+                    // then: 404, non 400: e' la risorsa dell'URL a mancare
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404));
+        }
+
+        @Test
+        @DisplayName("le dotazioni compaiono anche nel dettaglio e nell'elenco pubblici")
+        void dotazioni_dopoAssegnazione_compaiononoInLettura() throws Exception {
+            // given: una tipologia con una dotazione assegnata
+            String token = tokenAdmin();
+            TipologiaCameraRequest richiesta = dati.tipologiaCameraRequest();
+            long idTipologia = creaTipologia(token, richiesta);
+            long idWifi = creaDotazione(token, dati.nomeDotazioneUnivoco("Wi-Fi"));
+            impostaDotazioni(token, idTipologia, idWifi);
+
+            // when/then: il dettaglio pubblico le mostra. E' la lettura che carica la
+            // collezione con @EntityGraph: senza, fuori dalla transazione sarebbe una
+            // LazyInitializationException, cioe' un 500 sull'endpoint piu' visitato
+            mockMvc.perform(get(TIPOLOGIE + "/" + idTipologia))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.dotazioni.length()").value(1))
+                    .andExpect(jsonPath("$.data.dotazioni[0].id").value(idWifi));
+
+            // when/then: e le mostra anche l'elenco paginato, che invece le carica col
+            // @BatchSize — un percorso diverso, quindi va provato a parte e non dedotto.
+            // E' il caso in cui un @EntityGraph avrebbe funzionato lo stesso, ma
+            // impaginando in memoria: il test dice che le dotazioni ci sono, non come
+            // ci sono arrivate
+            JsonNode nellElenco = cercaNellElenco(idTipologia);
+
+            assertThat(nellElenco.path("dotazioni")).hasSize(1);
+            assertThat(nellElenco.path("dotazioni").get(0).path("id").asLong()).isEqualTo(idWifi);
+        }
+
+        @Test
+        @DisplayName("aggiornare i dati della tipologia non tocca le sue dotazioni")
+        void dotazioni_dopoPutSullaTipologia_restanoAssegnate() throws Exception {
+            // given: una tipologia con una dotazione assegnata
+            String token = tokenAdmin();
+            TipologiaCameraRequest originale = dati.tipologiaCameraRequest();
+            long idTipologia = creaTipologia(token, originale);
+            long idWifi = creaDotazione(token, dati.nomeDotazioneUnivoco("Wi-Fi"));
+            impostaDotazioni(token, idTipologia, idWifi);
+
+            // when: si aggiorna la tipologia con la PUT dei suoi campi, che delle
+            // dotazioni non sa niente
+            mockMvc.perform(put(TIPOLOGIE + "/" + idTipologia)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.tipologiaCameraRequest()
+                                    .nome(originale.getNome())
+                                    .prezzoNotte(new BigDecimal("199.00")))))
+                    // then: il prezzo cambia e la dotazione resta. La PUT azzera i campi
+                    // che non riceve — e' scritto nel contratto — quindi va detto e
+                    // protetto che le dotazioni non sono uno di quei campi: sono una
+                    // risorsa a se', con un endpoint suo
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.prezzoNotte").value(199.00))
+                    .andExpect(jsonPath("$.data.dotazioni.length()").value(1))
+                    .andExpect(jsonPath("$.data.dotazioni[0].id").value(idWifi));
         }
     }
 }
