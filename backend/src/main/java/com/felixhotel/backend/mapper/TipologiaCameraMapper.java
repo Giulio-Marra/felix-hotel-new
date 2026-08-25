@@ -1,6 +1,7 @@
 package com.felixhotel.backend.mapper;
 
 import com.felixhotel.backend.dto.TipologiaCameraResponse;
+import com.felixhotel.backend.dto.TipologiaCameraSintesi;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,26 @@ public class TipologiaCameraMapper {
                 .capienzaMax(tipologia.getCapienzaMax())
                 .prezzoNotte(tipologia.getPrezzoNotte())
                 .dotazioni(dotazioneMapper.toResponseListOrdinata(tipologia.getDotazioni()));
+    }
+
+    /**
+     * Versione ridotta, per quando la tipologia compare <b>dentro</b> un'altra
+     * risorsa (oggi: la camera fisica). Porta solo id e nome.
+     *
+     * <p>Non e' una mancanza ma il punto: {@link #toResponse} porta con se'
+     * prezzo, descrizione e l'elenco delle dotazioni, e un elenco di cinquanta
+     * camere se le trascinerebbe dietro cinquanta volte per mostrare un nome.
+     * Chi guarda l'inventario vuole sapere "che tipo e' la 101", non rileggere
+     * il listino.
+     *
+     * <p>Effetto pratico: questa conversione **non tocca la collezione delle
+     * dotazioni**, quindi non la fa caricare — un elenco di camere non paga
+     * nemmeno la query in batch.
+     */
+    public TipologiaCameraSintesi toSintesi(TipologiaCamera tipologia) {
+        return new TipologiaCameraSintesi()
+                .id(tipologia.getId())
+                .nome(tipologia.getNome());
     }
 
     /** Versione per gli endpoint di lista: stessa conversione, applicata a una pagina di risultati. */

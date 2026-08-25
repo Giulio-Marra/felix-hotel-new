@@ -671,6 +671,315 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/camere:
+
+    get:
+      tags:
+        - Camere
+      operationId: elencaCamere
+      summary: Elenco paginato delle camere fisiche
+      description: >
+        Restituisce le camere della struttura, in ordine di numero e divise in
+        pagine, con due filtri facoltativi che si combinano fra loro.
+        **Non e' pubblico**, a differenza del catalogo: richiede un account del
+        personale (**STAFF** o **ADMIN**). Il cliente prenota una tipologia e
+        non la singola stanza, quindi numeri di camera e stato operativo non
+        sono dati che il sito mostra — dire a chiunque quante stanze ci sono e
+        quali sono occupate non serve a nessuno che stia prenotando.
+        Risposta: busta ApiBaseResponsePaginated con un **array di
+        CameraResponse** in 'data' e i metadati di pagina in 'page'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+        - $ref: '#/components/parameters/FiltroTipologiaCamera'
+        - $ref: '#/components/parameters/FiltroStatoCamera'
+      responses:
+        '200':
+          description: Pagina di camere ('data' = array di CameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+              example:
+                status: 200
+                message: Camere recuperate
+                timestamp: 2026-08-25T10:15:30Z
+                data:
+                  - id: 1
+                    numero: "101"
+                    piano: 1
+                    stato: LIBERA
+                    tipologia:
+                      id: 1
+                      nome: Doppia Superior
+                page:
+                  pageNumber: 0
+                  pageSize: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Camere
+      operationId: creaCamera
+      summary: Crea una camera
+      description: >
+        Aggiunge una camera all'inventario. Riservato agli **ADMIN**: aprire una
+        stanza nuova non e' un'operazione da turno, e' una modifica alla
+        struttura.
+        Il numero deve essere libero — il confronto ignora le maiuscole, quindi
+        "12A" e "12a" sono la stessa camera e la seconda riceve 409.
+        La camera nasce **LIBERA** se non si dice altro.
+        Risposta: busta ApiBaseResponse con **CameraResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraRequest'
+      responses:
+        '201':
+          description: Camera creata ('data' = CameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Camera creata
+                timestamp: 2026-08-25T10:15:30Z
+                data:
+                  id: 1
+                  numero: "101"
+                  piano: 1
+                  stato: LIBERA
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/camere/{id}:
+
+    get:
+      tags:
+        - Camere
+      operationId: dettaglioCamera
+      summary: Dettaglio di una camera
+      description: >
+        Restituisce una singola camera. **STAFF** o **ADMIN**, per lo stesso
+        motivo dell'elenco.
+        Risposta: busta ApiBaseResponse con **CameraResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdCamera'
+      responses:
+        '200':
+          description: Camera trovata ('data' = CameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Camera recuperata
+                timestamp: 2026-08-25T10:15:30Z
+                data:
+                  id: 1
+                  numero: "101"
+                  piano: 1
+                  stato: LIBERA
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags:
+        - Camere
+      operationId: aggiornaCamera
+      summary: Aggiorna una camera
+      description: >
+        Sostituisce **tutti** i campi modificabili della camera: e' una PUT, non
+        una PATCH. Riservato agli **ADMIN**.
+        Lo stato fa parte dei campi sostituiti, quindi **ometterlo riporta la
+        camera a LIBERA** e non la lascia com'era. Non e' un'eccezione ma il
+        verbo: per cambiare solo lo stato c'e'
+        PUT /api/camere/{id}/stato, che non obbliga a rimandare numero, piano e
+        tipologia — e' aperto anche allo STAFF, e non puo' rimettere in servizio
+        una stanza guasta per distrazione.
+        Risposta: busta ApiBaseResponse con **CameraResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdCamera'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraRequest'
+      responses:
+        '200':
+          description: Camera aggiornata ('data' = CameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Camera aggiornata
+                timestamp: 2026-08-25T10:15:30Z
+                data:
+                  id: 1
+                  numero: "101"
+                  piano: 2
+                  stato: LIBERA
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - Camere
+      operationId: eliminaCamera
+      summary: Elimina una camera
+      description: >
+        Rimuove la camera dall'inventario. Riservato agli **ADMIN**.
+        Fallisce con **409** se ci sono prenotazioni che la referenziano: il
+        vincolo lo impone il database, e cancellare a cascata porterebbe via lo
+        storico. Una stanza fuori uso si segna MANUTENZIONE, non si cancella.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdCamera'
+      responses:
+        '200':
+          description: Camera eliminata ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Camera eliminata
+                timestamp: 2026-08-25T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/camere/{id}/stato:
+
+    put:
+      tags:
+        - Camere
+      operationId: impostaStatoCamera
+      summary: Cambia lo stato operativo di una camera
+      description: >
+        Porta la camera in un nuovo stato operativo. Aperto a **STAFF** e
+        **ADMIN**: e' l'operazione quotidiana del personale — la stanza e'
+        stata liberata, va pulita, il condizionatore non funziona — e chiederle
+        i privilegi di amministratore vorrebbe dire che nessuno la fa.
+        Esiste separato dalla PUT sulla camera per la stessa ragione per cui le
+        dotazioni hanno un endpoint proprio: cambiare una cosa non deve
+        obbligare a rimandarne altre tre, e le due operazioni non hanno gli
+        stessi permessi.
+        Rimandare lo stato che la camera ha gia' **non e' un errore**: e'
+        idempotente e risponde 200.
+        Risposta: busta ApiBaseResponse con **CameraResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdCamera'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraStatoRequest'
+      responses:
+        '200':
+          description: Stato aggiornato ('data' = CameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Stato della camera aggiornato
+                timestamp: 2026-08-25T10:15:30Z
+                data:
+                  id: 1
+                  numero: "101"
+                  piano: 1
+                  stato: PULIZIA
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -697,6 +1006,41 @@ components:
         type: integer
         format: int64
         minimum: 1
+
+    IdCamera:
+      name: id
+      in: path
+      required: true
+      description: Identificativo della camera
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    FiltroTipologiaCamera:
+      name: tipologiaCameraId
+      in: query
+      required: false
+      description: >
+        Se valorizzato, restituisce le sole camere di quella tipologia. Un id
+        che non corrisponde a nessuna tipologia non e' un errore: e' una pagina
+        vuota, perche' "non ne ho di quel tipo" e' una risposta legittima a una
+        domanda ben posta.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    FiltroStatoCamera:
+      name: stato
+      in: query
+      required: false
+      description: >
+        Se valorizzato, restituisce le sole camere in quello stato operativo.
+        Uno stato fuori dall'elenco e' invece un 400: e' un valore che non
+        esiste, non un filtro che non trova niente.
+      schema:
+        $ref: '#/components/schemas/StatoCamera'
 
     PaginaNumero:
       name: page
@@ -1071,6 +1415,115 @@ components:
             format: int64
             minimum: 1
           example: [1, 2]
+
+    StatoCamera:
+      type: string
+      description: >
+        Stato operativo di una camera fisica. E' l'inventario del backoffice e
+        non dice se la camera sia prenotabile: quello si calcola dalle
+        prenotazioni sovrapposte alle date richieste, e OCCUPATA vuol dire
+        "c'e' qualcuno dentro adesso", non "e' impegnata a settembre".
+      enum:
+        - LIBERA
+        - OCCUPATA
+        - MANUTENZIONE
+        - PULIZIA
+      example: LIBERA
+
+    CameraRequest:
+      type: object
+      description: >
+        Dati di una camera in scrittura (creazione e aggiornamento usano lo
+        stesso schema). I limiti ricalcano le colonne del database, vedi
+        V1__init_schema.sql.
+        **Lo `stato` e' facoltativo e vale LIBERA se assente.** In creazione e'
+        l'unico comportamento sensato — una stanza nuova nasce libera — ma su un
+        aggiornamento significa che **ometterlo riporta la camera a LIBERA**
+        invece di lasciarla com'era: e' una PUT, non una PATCH, e vale anche
+        qui. E' anche il motivo per cui il lavoro quotidiano passa da
+        PUT /api/camere/{id}/stato e non da questo schema: da li' una
+        dimenticanza non puo' rimettere in servizio una stanza guasta.
+      required:
+        - numero
+        - piano
+        - tipologiaCameraId
+      properties:
+        numero:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: >
+            Numero o sigla della camera, come e' scritto sulla porta. Testo e
+            non intero: "12A" e "S3" sono numeri di camera veri quanto "101".
+            Deve essere unico a meno delle maiuscole (indice su lower(numero),
+            vedi V4__unicita_numero_camera.sql).
+          example: "101"
+        piano:
+          type: integer
+          minimum: 0
+          maximum: 200
+          description: >
+            Piano su cui si trova. Lo zero e' il piano terra ed e' un valore
+            valido; i piani interrati non sono rappresentabili, e finche' non
+            esistera' un albergo con le camere sottoterra va bene cosi'. Il
+            tetto e' arbitrario ma non inutile: senza, il campo accetta
+            due miliardi.
+          example: 1
+        tipologiaCameraId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            Tipologia a cui la camera appartiene. Deve esistere: un id
+            sconosciuto e' un **400**, non un 404 — il 404 di questi endpoint
+            significa "questa camera non esiste".
+          example: 1
+        stato:
+          $ref: '#/components/schemas/StatoCamera'
+
+    CameraStatoRequest:
+      type: object
+      description: Nuovo stato operativo di una camera
+      required:
+        - stato
+      properties:
+        stato:
+          $ref: '#/components/schemas/StatoCamera'
+
+    CameraResponse:
+      type: object
+      description: Camera fisica come viene restituita al client
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        numero:
+          type: string
+          example: "101"
+        piano:
+          type: integer
+          example: 1
+        stato:
+          $ref: '#/components/schemas/StatoCamera'
+        tipologia:
+          $ref: '#/components/schemas/TipologiaCameraSintesi'
+
+    TipologiaCameraSintesi:
+      type: object
+      description: >
+        Tipologia ridotta a quel che serve per riconoscerla dentro un'altra
+        risorsa. Non e' TipologiaCameraResponse per scelta: quella porta con se'
+        prezzo, descrizione e l'elenco delle dotazioni, e un elenco di cinquanta
+        camere se le trascinerebbe dietro cinquanta volte per mostrare un nome.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        nome:
+          type: string
+          example: Doppia Superior
 
     DotazioneRequest:
       type: object

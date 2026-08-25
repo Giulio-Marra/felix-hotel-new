@@ -1,8 +1,11 @@
 package com.felixhotel.backend.support;
 
+import com.felixhotel.backend.dto.CameraRequest;
+import com.felixhotel.backend.dto.CameraStatoRequest;
 import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.StatoCamera;
 import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
@@ -124,5 +127,39 @@ public class TestDataFactory {
     public TipologiaCameraDotazioniRequest dotazioniIdsRequest(Long... ids) {
         return new TipologiaCameraDotazioniRequest()
                 .dotazioniIds(new LinkedHashSet<>(Arrays.asList(ids)));
+    }
+
+    /**
+     * Numero di camera mai usato prima in questa esecuzione. Stessa ragione delle
+     * email e degli altri nomi: e' unico in database (indice su lower(numero),
+     * vedi V4) e il database non viene ripulito fra un test e l'altro.
+     *
+     * <p>Comincia per lettera di proposito: cosi' i numeri generati non si
+     * confondono con quelli scritti a mano da un test che voglia controllare
+     * l'ordinamento.
+     */
+    public String numeroCameraUnivoco() {
+        return "C" + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
+    }
+
+    /**
+     * Camera valida in ogni campo, appartenente alla tipologia indicata — che
+     * deve esistere davvero, perche' il service risolve quell'id e risponde 400
+     * se non lo trova.
+     *
+     * <p>Lo stato non e' valorizzato: la camera nasce LIBERA, che e' il caso
+     * normale. I test che vogliono altro lo impostano
+     * ({@code cameraRequest(id).stato(StatoCamera.MANUTENZIONE)}).
+     */
+    public CameraRequest cameraRequest(Long tipologiaCameraId) {
+        return new CameraRequest()
+                .numero(numeroCameraUnivoco())
+                .piano(1)
+                .tipologiaCameraId(tipologiaCameraId);
+    }
+
+    /** Richiesta di cambio stato per una camera. */
+    public CameraStatoRequest cameraStatoRequest(StatoCamera stato) {
+        return new CameraStatoRequest().stato(stato);
     }
 }
