@@ -13,7 +13,11 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -221,7 +225,7 @@ class CameraApiIT extends IntegrationTestBase {
         }
 
         /** Gli id delle camere restituite filtrando su un solo parametro. */
-        private java.util.List<Long> idsFiltrati(String token, String parametro, String valore)
+        private List<Long> idsFiltrati(String token, String parametro, String valore)
                 throws Exception {
             String risposta = mockMvc.perform(get(CAMERE)
                             .header("Authorization", "Bearer " + token)
@@ -236,7 +240,7 @@ class CameraApiIT extends IntegrationTestBase {
         }
 
         /** Gli id delle camere restituite filtrando su tipologia e stato insieme. */
-        private java.util.List<Long> idsCombinati(String token, long idTipologia, String stato)
+        private List<Long> idsCombinati(String token, long idTipologia, String stato)
                 throws Exception {
             String risposta = mockMvc.perform(get(CAMERE)
                             .header("Authorization", "Bearer " + token)
@@ -251,8 +255,8 @@ class CameraApiIT extends IntegrationTestBase {
             return estraiIds(risposta);
         }
 
-        private java.util.List<Long> estraiIds(String risposta) {
-            java.util.List<Long> ids = new java.util.ArrayList<>();
+        private List<Long> estraiIds(String risposta) {
+            List<Long> ids = new ArrayList<>();
             for (JsonNode elemento : objectMapper.readTree(risposta).path("data")) {
                 ids.add(elemento.path("id").asLong());
             }
@@ -340,7 +344,7 @@ class CameraApiIT extends IntegrationTestBase {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.status").value(400))
                     .andExpect(jsonPath("$.message").value(
-                            org.hamcrest.Matchers.containsString("999999999")));
+                            containsString("999999999")));
         }
 
         @Test

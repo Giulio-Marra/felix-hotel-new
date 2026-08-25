@@ -82,10 +82,13 @@ public class Camera extends BaseAuditableEntity {
      * costanti dell'enum riscrive silenziosamente lo stato di tutte le camere
      * gia' a database.
      *
-     * <p>Il valore iniziale e' qui e non solo nel DEFAULT della colonna: il
-     * DEFAULT vale per gli INSERT che non nominano la colonna, e Hibernate la
-     * nomina sempre. Senza questo, una camera creata senza stato ci arriverebbe
-     * con {@code null} e violerebbe il NOT NULL.
+     * <p><b>Il DEFAULT della colonna non scatta mai</b>: vale per gli INSERT che
+     * non nominano la colonna, e Hibernate la nomina sempre. Chi decide lo stato
+     * iniziale e' quindi il codice Java, in due punti che dicono la stessa cosa
+     * per ragioni diverse — il Service lo imposta a ogni scrittura perche' e'
+     * una PUT e un campo omesso torna al suo valore di partenza; questo
+     * inizializzatore fa si' che anche un {@code new Camera()} nasca valido,
+     * senza dipendere da chi lo costruisce.
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
