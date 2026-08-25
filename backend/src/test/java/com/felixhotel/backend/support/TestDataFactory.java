@@ -1,5 +1,6 @@
 package com.felixhotel.backend.support;
 
+import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
@@ -79,5 +80,26 @@ public class TestDataFactory {
                 .descrizione("Camera doppia con vista sul giardino")
                 .capienzaMax(2)
                 .prezzoNotte(new BigDecimal("120.00"));
+    }
+
+    /**
+     * Nome di dotazione mai usato prima in questa esecuzione, per la stessa
+     * ragione del nome di tipologia: e' unico in database (indice su
+     * lower(nome), vedi V3) e il database non viene ripulito fra un test e
+     * l'altro.
+     */
+    public String nomeDotazioneUnivoco() {
+        return "Wi-Fi " + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
+    }
+
+    /**
+     * Dotazione valida in ogni campo. Come per le altre, i test partono da
+     * questa e cambiano solo il campo che vogliono verificare
+     * ({@code dotazioneRequest().nome("")}).
+     */
+    public DotazioneRequest dotazioneRequest() {
+        return new DotazioneRequest()
+                .nome(nomeDotazioneUnivoco())
+                .descrizione("Connessione senza fili gratuita in tutta la struttura");
     }
 }

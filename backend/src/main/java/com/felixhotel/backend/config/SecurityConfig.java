@@ -79,7 +79,11 @@ public class SecurityConfig {
                         // ancora da scrivere (es. le dotazioni di una tipologia).
                         .requestMatchers(HttpMethod.GET,
                                 "/api/tipologie-camera",
-                                "/api/tipologie-camera/*"
+                                "/api/tipologie-camera/*",
+                                // Le dotazioni sono pubbliche per lo stesso motivo: sono le voci
+                                // che compaiono nella scheda di ogni camera del catalogo.
+                                "/api/dotazioni",
+                                "/api/dotazioni/*"
                         ).permitAll()
                         .requestMatchers(
                                 // Solo questi due endpoint di auth sono pubblici, elencati uno per uno:
