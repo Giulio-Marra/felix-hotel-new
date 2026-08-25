@@ -194,9 +194,16 @@ public class CameraServiceImpl implements CameraService {
         camera.setNumero(request.getNumero());
         camera.setPiano(request.getPiano());
         camera.setTipologiaCamera(trovaTipologiaOrElseThrow(request.getTipologiaCameraId()));
-        camera.setStato(request.getStato() == null
+        // Lo stato si legge una volta sola e si tiene: chiamare il getter due volte —
+        // una per il controllo e una per l'uso — vuol dire fidarsi che dia la stessa
+        // risposta a entrambe. Qui lo farebbe, ma e' una garanzia che nessuno ha
+        // scritto da nessuna parte, ed e' il rilievo che SpotBugs ha alzato
+        // (NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE).
+        StatoCamera statoRichiesto = request.getStato();
+
+        camera.setStato(statoRichiesto == null
                 ? com.felixhotel.backend.entity.StatoCamera.LIBERA
-                : cameraMapper.toStatoEntity(request.getStato()));
+                : cameraMapper.toStatoEntity(statoRichiesto));
     }
 
     /**

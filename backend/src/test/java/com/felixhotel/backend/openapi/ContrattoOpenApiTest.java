@@ -1,0 +1,209 @@
+package com.felixhotel.backend.openapi;
+
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.Yaml;
+
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Controlli sul contratto OpenAPI, letto dallo stesso file che l'applicazione
+ * serve a Swagger UI ({@code /openapi/felix-hotel-api.yaml} sul classpath).
+ *
+ * <p><b>Perche' esiste.</b> Lo spec e' l'investimento piu' grosso di questo
+ * progetto: e' la fonte di verita' di DTO e rotte (regola 12) ed e' anche tutta
+ * la documentazione (regola 4). Fino al 2026-08-25 nessuno l'aveva mai aperto in
+ * un browser, e l'unica cosa che ne verificava la salute era che il generatore
+ * non si lamentasse — cioe' molto poco: un {@code $ref} che non risolve non
+ * ferma la build, ferma la pagina di chi prova a leggere l'API.
+ *
+ * <p><b>Cosa non fa.</b> Non dice che Swagger UI sia bella o navigabile: quello
+ * si vede solo guardandola. Dice che il documento e' integro e completo, cioe'
+ * elimina le ragioni per cui la UI potrebbe non mostrare niente o mostrare una
+ * scheda vuota. Il resto resta lavoro da occhi.
+ *
+ * <p>Unitario e non IT: legge un file, non serve ne' Spring ne' Postgres.
+ */
+@DisplayName("Contratto OpenAPI")
+class ContrattoOpenApiTest {
+
+    private static final String PERCORSO = "/openapi/felix-hotel-api.yaml";
+
+    /** I verbi HTTP che in uno spec identificano un'operazione. */
+    private static final Set<String> VERBI = Set.of("get", "post", "put", "patch", "delete");
+
+    private static Map<String, Object> spec;
+
+    @BeforeAll
+    static void caricaSpec() throws Exception {
+        try (InputStream in = ContrattoOpenApiTest.class.getResourceAsStream(PERCORSO)) {
+            assertThat(in).as("lo spec deve stare sul classpath in %s", PERCORSO).isNotNull();
+            spec = new Yaml().load(in);
+        }
+    }
+
+    /** Tutte le operazioni dello spec, con l'etichetta leggibile "VERBO /rotta". */
+    @SuppressWarnings("unchecked")
+    private static List<Map.Entry<String, Map<String, Object>>> operazioni() {
+        List<Map.Entry<String, Map<String, Object>>> risultato = new ArrayList<>();
+        Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
+
+        paths.forEach((rotta, item) -> ((Map<String, Object>) item).forEach((verbo, op) -> {
+            if (VERBI.contains(verbo)) {
+                risultato.add(Map.entry(
+                        verbo.toUpperCase() + " " + rotta, (Map<String, Object>) op));
+            }
+        }));
+        return risultato;
+    }
+
+    @Test
+    @DisplayName("si carica e dichiara la versione di OpenAPI")
+    void spec_siCarica() {
+        // then: se questo cade, Swagger UI non mostra niente del tutto
+        assertThat(spec).containsKey("openapi");
+        assertThat(spec).containsKey("paths");
+        assertThat(operazioni()).as("operazioni dichiarate").isNotEmpty();
+    }
+
+    @Nested
+    @DisplayName("riferimenti interni")
+    class Riferimenti {
+
+        @Test
+        @DisplayName("ogni $ref punta a qualcosa che esiste")
+        void ref_tutti_risolvono() {
+            // when: si seguono tutti i $ref del documento
+            List<String> rotti = new ArrayList<>();
+            cerca(spec, rotti);
+
+            // then: nessuno deve restare appeso. E' il difetto piu' facile da
+            // introdurre — si rinomina uno schema e si dimentica un riferimento — e
+            // il piu' cattivo, perche' non rompe ne' la build ne' i test degli
+            // endpoint: rompe soltanto la pagina di chi prova a leggere l'API, cioe'
+            // l'unica persona che non e' in questa stanza
+            assertThat(rotti).as("$ref che non risolvono").isEmpty();
+        }
+
+        @SuppressWarnings("unchecked")
+        private void cerca(Object nodo, List<String> rotti) {
+            if (nodo instanceof Map<?, ?> mappa) {
+                mappa.forEach((chiave, valore) -> {
+                    if ("$ref".equals(chiave) && valore instanceof String ref) {
+                        if (!risolve(ref)) {
+                            rotti.add(ref);
+                        }
+                    } else {
+                        cerca(valore, rotti);
+                    }
+                });
+            } else if (nodo instanceof List<?> lista) {
+                lista.forEach(v -> cerca(v, rotti));
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private boolean risolve(String ref) {
+            if (!ref.startsWith("#/")) {
+                // Riferimenti a file esterni: in questo progetto non esistono, e se
+                // comparissero andrebbero verificati in un altro modo.
+                return false;
+            }
+            Object nodo = spec;
+            for (String pezzo : ref.substring(2).split("/")) {
+                if (!(nodo instanceof Map<?, ?> mappa) || !mappa.containsKey(pezzo)) {
+                    return false;
+                }
+                nodo = ((Map<String, Object>) mappa).get(pezzo);
+            }
+            return true;
+        }
+    }
+
+    @Nested
+    @DisplayName("completezza della documentazione")
+    class Completezza {
+
+        @Test
+        @DisplayName("ogni operazione ha summary, description, operationId e tags")
+        void operazioni_tutteDocumentate() {
+            // when: si guardano i campi che la regola 4 pretende
+            List<String> incomplete = new ArrayList<>();
+            for (var op : operazioni()) {
+                List<String> mancanti = new ArrayList<>();
+                for (String campo : List.of("summary", "description", "operationId", "tags")) {
+                    if (op.getValue().get(campo) == null) {
+                        mancanti.add(campo);
+                    }
+                }
+                if (!mancanti.isEmpty()) {
+                    incomplete.add(op.getKey() + " -> manca " + String.join(", ", mancanti));
+                }
+            }
+
+            // then: nessuna scheda nuda. E' la regola 4 resa verificabile: senza un
+            // controllo, "documentata" e' un'intenzione che regge finche' qualcuno ha
+            // fretta
+            assertThat(incomplete).as("operazioni incomplete").isEmpty();
+        }
+
+        @Test
+        @DisplayName("ogni operazione dichiara un esito di successo e il 500")
+        void operazioni_dichiaranoSuccessoEdErroreGenerico() {
+            List<String> incomplete = new ArrayList<>();
+            for (var op : operazioni()) {
+                Set<String> codici = codici(op.getValue());
+                if (codici.stream().noneMatch(c -> c.startsWith("2"))) {
+                    incomplete.add(op.getKey() + " -> nessuna risposta 2xx");
+                }
+                if (!codici.contains("500")) {
+                    incomplete.add(op.getKey() + " -> nessuna risposta 500");
+                }
+            }
+
+            // then: il 500 va dichiarato ovunque perche' ovunque puo' succedere; un
+            // contratto che promette solo gli esiti belli descrive un'applicazione
+            // che non esiste
+            assertThat(incomplete).as("operazioni con risposte incomplete").isEmpty();
+        }
+
+        @Test
+        @DisplayName("ogni operazione dice cosa contiene 'data'")
+        void operazioni_dichiaranoIlTipoDentroLaBusta() {
+            // when: si cerca la menzione di 'data' nella descrizione
+            List<String> mute = new ArrayList<>();
+            for (var op : operazioni()) {
+                String testo = String.valueOf(op.getValue().get("description"));
+                if (!testo.contains("'data'") && !testo.contains("\"data\"")) {
+                    mute.add(op.getKey());
+                }
+            }
+
+            // then: e' la contropartita esplicita della regola 10. La busta ha 'data'
+            // dichiarato come object — OpenAPI non ha i generics, quindi o si tiene una
+            // busta sola non tipizzata (scelta fatta) o si genera un envelope per
+            // endpoint — e il prezzo di quella scelta e' che il tipo concreto vada
+            // scritto a parole nella descrizione. Questo test e' cio' che impedisce al
+            // prezzo di non essere pagato: senza, chi legge Swagger vede 'data: object'
+            // e non sa cosa aspettarsi
+            assertThat(mute).as("operazioni che non dicono cosa c'e' in 'data'").isEmpty();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Set<String> codici(Map<String, Object> operazione) {
+        Object risposte = operazione.get("responses");
+        return risposte instanceof Map<?, ?> mappa
+                ? new LinkedHashSet<>(((Map<String, Object>) mappa).keySet())
+                : Set.of();
+    }
+}

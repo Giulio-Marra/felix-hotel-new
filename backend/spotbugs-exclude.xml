@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+	Cosa SpotBugs non deve guardare.
+
+	La regola per aggiungere una voce qui e' una sola: si esclude cio' che **non
+	possiamo correggere**, mai cio' che non abbiamo voglia di correggere. Un
+	filtro usato per far tacere un difetto vero trasforma l'analisi statica in un
+	rito che passa sempre, cioe' nella cosa che si voleva evitare mettendola.
+-->
+<FindBugsFilter>
+
+	<!--
+		Codice generato dallo spec OpenAPI (regola 12): i file stanno sotto
+		target/generated-sources e non si toccano a mano, quindi un rilievo su di
+		loro non e' azionabile. Se il generatore producesse davvero qualcosa di
+		pericoloso, il rimedio sarebbe cambiare lo YAML o il generatore, non il
+		file.
+	-->
+	<Match>
+		<Package name="com.felixhotel.backend.dto"/>
+	</Match>
+	<Match>
+		<Package name="com.felixhotel.backend.api"/>
+	</Match>
+
+</FindBugsFilter>

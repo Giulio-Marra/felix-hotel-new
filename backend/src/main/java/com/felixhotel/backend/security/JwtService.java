@@ -17,8 +17,18 @@ import java.util.function.Function;
  * all'email come subject — nessuna lista di permessi nel token, come da
  * convenzione di progetto (autorizzazione basata solo sul ruolo).
  */
+/*
+ * final: il costruttore puo' fallire — Keys.hmacShaKeyFor rifiuta un segreto
+ * troppo corto — e un costruttore che solleva un'eccezione lascia dietro di se'
+ * un oggetto costruito a meta'. Una sottoclasse potrebbe raccoglierlo e usarne i
+ * campi gia' valorizzati (SpotBugs: CT_CONSTRUCTOR_THROW). L'attacco vero e'
+ * ormai storia — la finalizzazione e' disabilitata di default dalla 18 — quindi
+ * il motivo onesto per cui la classe e' final e' un altro, piu' semplice: non
+ * c'e' nessuna ragione per cui qualcuno debba ereditare da chi firma i token, e
+ * toglierne la possibilita' non costa niente.
+ */
 @Service
-public class JwtService {
+public final class JwtService {
 
     private final SecretKey signingKey;
     private final long expirationMs;

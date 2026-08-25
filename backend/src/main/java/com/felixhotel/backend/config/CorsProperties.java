@@ -30,4 +30,24 @@ import java.util.List;
 public record CorsProperties(
 
         @DefaultValue({}) List<String> allowedOrigins) {
+
+    /**
+     * Congela la lista alla costruzione.
+     *
+     * <p>Un record custodisce il riferimento che gli viene passato, non una
+     * copia: senza questo, chi ha costruito l'oggetto continuerebbe a poter
+     * aggiungere origini alla lista, e {@link #allowedOrigins()} le
+     * restituirebbe a chi le legge. Su una lista qualsiasi sarebbe una sottigliezza;
+     * su <b>quale sito puo' chiamare l'API dal browser</b> vuol dire che il
+     * permesso non e' piu' deciso solo dalla configurazione, ed e' esattamente il
+     * contrario di quel che dice la regola 20.
+     *
+     * <p>Segnalato da SpotBugs (EI_EXPOSE_REP / EI_EXPOSE_REP2) il 2026-08-25:
+     * nessuno oggi tiene un riferimento alla lista dopo averla passata, quindi il
+     * difetto non era sfruttabile — ma costa tre righe renderlo impossibile
+     * invece che improbabile.
+     */
+    public CorsProperties {
+        allowedOrigins = allowedOrigins == null ? List.of() : List.copyOf(allowedOrigins);
+    }
 }

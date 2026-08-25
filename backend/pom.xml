@@ -299,6 +299,156 @@
 					</execution>
 				</executions>
 			</plugin>
+			<!--
+				JaCoCo: misura quanto codice i test esercitano davvero.
+				Le due esecuzioni dell'agente servono perche' i test sono in due stadi:
+				surefire per gli unitari, failsafe per gli IT in un JVM separato. Scrivono
+				sullo stesso file (append e' il default), cosi' il report li somma invece
+				di raccontare meta' storia ciascuno — e in questo progetto la meta' che
+				conta e' quella degli IT, dove sta il peso (regola 16).
+				Il report sta su post-integration-test e non su verify: e' la fase in cui
+				i JVM dei test hanno gia' scritto i loro dati, senza dipendere dall'ordine
+				in cui i plugin sono dichiarati.
+			-->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.13</version>
+				<configuration>
+					<excludes>
+						<!--
+							Il codice generato non si misura: DTO e interfacce API nascono
+							dallo YAML (regola 12) e non c'e' nessun test da scrivere per un
+							getter che non abbiamo scritto noi. Contarlo vorrebbe dire che la
+							copertura cala aggiungendo un campo allo spec.
+						-->
+						<exclude>com/felixhotel/backend/dto/**</exclude>
+						<exclude>com/felixhotel/backend/api/**</exclude>
+						<!-- Il main(): una riga, esercitata dall'avvio del contesto. -->
+						<exclude>com/felixhotel/backend/BackendApplication.class</exclude>
+					</excludes>
+				</configuration>
+				<executions>
+					<execution>
+						<id>agente-unitari</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>agente-integrazione</id>
+						<goals>
+							<goal>prepare-agent-integration</goal>
+						</goals>
+						<configuration>
+							<destFile>${project.build.directory}/jacoco.exec</destFile>
+						</configuration>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>post-integration-test</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+					<!--
+						La soglia. I numeri sono presi il 2026-08-25 misurando quel che
+						c'era (95,5% istruzioni, 79,2% rami) e poi abbassati di qualche
+						punto: una soglia messa esattamente al valore corrente fa fallire
+						la build al primo metodo aggiunto senza il suo test, e la reazione
+						normale a un cancello che suona sempre e' abbassarlo — cioe'
+						toglierlo. Il margine serve a farlo suonare solo quando succede
+						qualcosa di vero.
+						I rami stanno piu' in basso delle istruzioni perche' sono la
+						misura piu' severa e oggi la piu' debole: e' li' che si vede se un
+						ramo d'errore e' stato scritto e mai esercitato.
+						**Questi numeri salgono, non scendono.** Se la copertura cresce,
+						si alza anche la soglia; se un branch la fa scendere sotto, si
+						scrivono i test mancanti invece di allargare la maglia.
+					-->
+					<execution>
+						<id>soglia</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>INSTRUCTION</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.90</minimum>
+										</limit>
+										<limit>
+											<counter>BRANCH</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.75</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!--
+				SpotBugs: legge il bytecode e cerca difetti veri (dereferenziazioni
+				possibili di null, risorse non chiuse, equals/hashCode incoerenti), non
+				questioni di stile. Analizza i soli sorgenti nostri: sul codice generato
+				troverebbe cose che non possiamo correggere senza modificare a mano file
+				sotto target/, cioe' esattamente quel che la regola 12 vieta.
+			-->
+			<plugin>
+				<groupId>com.github.spotbugs</groupId>
+				<artifactId>spotbugs-maven-plugin</artifactId>
+				<version>4.9.8.1</version>
+				<configuration>
+					<effort>Max</effort>
+					<threshold>Default</threshold>
+					<includeTests>false</includeTests>
+					<excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
+					<!--
+						Find Security Bugs: non e' un secondo strumento ma un pacchetto di
+						rilevatori in piu' dentro quello che c'e' gia' — injection, crypto
+						debole, segreti scritti nel codice, path traversal. Aggiunto il
+						2026-08-25 perche' la sicurezza qui viene votata a ogni review e
+						fino a quel giorno la giudicavano solo occhi umani, che sulle stesse
+						quattrocento righe rilette tre volte smettono di vedere.
+						Le sue segnalazioni ricadono sotto la stessa tolleranza zero: quelle
+						che riguardano scelte deliberate stanno in spotbugs-exclude.xml, una
+						per una e col motivo scritto accanto.
+					-->
+					<plugins>
+						<plugin>
+							<groupId>com.h3xstream.findsecbugs</groupId>
+							<artifactId>findsecbugs-plugin</artifactId>
+							<version>1.14.0</version>
+						</plugin>
+					</plugins>
+				</configuration>
+				<!--
+					Tolleranza zero, e ci si puo' permettere di scriverlo perche' al
+					momento di introdurlo i rilievi erano quattro e sono stati corretti
+					tutti: si parte da zero, quindi "zero" e' una soglia che si puo'
+					davvero mantenere. Un tetto tipo "al massimo N" avrebbe soltanto
+					stabilito quanti difetti e' lecito lasciare in giro.
+					Il goal e' `check` e non `spotbugs`: il secondo scrive il report e
+					basta, il primo fa fallire la build. Un'analisi che non blocca niente
+					e' una cartella dentro target/ che nessuno apre.
+				-->
+				<executions>
+					<execution>
+						<id>analisi</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 

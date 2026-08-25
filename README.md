@@ -1,5 +1,7 @@
 # Felix Hotel
 
+[![Backend CI](https://github.com/Giulio-Marra/felix-hotel-new/actions/workflows/backend-ci.yml/badge.svg?branch=dev)](https://github.com/Giulio-Marra/felix-hotel-new/actions/workflows/backend-ci.yml)
+
 Rifacimento di un mio vecchio progetto (circa 2 anni fa): un gestionale
 per hotel, con parte **backoffice** (gestione interna) e parte
 **frontoffice** (lato cliente).
