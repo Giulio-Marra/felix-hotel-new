@@ -1,0 +1,22 @@
+-- La stessa immagine due volte nella stessa galleria non e' una scelta
+-- editoriale, e' un doppio click: chi carica le foto di una tipologia non vuole
+-- vederne una ripetuta in carosello, e chi la vedesse penserebbe a un difetto
+-- del sito. Quindi il duplicato si rifiuta con un 409, e la garanzia la da'
+-- questo indice.
+--
+-- A differenza di V2, V3 e V4 il confronto e' **case-sensitive**, ed e' una
+-- differenza voluta e non una dimenticanza: quelli erano nomi scritti da una
+-- persona, dove "Wi-Fi" e "wi-fi" sono la stessa cosa. Questo e' un URL, dove
+-- il percorso distingue le maiuscole per specifica: /Vista.jpg e /vista.jpg
+-- possono essere due file diversi davvero, e un lower() qui rifiuterebbe di
+-- caricare la seconda foto dicendo che c'e' gia'.
+--
+-- L'indice e' sulla coppia (tipologia, url) e non sulla sola url: la stessa
+-- immagine puo' legittimamente comparire nella galleria di due tipologie
+-- diverse — una foto della hall, la vista dallo stesso lato dell'edificio — e
+-- vietarlo obbligherebbe a duplicare il file per aggirare il vincolo.
+--
+-- Nessun indice nuovo sulla chiave esterna: idx_media_camera_tipologia esiste
+-- gia' dal V1, ed e' quello che serve all'unica lettura di questa tabella
+-- ("le foto di questa tipologia, in ordine").
+CREATE UNIQUE INDEX uq_media_camera_tipologia_url ON media_camera (tipologia_camera_id, url);

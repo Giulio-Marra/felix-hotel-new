@@ -3,6 +3,8 @@ package com.felixhotel.backend.repository;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -35,6 +37,31 @@ public interface TipologiaCameraRepository extends JpaRepository<TipologiaCamera
     @Override
     @EntityGraph(attributePaths = "dotazioni")
     Optional<TipologiaCamera> findById(Long id);
+
+    /**
+     * Lettura per id <b>senza</b> le dotazioni, per chi della tipologia ha
+     * bisogno solo come riferimento.
+     *
+     * <p>Serve a chi deve legare qualcosa a una tipologia — una camera, una foto
+     * — e poi non ne mostra ne' il prezzo ne' le dotazioni: quelle scritture
+     * passando da {@link #findById(Long)} si tirerebbero dietro un join e una
+     * collezione che nessuno legge. E' una query esplicita e non un
+     * {@code @EntityGraph} vuoto perche' il fetch dichiarato sul metodo
+     * ereditato vale per quel metodo soltanto: una {@code @Query} scritta a mano
+     * non lo eredita, ed e' esattamente cio' che qui si vuole.
+     *
+     * <p><b>Perche' esiste solo adesso.</b> Lo spreco era stato notato il
+     * 2026-08-25 su {@code CameraServiceImpl} e lasciato li' di proposito: con
+     * un chiamante solo, il rimedio costava piu' codice di quanto risparmiasse.
+     * Con la galleria delle foto i chiamanti sono due, ed e' la condizione che
+     * era stata scritta per riaprire il punto.
+     *
+     * <p>Non restituisce un proxy ({@code getReferenceById}): quello eviterebbe
+     * anche questa query, ma non direbbe se l'id esiste — e tutti e due i
+     * chiamanti devono rispondere qualcosa di preciso quando non esiste.
+     */
+    @Query("select t from TipologiaCamera t where t.id = :id")
+    Optional<TipologiaCamera> trovaSenzaCollezioni(@Param("id") Long id);
 
     /** Usato in creazione: il nome non deve appartenere a nessun'altra tipologia. */
     boolean existsByNomeIgnoreCase(String nome);

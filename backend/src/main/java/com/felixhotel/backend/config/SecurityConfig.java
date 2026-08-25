@@ -76,14 +76,20 @@ public class SecurityConfig {
                         // ricadono nel default autenticato piu' il @PreAuthorize del Controller.
                         // Il "/*" copre l'id del dettaglio ed e' un solo segmento: diverso dal
                         // "/**" vietato dalla convenzione, che aprirebbe in lettura anche i
-                        // sottopercorsi. I sottopercorsi non sono piu' un'ipotesi —
-                        // /api/tipologie-camera/{id}/dotazioni esiste — e per ora nessuno di
-                        // essi risponde in GET; il giorno che ne nascesse uno (le prenotazioni
-                        // di una tipologia, le sue statistiche) con un "/**" sarebbe pubblico
-                        // dal primo minuto, senza che nessuno l'abbia deciso.
+                        // sottopercorsi. Ora si vede a cosa serviva quella distinzione: dei due
+                        // sottopercorsi che esistono, /media va aperto e /dotazioni no — le
+                        // dotazioni si leggono dalla loro rotta e dentro la tipologia, non da
+                        // li'. Con un "/**" sarebbero pubblici tutti e due, e lo sarebbe dal
+                        // primo minuto anche il prossimo che nascera' (le prenotazioni di una
+                        // tipologia, le sue statistiche), senza che nessuno l'abbia deciso.
                         .requestMatchers(HttpMethod.GET,
                                 "/api/tipologie-camera",
                                 "/api/tipologie-camera/*",
+                                // Le foto di una tipologia: sono le immagini della scheda di
+                                // catalogo, quindi pubbliche come la scheda. Solo questo
+                                // sottopercorso, solo in GET — aggiungerle e riordinarle resta
+                                // agli ADMIN via @PreAuthorize.
+                                "/api/tipologie-camera/*/media",
                                 // Le dotazioni sono pubbliche per lo stesso motivo: sono le voci
                                 // che compaiono nella scheda di ogni camera del catalogo.
                                 "/api/dotazioni",

@@ -4,6 +4,8 @@ import com.felixhotel.backend.dto.CameraRequest;
 import com.felixhotel.backend.dto.CameraStatoRequest;
 import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.LoginRequest;
+import com.felixhotel.backend.dto.MediaCameraOrdineRequest;
+import com.felixhotel.backend.dto.MediaCameraRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.StatoCamera;
 import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
@@ -161,5 +163,44 @@ public class TestDataFactory {
     /** Richiesta di cambio stato per una camera. */
     public CameraStatoRequest cameraStatoRequest(StatoCamera stato) {
         return new CameraStatoRequest().stato(stato);
+    }
+
+    /**
+     * Indirizzo di immagine mai usato prima in questa esecuzione.
+     *
+     * <p>Univoco per la stessa ragione degli altri: l'url e' unica dentro la
+     * tipologia (indice su (tipologia_camera_id, url), vedi V5) e il database non
+     * viene ripulito fra un test e l'altro. Qui il rischio sarebbe minore — due
+     * test lavorano quasi sempre su tipologie diverse — ma un valore univoco
+     * costa niente e toglie di mezzo la domanda.
+     *
+     * <p>Comincia per {@code https://} perche' lo spec lo pretende: il campo ha
+     * un {@code @Pattern} sullo schema, e un url senza finirebbe a 400 prima di
+     * arrivare dove il test voleva guardare.
+     */
+    public String urlMediaUnivoco() {
+        return "https://cdn.felixhotel.example/camere/foto-"
+                + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet() + ".jpg";
+    }
+
+    /**
+     * Foto valida da aggiungere a una galleria. Come le altre richieste, i test
+     * partono da questa e cambiano solo il campo che vogliono verificare
+     * ({@code mediaCameraRequest().url("ftp://altrove")}).
+     */
+    public MediaCameraRequest mediaCameraRequest() {
+        return new MediaCameraRequest().url(urlMediaUnivoco());
+    }
+
+    /**
+     * Richiesta di riordino con la sequenza indicata.
+     *
+     * <p>Prende una {@code List} e non un insieme, al contrario di
+     * {@link #dotazioniIdsRequest}: qui l'ordine degli argomenti <b>e'</b> il
+     * contenuto del messaggio, e passare per un Set lo perderebbe per strada
+     * proprio nei test che devono verificarlo.
+     */
+    public MediaCameraOrdineRequest mediaOrdineRequest(Long... mediaIds) {
+        return new MediaCameraOrdineRequest().mediaIds(Arrays.asList(mediaIds));
     }
 }
