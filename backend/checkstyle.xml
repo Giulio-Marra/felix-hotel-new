@@ -20,10 +20,16 @@
     non disordine — questo e' il buco che copre.
 
     **Cosa NON c'e' dentro, di proposito**: indentazione, spaziature, ordine dei
-    membri, javadoc obbligatorio, nomi. Sono le regole che generano diff enormi e
+    membri, javadoc obbligatorio. Sono le regole che generano diff enormi e
     discussioni, e nessuna di esse ha mai fatto danno su questo progetto. Se un
     giorno servira', si aggiunge la regola **dopo** aver misurato quante
     violazioni produce, non prima.
+
+    **I nomi non sono qui ma non sono scoperti**: la convenzione che conta —
+    quella della regola 16, dove il suffisso decide quale plugin esegue un file —
+    la fa rispettare `ConvenzioneNomiTest`. Sta in un test e non qui perche' per
+    dire se un *Test contenga davvero un test bisogna guardarci dentro, non
+    leggerne il nome.
 -->
 <module name="Checker">
 
@@ -36,7 +42,7 @@
     <property name="fileExtensions" value="java"/>
 
     <!--
-        Un file deve finire con un a capo. Oggi ci finiscono tutti e 88.
+        Un file deve finire con un a capo. Oggi ci finiscono tutti.
         Il separatore accettato e' qualunque, di proposito: i sorgenti di questo
         progetto sono CRLF nel working tree (Windows) e far dipendere la build
         dal fine riga vorrebbe dire romperla al primo che clona con un'altra
@@ -117,9 +123,10 @@
             rinomina una classe a mano, che e' il caso in cui salta.
 
             **Aggiunta dopo averla vista servire.** Non era nel piano di questo
-            branch: e' entrata perche' rinominando i due file di supporto ho
-            lasciato il nome nuovo nella posizione del vecchio, e nessuno degli
-            altri controlli se ne e' accorto. Misurata prima di attivarla, come
+            branch: e' entrata perche' nel rinominare i due file di supporto il
+            nome nuovo e' rimasto nella posizione alfabetica del vecchio, in
+            quattro file, e nessuno degli altri controlli se n'e' accorto — l'ha
+            vista solo la rilettura del diff. Misurata prima di attivarla, come
             tutte le altre: sei violazioni in tre file, corrette qui.
         -->
         <module name="CustomImportOrder">

@@ -72,6 +72,8 @@ class ConvenzioneNomiTest {
 
     private static final String SPRING_BOOT_TEST = "org.springframework.boot.test.context.SpringBootTest";
 
+    private static final String ESTENSIONE = ".java";
+
     @Test
     @DisplayName("ogni file *Test contiene almeno un test")
     void suffissoTest_implicaAlmenoUnTest() throws IOException {
@@ -184,10 +186,12 @@ class ConvenzioneNomiTest {
         try (Stream<Path> file = Files.walk(radice)) {
             List<String> nomi = file
                     .filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().endsWith(".java"))
+                    .filter(p -> p.getFileName().toString().endsWith(ESTENSIONE))
                     .map(p -> radice.relativize(p).toString()
-                            .replace(".java", "")
                             .replace(File.separatorChar, '.'))
+                    // Si toglie il suffisso, non ogni sua occorrenza: replace()
+                    // lavora su tutta la stringa e su un percorso non e' la stessa cosa.
+                    .map(n -> n.substring(0, n.length() - ESTENSIONE.length()))
                     .toList();
 
             List<Class<?>> classi = new ArrayList<>();
