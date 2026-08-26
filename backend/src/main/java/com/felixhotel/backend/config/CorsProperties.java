@@ -19,6 +19,14 @@ import java.util.List;
  * perche' li' il frontend React gira su una porta diversa dal backend.
  * Dimenticarsi di configurarlo lascia l'API chiusa, non aperta.
  *
+ * <p><b>Il default vuoto sta scritto solo qui</b>, nel {@code @DefaultValue}
+ * qui sotto: {@code application.properties} non dichiara la chiave e spiega
+ * perche' non lo fa. Prima la riga c'era in tutti e due i posti, e due copie di
+ * un default sono due default — il giorno che uno cambia, l'altro resta vero
+ * senza che nessuno se ne accorga. Quello in Java e' anche il piu' solido dei
+ * due: vale per qualunque ambiente, mentre una riga in
+ * {@code application.properties} vale solo per chi carica quel file.
+ *
  * <p>Le voci sono <i>pattern</i> ({@code allowedOriginPatterns}), non origini
  * esatte, cosi' si puo' scrivere {@code http://localhost:*} senza elencare una
  * per una le porte che Vite sceglie al volo. In produzione vanno messi i domini
