@@ -25,9 +25,18 @@ import org.springframework.stereotype.Component;
  * ci funziona sopra senza sapere come e' nato.
  *
  * <p>E' un {@code @Component} in {@code src/test/java}: viene raccolto dal
- * component scan del contesto di test — come {@code SoloAdminTestController} —
- * quindi non serve importarlo e non se ne crea un secondo contesto Spring, che
- * vorrebbe dire un secondo container Postgres.
+ * component scan del contesto di test, quindi non serve importarlo e non se ne
+ * crea un secondo contesto Spring — che vorrebbe dire un secondo container
+ * Postgres.
+ *
+ * <p><b>Perche' lui si e gli endpoint di prova no.</b> Dal 2026-08-26 le rotte
+ * che esistono solo nei test stanno fuori dal package dell'applicazione e si
+ * importano una per una (vedi {@code com.felixhotel.prova.EndpointDiProva}).
+ * Questa classe resta component-scanned, e non e' un'incoerenza: un
+ * {@code @Component} che scrive righe su un database non aggiunge <b>niente di
+ * raggiungibile da fuori</b>, mentre un {@code @RestController} apre una rotta.
+ * Cio' che si voleva togliere da ogni contesto era la superficie HTTP, non i
+ * collaboratori.
  */
 @Component
 @RequiredArgsConstructor

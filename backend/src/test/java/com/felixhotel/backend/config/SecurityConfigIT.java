@@ -2,10 +2,12 @@ package com.felixhotel.backend.config;
 
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.support.IntegrationTestBase;
-import com.felixhotel.backend.support.SoloAdminTestController;
+import com.felixhotel.prova.EndpointDiProva;
+import com.felixhotel.prova.EndpointSoloAdmin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Import;
 
 import static com.felixhotel.backend.support.Autenticatore.LOGIN;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,8 +23,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Gira nel profilo {@code test}, che <b>non</b> configura nessuna origine
  * CORS: e' apposta, perche' quello che si vuole proteggere qui e' proprio il
  * comportamento di default.
+ *
+ * <p>Importa {@link EndpointDiProva} perche' i permessi si provano su un
+ * endpoint riservato agli ADMIN, e in produzione non ce n'e' ancora uno che usi
+ * {@code @PreAuthorize} sul percorso del diniego. L'import e' quello che fa
+ * esistere quella rotta qui e non altrove.
  */
 @DisplayName("Configurazione di sicurezza")
+@Import(EndpointDiProva.class)
 class SecurityConfigIT extends IntegrationTestBase {
 
     @Nested
@@ -73,7 +81,7 @@ class SecurityConfigIT extends IntegrationTestBase {
             String token = auth.ottieniToken(registrazione.getEmail());
 
             // when: chiama un endpoint riservato agli ADMIN
-            mockMvc.perform(get(SoloAdminTestController.PATH)
+            mockMvc.perform(get(EndpointSoloAdmin.PATH)
                             .header("Authorization", "Bearer " + token))
                     // then: 403 con la busta standard, e soprattutto NON 500. L'eccezione
                     // di accesso negato viene rilanciata dall'advice apposta per farla
@@ -91,7 +99,7 @@ class SecurityConfigIT extends IntegrationTestBase {
         @DisplayName("una richiesta senza token sullo stesso endpoint riceve 401, non 403")
         void preAuthorize_senzaAutenticazione_risponde401() throws Exception {
             // given/when: nessun token
-            mockMvc.perform(get(SoloAdminTestController.PATH))
+            mockMvc.perform(get(EndpointSoloAdmin.PATH))
                     // then: 401 e non 403. Attenzione a cosa prova davvero questo test: la
                     // rotta non e' fra i permitAll, quindi la richiesta viene fermata dalla
                     // regola anyRequest().authenticated() e il @PreAuthorize non entra
