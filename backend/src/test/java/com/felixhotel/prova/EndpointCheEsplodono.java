@@ -26,7 +26,11 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 public class EndpointCheEsplodono {
 
-    /** Solleva una ResponseStatusException che dichiara sia lo status sia il motivo. */
+    /**
+     * Solleva una ResponseStatusException che dichiara sia lo status sia il motivo.
+     * Lo status e' 418 perche' nessun endpoint vero lo usera' mai: se il test lo
+     * vede tornare indietro, e' arrivato da qui e non da qualcos'altro per caso.
+     */
     public static final String STATUS_CON_MOTIVO = "/test-only/esplode/status-con-motivo";
 
     /** Solleva una ResponseStatusException col solo status: getReason() resta null. */

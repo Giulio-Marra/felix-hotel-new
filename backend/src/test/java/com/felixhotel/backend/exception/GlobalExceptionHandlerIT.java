@@ -53,8 +53,16 @@ class GlobalExceptionHandlerIT extends IntegrationTestBase {
      * coppie che si escludono — un nome non puo' essere insieme troppo corto e
      * troppo lungo — quindi questo endpoint non e' stato scelto per comodita': e'
      * l'unico da cui si arriva li'.
+     *
+     * <p>L'id nel percorso e' volutamente <b>irraggiungibile da una sequenza</b>
+     * e non l'1 comodo: il database non viene ripulito fra un test e l'altro
+     * (vedi {@link IntegrationTestBase}) e quattro IT creano tipologie, quindi la
+     * numero 1 esiste quasi certamente. Con l'1 questi due test passavano
+     * <i>perche' l'ordine alfabetico</i> li mette prima di
+     * {@code TipologiaCameraApiIT} — una garanzia che nessuno ha mai scritto e
+     * che nessuno mantiene.
      */
-    private static final String MEDIA_DI_UNA_TIPOLOGIA = "/api/tipologie-camera/1/media";
+    private static final String MEDIA_DI_UNA_TIPOLOGIA = "/api/tipologie-camera/9999999999/media";
 
     /** Crea account del personale a database: non esiste un endpoint per farlo. */
     @Autowired
@@ -254,9 +262,9 @@ class GlobalExceptionHandlerIT extends IntegrationTestBase {
                             .content(json(valida)))
                     // then: 404 e non 400. Serve a rendere esplicito il presupposto del test
                     // qui sopra: quello riceve 400 perche' la validazione del body viene
-                    // prima della ricerca della risorsa, non perche' la tipologia 1 esista.
-                    // Senza questa asserzione, il giorno che qualcuno creasse davvero una
-                    // tipologia con id 1 non ci accorgeremmo che il test misura altro
+                    // prima della ricerca della risorsa, non perche' la tipologia esista.
+                    // Senza questa asserzione, il giorno che il 400 arrivasse da un altro
+                    // motivo non ci accorgeremmo che il test misura altro
                     .andExpect(status().isNotFound());
         }
     }
