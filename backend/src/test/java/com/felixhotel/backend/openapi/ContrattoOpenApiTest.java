@@ -32,7 +32,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * elimina le ragioni per cui la UI potrebbe non mostrare niente o mostrare una
  * scheda vuota. Il resto resta lavoro da occhi.
  *
- * <p>Unitario e non IT: legge un file, non serve ne' Spring ne' Postgres.
+ * <p><b>Guarda anche dove il contratto tocca il codice.</b> Alcuni limiti
+ * esistono in due posti per forza — nello spec, che rifiuta la richiesta
+ * sbagliata al bordo, e in Java, che li applica dove la decisione viene presa —
+ * e OpenAPI non ha modo di generarli l'uno dall'altro. Dove succede, il
+ * confronto lo fa {@link LimitiCondivisi}: e' l'unico modo perche' "vanno
+ * cambiati insieme" resti vero invece di restare scritto.
+ *
+ * <p>Unitario e non IT: legge un file, non serve ne' Spring ne' Postgres. Che
+ * importi una classe di produzione non lo rende meno unitario — di
+ * {@code MediaCameraServiceImpl} legge una costante, non ne costruisce uno.
  */
 @DisplayName("Contratto OpenAPI")
 class ContrattoOpenApiTest {

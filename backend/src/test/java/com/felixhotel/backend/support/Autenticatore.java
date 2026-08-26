@@ -24,9 +24,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * cambiano, il posto da toccare e' questo, e si vede dal nome del file.
  *
  * <p>Le rotte sono {@code public} perche' {@code AuthApiIT} e
- * {@code SecurityConfigIT} costruiscono richieste proprie e non passano da qui.
- * Se le riscrivessero, dello stesso URL esisterebbero tre copie; importandole da
- * qui ne esiste una, ed e' in questo file.
+ * {@code SecurityConfigIT} costruiscono richieste proprie e non passano dai
+ * metodi qui sotto. Se le riscrivessero, dello stesso URL esisterebbe una copia
+ * per ogni classe che lo nomina; importandole da qui ne esiste una sola, ed e'
+ * in questo file.
  *
  * <p>Non e' un {@code @Component}: si costruisce a mano in
  * {@code IntegrationTestBase.inizializzaDati()}, come {@link TestDataFactory} e
