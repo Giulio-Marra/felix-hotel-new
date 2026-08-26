@@ -4,6 +4,7 @@ import com.felixhotel.backend.dto.DotazioneResponse;
 import com.felixhotel.backend.entity.Dotazione;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -28,12 +29,16 @@ public class DotazioneMapper {
     }
 
     /**
-     * Versione per l'endpoint di lista: stessa conversione, applicata a una
-     * pagina di risultati. L'ordine e' quello in cui arrivano — lo decide la
-     * query, che e' l'unico posto in cui puo' essere deciso senza rompere la
-     * paginazione.
+     * La conversione applicata a una collezione, nell'ordine in cui la si
+     * percorre. Per l'endpoint di lista quell'ordine lo decide la query, che e'
+     * l'unico posto in cui puo' essere deciso senza rompere la paginazione.
+     *
+     * <p>Prende una {@link Collection} e non una {@link List} perche' e' anche
+     * il pezzo finale di {@link #toResponseListOrdinata}: la conversione e' la
+     * stessa e l'ordine e' l'unica cosa che cambia fra i due casi — scriverla
+     * una volta sola vuol dire che resta l'unica cosa che cambia.
      */
-    public List<DotazioneResponse> toResponseList(List<Dotazione> dotazioni) {
+    public List<DotazioneResponse> toResponseList(Collection<Dotazione> dotazioni) {
         return dotazioni.stream().map(this::toResponse).toList();
     }
 
@@ -49,9 +54,8 @@ public class DotazioneMapper {
      * una persona, non secondo il codice dei caratteri.
      */
     public List<DotazioneResponse> toResponseListOrdinata(Set<Dotazione> dotazioni) {
-        return dotazioni.stream()
+        return toResponseList(dotazioni.stream()
                 .sorted(Comparator.comparing(Dotazione::getNome, String.CASE_INSENSITIVE_ORDER))
-                .map(this::toResponse)
-                .toList();
+                .toList());
     }
 }
