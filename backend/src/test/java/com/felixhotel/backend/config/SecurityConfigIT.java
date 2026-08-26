@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import static com.felixhotel.backend.support.Autenticatore.LOGIN;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -68,8 +69,8 @@ class SecurityConfigIT extends IntegrationTestBase {
         void preAuthorize_conRuoloInsufficiente_risponde403() throws Exception {
             // given: un account USER autenticato regolarmente
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
-            String token = ottieniToken(registrazione.getEmail());
+            auth.registraAccount(registrazione);
+            String token = auth.ottieniToken(registrazione.getEmail());
 
             // when: chiama un endpoint riservato agli ADMIN
             mockMvc.perform(get(SoloAdminTestController.PATH)

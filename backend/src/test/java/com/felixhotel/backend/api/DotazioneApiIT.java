@@ -63,14 +63,14 @@ class DotazioneApiIT extends IntegrationTestBase {
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
         creatoreStaff.creaAdmin(email);
-        return ottieniToken(email);
+        return auth.ottieniToken(email);
     }
 
     /** Token di un cliente registrato dal frontoffice (ruolo USER). */
     private String tokenCliente() throws Exception {
         RegisterRequest cliente = dati.registerRequest();
-        registraAccount(cliente);
-        return ottieniToken(cliente.getEmail());
+        auth.registraAccount(cliente);
+        return auth.ottieniToken(cliente.getEmail());
     }
 
     /** Crea una dotazione passando dall'endpoint vero e ne restituisce l'id. */

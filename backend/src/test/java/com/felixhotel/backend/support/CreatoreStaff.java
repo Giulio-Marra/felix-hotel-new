@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>La password e' {@link TestDataFactory#PASSWORD_VALIDA} e viene cifrata con
  * lo stesso {@code PasswordEncoder} dell'applicazione: cosi' l'account creato
- * qui e' indistinguibile da uno vero e {@code IntegrationTestBase.ottieniToken}
+ * qui e' indistinguibile da uno vero e {@link Autenticatore#ottieniToken}
  * ci funziona sopra senza sapere come e' nato.
  *
  * <p>E' un {@code @Component} in {@code src/test/java}: viene raccolto dal

@@ -54,7 +54,7 @@ class MediaCameraApiIT extends IntegrationTestBase {
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
         creatoreStaff.creaAdmin(email);
-        return ottieniToken(email);
+        return auth.ottieniToken(email);
     }
 
     /**
@@ -66,14 +66,14 @@ class MediaCameraApiIT extends IntegrationTestBase {
     private String tokenStaff() throws Exception {
         String email = dati.emailUnivoca();
         creatoreStaff.creaStaff(email);
-        return ottieniToken(email);
+        return auth.ottieniToken(email);
     }
 
     /** Token di un cliente registrato dal frontoffice (ruolo USER). */
     private String tokenCliente() throws Exception {
         RegisterRequest cliente = dati.registerRequest();
-        registraAccount(cliente);
-        return ottieniToken(cliente.getEmail());
+        auth.registraAccount(cliente);
+        return auth.ottieniToken(cliente.getEmail());
     }
 
     /** Percorso della galleria di una tipologia. */

@@ -64,21 +64,21 @@ class CameraApiIT extends IntegrationTestBase {
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
         creatoreStaff.creaAdmin(email);
-        return ottieniToken(email);
+        return auth.ottieniToken(email);
     }
 
     /** Token del personale non amministratore: il ruolo che qui, per la prima volta, conta. */
     private String tokenStaff() throws Exception {
         String email = dati.emailUnivoca();
         creatoreStaff.creaStaff(email);
-        return ottieniToken(email);
+        return auth.ottieniToken(email);
     }
 
     /** Token di un cliente registrato dal frontoffice (ruolo USER). */
     private String tokenCliente() throws Exception {
         RegisterRequest cliente = dati.registerRequest();
-        registraAccount(cliente);
-        return ottieniToken(cliente.getEmail());
+        auth.registraAccount(cliente);
+        return auth.ottieniToken(cliente.getEmail());
     }
 
     /** Crea una tipologia dall'endpoint vero e ne restituisce l'id: serve a ogni camera. */
@@ -557,7 +557,7 @@ class CameraApiIT extends IntegrationTestBase {
             long idCamera = creaCamera(token, dati.cameraRequest(idTipologia));
 
             RegisterRequest cliente = dati.registerRequest();
-            registraAccount(cliente);
+            auth.registraAccount(cliente);
             Long idUtente = jdbcTemplate.queryForObject(
                     "SELECT id FROM utente WHERE email = ?", Long.class, cliente.getEmail());
 

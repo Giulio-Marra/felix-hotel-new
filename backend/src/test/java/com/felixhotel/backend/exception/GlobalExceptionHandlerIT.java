@@ -35,8 +35,8 @@ class GlobalExceptionHandlerIT extends IntegrationTestBase {
         void rottaInesistente_daAutenticato_risponde404() throws Exception {
             // given: un cliente qualsiasi, purche' autenticato
             RegisterRequest cliente = dati.registerRequest();
-            registraAccount(cliente);
-            String token = ottieniToken(cliente.getEmail());
+            auth.registraAccount(cliente);
+            String token = auth.ottieniToken(cliente.getEmail());
 
             // when: chiede un URL sotto /api che nessun Controller serve
             mockMvc.perform(get(ROTTA_INESISTENTE)

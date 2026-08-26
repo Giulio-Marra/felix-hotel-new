@@ -20,6 +20,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 
+import static com.felixhotel.backend.support.Autenticatore.LOGIN;
+import static com.felixhotel.backend.support.Autenticatore.REGISTER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -41,8 +43,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("API di autenticazione")
 class AuthApiIT extends IntegrationTestBase {
 
-    // REGISTER e LOGIN stanno in IntegrationTestBase insieme agli helper che li usano;
-    // ME serve solo qui.
+    // REGISTER e LOGIN si importano da Autenticatore, che e' il posto in cui le rotte
+    // di auth sono scritte una volta sola; ME serve solo qui.
     private static final String ME = "/api/auth/me";
 
     /** Serve a disattivare un account a database, senza passare da un endpoint che non esiste. */
@@ -124,7 +126,7 @@ class AuthApiIT extends IntegrationTestBase {
         void register_conEmailDuplicata_risponde409() throws Exception {
             // given: un account gia' registrato
             RegisterRequest richiesta = dati.registerRequest();
-            registraAccount(richiesta);
+            auth.registraAccount(richiesta);
 
             // when: si registra di nuovo la stessa email
             mockMvc.perform(post(REGISTER)
@@ -143,7 +145,7 @@ class AuthApiIT extends IntegrationTestBase {
             RegisterRequest richiesta = dati.registerRequest();
 
             // when: si registra l'account
-            registraAccount(richiesta);
+            auth.registraAccount(richiesta);
 
             // then: emailVerificata e' true a database. Non e' un dettaglio cosmetico: finche'
             // non esiste un flusso di verifica (invio, token di conferma, login bloccato
@@ -285,7 +287,7 @@ class AuthApiIT extends IntegrationTestBase {
         void login_conCredenzialiCorrette_restituisceToken() throws Exception {
             // given: un account registrato
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
+            auth.registraAccount(registrazione);
 
             // when: si effettua il login con le stesse credenziali
             mockMvc.perform(post(LOGIN)
@@ -306,7 +308,7 @@ class AuthApiIT extends IntegrationTestBase {
         void login_conPasswordSbagliata_risponde401() throws Exception {
             // given: un account registrato
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
+            auth.registraAccount(registrazione);
 
             // when: si effettua il login con la password sbagliata
             mockMvc.perform(post(LOGIN)
@@ -348,7 +350,7 @@ class AuthApiIT extends IntegrationTestBase {
         void login_dopoTroppiTentativiFalliti_risponde429() throws Exception {
             // given: un account vero e i tentativi liberi consumati con password sbagliate
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
+            auth.registraAccount(registrazione);
             for (int i = 0; i < 3; i++) {
                 mockMvc.perform(loginDa(IP_ATTACCANTE, registrazione.getEmail(), "PasswordSbagliata999"))
                         .andExpect(status().isUnauthorized());
@@ -372,9 +374,9 @@ class AuthApiIT extends IntegrationTestBase {
         void login_conAltroAccount_nonEInfluenzatoDalRitardoAltrui() throws Exception {
             // given: un account rallentato da tre tentativi falliti, e un secondo account
             RegisterRequest rallentato = dati.registerRequest();
-            registraAccount(rallentato);
+            auth.registraAccount(rallentato);
             RegisterRequest indenne = dati.registerRequest();
-            registraAccount(indenne);
+            auth.registraAccount(indenne);
             for (int i = 0; i < 3; i++) {
                 mockMvc.perform(loginDa(IP_ATTACCANTE, rallentato.getEmail(), "PasswordSbagliata999"))
                         .andExpect(status().isUnauthorized());
@@ -394,7 +396,7 @@ class AuthApiIT extends IntegrationTestBase {
             // given: un account vero, e un IP che ha appena provato cinque email a caso
             // (nessuna delle quali ha da sola superato la propria soglia)
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
+            auth.registraAccount(registrazione);
             for (int i = 0; i < 5; i++) {
                 mockMvc.perform(loginDa(IP_ATTACCANTE, dati.emailUnivoca(), TestDataFactory.PASSWORD_VALIDA))
                         .andExpect(status().isUnauthorized());
@@ -438,8 +440,8 @@ class AuthApiIT extends IntegrationTestBase {
         void me_conTokenValido_restituisceAccount() throws Exception {
             // given: un account registrato e autenticato
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
-            String token = ottieniToken(registrazione.getEmail());
+            auth.registraAccount(registrazione);
+            String token = auth.ottieniToken(registrazione.getEmail());
 
             // when: si chiede il proprio profilo
             mockMvc.perform(get(ME).header("Authorization", "Bearer " + token))
@@ -490,8 +492,8 @@ class AuthApiIT extends IntegrationTestBase {
         void me_conAccountDisattivatoDopoIlLogin_risponde401() throws Exception {
             // given: un account registrato, autenticato, che sta usando regolarmente il token
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
-            String token = ottieniToken(registrazione.getEmail());
+            auth.registraAccount(registrazione);
+            String token = auth.ottieniToken(registrazione.getEmail());
 
             mockMvc.perform(get(ME).header("Authorization", "Bearer " + token))
                     .andExpect(status().isOk());
@@ -514,8 +516,8 @@ class AuthApiIT extends IntegrationTestBase {
         void me_conAccountRiattivato_rispondeDiNuovo200() throws Exception {
             // given: un account disattivato, il cui token e' quindi rifiutato
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
-            String token = ottieniToken(registrazione.getEmail());
+            auth.registraAccount(registrazione);
+            String token = auth.ottieniToken(registrazione.getEmail());
 
             Utente utente = utenteRepository.findByEmail(registrazione.getEmail()).orElseThrow();
             utente.setAttivo(false);
@@ -540,7 +542,7 @@ class AuthApiIT extends IntegrationTestBase {
             // scaduto. Fabbricato qui invece di aspettare la scadenza vera (un'ora) o di
             // avviare un secondo contesto con una scadenza artificiale.
             RegisterRequest registrazione = dati.registerRequest();
-            registraAccount(registrazione);
+            auth.registraAccount(registrazione);
             String tokenScaduto = tokenScadutoPer(registrazione.getEmail());
 
             // when/then: la firma e' valida, quindi a rifiutarlo puo' essere solo il controllo

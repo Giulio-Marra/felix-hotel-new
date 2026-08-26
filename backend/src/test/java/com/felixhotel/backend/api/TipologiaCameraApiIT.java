@@ -68,7 +68,7 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
     private String tokenAdmin() throws Exception {
         String email = dati.emailUnivoca();
         creatoreStaff.creaAdmin(email);
-        return ottieniToken(email);
+        return auth.ottieniToken(email);
     }
 
     /** Crea una tipologia passando dall'endpoint vero e ne restituisce l'id. */
@@ -219,8 +219,8 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
         void creazione_conTokenUtente_risponde403() throws Exception {
             // given: un cliente registrato dal frontoffice (ruolo USER)
             RegisterRequest cliente = dati.registerRequest();
-            registraAccount(cliente);
-            String token = ottieniToken(cliente.getEmail());
+            auth.registraAccount(cliente);
+            String token = auth.ottieniToken(cliente.getEmail());
 
             // when: prova a inserire una tipologia
             mockMvc.perform(post(TIPOLOGIE)
@@ -240,7 +240,7 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
             // given: un account del personale con ruolo STAFF, non ADMIN
             String email = dati.emailUnivoca();
             creatoreStaff.creaStaff(email);
-            String token = ottieniToken(email);
+            String token = auth.ottieniToken(email);
 
             // when: prova a inserire una tipologia
             mockMvc.perform(post(TIPOLOGIE)
@@ -510,8 +510,8 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
             long id = creaTipologia(tokenAdmin(), dati.tipologiaCameraRequest());
 
             RegisterRequest cliente = dati.registerRequest();
-            registraAccount(cliente);
-            String tokenCliente = ottieniToken(cliente.getEmail());
+            auth.registraAccount(cliente);
+            String tokenCliente = auth.ottieniToken(cliente.getEmail());
 
             // when: il cliente prova a cancellarla
             mockMvc.perform(delete(TIPOLOGIE + "/" + id)
@@ -616,8 +616,8 @@ class TipologiaCameraApiIT extends IntegrationTestBase {
             long id = creaTipologia(tokenAdmin(), dati.tipologiaCameraRequest());
 
             RegisterRequest cliente = dati.registerRequest();
-            registraAccount(cliente);
-            String tokenCliente = ottieniToken(cliente.getEmail());
+            auth.registraAccount(cliente);
+            String tokenCliente = auth.ottieniToken(cliente.getEmail());
 
             // when: il cliente prova a cambiare le dotazioni della camera
             mockMvc.perform(put(TIPOLOGIE + "/" + id + "/dotazioni")
