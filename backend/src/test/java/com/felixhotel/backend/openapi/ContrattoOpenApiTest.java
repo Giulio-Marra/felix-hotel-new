@@ -1,5 +1,6 @@
 package com.felixhotel.backend.openapi;
 
+import com.felixhotel.backend.service.impl.MediaCameraServiceImpl;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -197,6 +198,48 @@ class ContrattoOpenApiTest {
             // e non sa cosa aspettarsi
             assertThat(mute).as("operazioni che non dicono cosa c'e' in 'data'").isEmpty();
         }
+    }
+
+    @Nested
+    @DisplayName("limiti che il contratto condivide col codice")
+    class LimitiCondivisi {
+
+        @Test
+        @DisplayName("il tetto di 'mediaIds' e' lo stesso numero massimo di foto per tipologia")
+        void mediaIds_maxItems_coincideConLaCostante() {
+            // when: si legge il tetto che il contratto impone alla richiesta di riordino
+            Object dichiarato = dentro("components", "schemas", "MediaCameraOrdineRequest",
+                    "properties", "mediaIds", "maxItems");
+
+            // then: deve essere lo stesso numero che il Service applica quando si
+            // aggiunge una foto. Sono lo stesso limite visto dai due lati — di qua chi
+            // riordina, di la' chi inserisce — e finora a tenerli allineati c'era solo
+            // una frase nel javadoc della costante che diceva "vanno cambiati insieme".
+            // Una promessa senza il codice che la mantiene e' esattamente cio' che la
+            // regola 17 vieta: il giorno che il tetto sale a 40, senza questo test lo
+            // spec continua a rifiutare a 30 e il 400 arriva da un limite che nessuno
+            // ricordava di aver scritto
+            assertThat(dichiarato)
+                    .as("maxItems di MediaCameraOrdineRequest.mediaIds")
+                    .isEqualTo(MediaCameraServiceImpl.MASSIMO_FOTO_PER_TIPOLOGIA);
+        }
+    }
+
+    /**
+     * Scende nello spec seguendo le chiavi date. Fallisce dicendo <b>dove</b> si e'
+     * fermato: senza, uno schema rinominato darebbe un NullPointerException muto
+     * invece del nome del pezzo che non c'e' piu'.
+     */
+    @SuppressWarnings("unchecked")
+    private static Object dentro(String... chiavi) {
+        Object nodo = spec;
+        StringBuilder percorso = new StringBuilder();
+        for (String chiave : chiavi) {
+            percorso.append('/').append(chiave);
+            assertThat(nodo).as("lo spec deve avere il percorso %s", percorso).isInstanceOf(Map.class);
+            nodo = ((Map<String, Object>) nodo).get(chiave);
+        }
+        return nodo;
     }
 
     @SuppressWarnings("unchecked")

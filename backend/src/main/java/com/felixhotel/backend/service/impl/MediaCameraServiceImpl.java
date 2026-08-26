@@ -65,7 +65,10 @@ public class MediaCameraServiceImpl implements MediaCameraService {
      * nota invece che una tabella intera restituita in un colpo. E' lo stesso
      * numero scritto come {@code maxItems} su {@code MediaCameraOrdineRequest}
      * nello spec, dove limita la richiesta di riordino: sono lo stesso limite
-     * visto dai due lati, e vanno cambiati insieme.
+     * visto dai due lati, e vanno cambiati insieme. A pretenderlo non e' piu'
+     * questa frase ma {@code ContrattoOpenApiTest.LimitiCondivisi}, che confronta
+     * i due numeri ad ogni build: cambiarne uno solo fa fallire il test, che e'
+     * l'unico modo perche' "vanno cambiati insieme" resti vero.
      *
      * <p>{@code public} perche' il test lo importa invece di riscrivere il
      * numero: due copie di un limite sono due limiti, e la seconda smette di
