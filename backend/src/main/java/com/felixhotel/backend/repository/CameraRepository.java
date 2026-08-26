@@ -65,4 +65,22 @@ public interface CameraRepository extends JpaRepository<Camera, Long> {
      * modificando — altrimenti riconfermarle il proprio numero darebbe 409.
      */
     boolean existsByNumeroIgnoreCaseAndIdNot(String numero, Long id);
+
+    /**
+     * Quante camere fisiche esistono di una tipologia.
+     *
+     * <p>E' meta' del calcolo della disponibilita': l'altra e' quante di quelle
+     * risultano gia' impegnate nel periodo richiesto, che la sa
+     * {@code PrenotazioneRepository.contaSovrapposte}.
+     *
+     * <p><b>Conta tutte le camere, stato operativo compreso.</b> Una stanza in
+     * MANUTENZIONE oggi non dice niente su come sara' fra due mesi, e sottrarla
+     * qui vorrebbe dire rifiutare una prenotazione di novembre per un
+     * condizionatore rotto ad agosto — vedi {@code StatoCamera}, dove la
+     * distinzione fra stato presente e disponibilita' calcolata e' scritta per
+     * esteso. Il giorno che servisse tenere fuori una camera da <i>tutte</i> le
+     * prenotazioni future servirebbe un'altra cosa: un periodo di
+     * indisponibilita', con le sue date.
+     */
+    long countByTipologiaCameraId(Long tipologiaCameraId);
 }

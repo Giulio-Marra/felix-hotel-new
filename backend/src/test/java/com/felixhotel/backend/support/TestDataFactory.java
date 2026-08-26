@@ -6,12 +6,15 @@ import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.MediaCameraOrdineRequest;
 import com.felixhotel.backend.dto.MediaCameraRequest;
+import com.felixhotel.backend.dto.PrenotazioneAnnullamentoRequest;
+import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.StatoCamera;
 import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -202,5 +205,39 @@ public class TestDataFactory {
      */
     public MediaCameraOrdineRequest mediaOrdineRequest(Long... mediaIds) {
         return new MediaCameraOrdineRequest().mediaIds(Arrays.asList(mediaIds));
+    }
+
+    /**
+     * Prenotazione valida per la tipologia indicata — che deve esistere e avere
+     * almeno una camera libera, perche' il service risolve quell'id e conta le
+     * stanze.
+     *
+     * <p><b>Le date sono nel futuro e restano tali</b>: il service rifiuta un
+     * arrivo gia' passato, quindi una data fissa scritta qui dentro farebbe
+     * passare la suite fino a quel giorno e poi mai piu'. Sono tre notti, cosi'
+     * il totale atteso e' il prezzo moltiplicato per tre e non coincide col
+     * prezzo di una notte — un test in cui i due numeri fossero uguali passerebbe
+     * anche se la moltiplicazione sparisse.
+     *
+     * <p>{@code utenteId} e {@code canale} non sono valorizzati: sono i campi
+     * riservati a chi registra la prenotazione di un cliente, e da un USER sono
+     * un 400. I test del personale li aggiungono
+     * ({@code prenotazioneRequest(id).utenteId(7L).canale(TELEFONO)}).
+     */
+    public PrenotazioneRequest prenotazioneRequest(Long tipologiaCameraId) {
+        return new PrenotazioneRequest()
+                .tipologiaCameraId(tipologiaCameraId)
+                .dataCheckIn(LocalDate.now().plusDays(7))
+                .dataCheckOut(LocalDate.now().plusDays(10))
+                .numeroOspiti(2);
+    }
+
+    /**
+     * Corpo dell'annullamento. Il motivo e' facoltativo nello spec: chi vuole
+     * provare l'annullamento senza motivo passa direttamente null come corpo,
+     * che non e' lo stesso di questo oggetto col campo vuoto.
+     */
+    public PrenotazioneAnnullamentoRequest annullamentoRequest(String motivo) {
+        return new PrenotazioneAnnullamentoRequest().motivo(motivo);
     }
 }

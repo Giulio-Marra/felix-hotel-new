@@ -1196,6 +1196,356 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/prenotazioni:
+
+    get:
+      tags:
+        - Prenotazioni
+      operationId: elencaPrenotazioni
+      summary: Elenco paginato delle prenotazioni
+      description: >
+        Restituisce le prenotazioni in ordine di data di check-in decrescente
+        (le piu' recenti per prime) e divise in pagine, con un filtro
+        facoltativo sullo stato.
+        **Cosa si vede dipende da chi chiede**, e non e' un dettaglio di
+        comodita': un **USER** vede *solo le proprie*, **STAFF** e **ADMIN**
+        vedono tutte. Non serve nessun parametro per dirlo — l'ambito lo decide
+        il token, perche' un filtro che il client puo' scegliere e' un filtro
+        che il client puo' non mandare.
+        Risposta: busta ApiBaseResponsePaginated con un **array di
+        PrenotazioneResponse** in 'data' e i metadati di pagina in 'page'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+        - $ref: '#/components/parameters/FiltroStatoPrenotazione'
+      responses:
+        '200':
+          description: Pagina di prenotazioni ('data' = array di PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+              example:
+                status: 200
+                message: Prenotazioni recuperate
+                timestamp: 2026-08-26T10:15:30Z
+                data:
+                  - id: 1
+                    dataCheckIn: 2026-09-10
+                    dataCheckOut: 2026-09-13
+                    numeroOspiti: 2
+                    stato: CONFERMATA
+                    canale: ONLINE
+                    importoTotale: 360.00
+                    note: Arrivo in tarda serata
+                    utente:
+                      id: 7
+                      nome: Mario
+                      cognome: Rossi
+                      email: mario.rossi@example.com
+                    tipologia:
+                      id: 1
+                      nome: Doppia Superior
+                    gestitaDa: null
+                    motivoCancellazione: null
+                    dataCancellazione: null
+                page:
+                  pageNumber: 0
+                  pageSize: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Prenotazioni
+      operationId: creaPrenotazione
+      summary: Crea una prenotazione (stato IN_ATTESA)
+      description: >
+        Apre una prenotazione nello stato **IN_ATTESA**, che e' il carrello: un
+        appunto personale che **non blocca la disponibilita' per nessun altro**.
+        A riservare davvero e' la conferma (PUT /api/prenotazioni/{id}/conferma).
+        **Due modi di chiamarlo, decisi dal ruolo di chi chiama.**
+        Un **USER** prenota per se': `utenteId` e `canale` vanno **omessi** —
+        mandarli e' un 400, non un valore ignorato in silenzio — e la
+        prenotazione nasce con canale ONLINE, intestata a chi ha il token.
+        **STAFF** e **ADMIN** prenotano per un cliente al banco o al telefono:
+        li' `utenteId` e `canale` diventano **obbligatori**, e la prenotazione
+        registra chi del personale l'ha presa.
+        Si prenota una **tipologia**, non una stanza: quale camera fisica
+        tocchera' si decide al check-in.
+        Cosa fa fallire la richiesta, oltre ai vincoli dello schema: una
+        tipologia inesistente (**400**), un numero di ospiti oltre la capienza
+        della tipologia (**400**), un check-in gia' passato (**400**) e
+        **nessuna camera libera** per quel periodo (**409**).
+        Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrenotazioneRequest'
+      responses:
+        '201':
+          description: Prenotazione creata ('data' = PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Prenotazione creata
+                timestamp: 2026-08-26T10:15:30Z
+                data:
+                  id: 1
+                  dataCheckIn: 2026-09-10
+                  dataCheckOut: 2026-09-13
+                  numeroOspiti: 2
+                  stato: IN_ATTESA
+                  canale: ONLINE
+                  importoTotale: 360.00
+                  note: Arrivo in tarda serata
+                  utente:
+                    id: 7
+                    nome: Mario
+                    cognome: Rossi
+                    email: mario.rossi@example.com
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+                  gestitaDa: null
+                  motivoCancellazione: null
+                  dataCancellazione: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prenotazioni/{id}:
+
+    get:
+      tags:
+        - Prenotazioni
+      operationId: dettaglioPrenotazione
+      summary: Dettaglio di una prenotazione
+      description: >
+        Restituisce una singola prenotazione. **STAFF** e **ADMIN** vedono
+        qualsiasi prenotazione; un **USER** vede solo le proprie.
+        La prenotazione di qualcun altro risponde **404 e non 403**, ed e'
+        deliberato: un 403 direbbe "esiste, ma non e' tua" — cioe' permetterebbe
+        di scoprire quali id esistono provandoli uno per uno. Chi non ha diritto
+        di vederla riceve la stessa risposta che riceverebbe per un id
+        inventato.
+        Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      responses:
+        '200':
+          description: Prenotazione trovata ('data' = PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Prenotazione recuperata
+                timestamp: 2026-08-26T10:15:30Z
+                data:
+                  id: 1
+                  dataCheckIn: 2026-09-10
+                  dataCheckOut: 2026-09-13
+                  numeroOspiti: 2
+                  stato: CONFERMATA
+                  canale: TELEFONO
+                  importoTotale: 360.00
+                  note: null
+                  utente:
+                    id: 7
+                    nome: Mario
+                    cognome: Rossi
+                    email: mario.rossi@example.com
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+                  gestitaDa:
+                    id: 3
+                    nome: Anna
+                    cognome: Bianchi
+                  motivoCancellazione: null
+                  dataCancellazione: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prenotazioni/{id}/conferma:
+
+    put:
+      tags:
+        - Prenotazioni
+      operationId: confermaPrenotazione
+      summary: Conferma una prenotazione (IN_ATTESA -> CONFERMATA)
+      description: >
+        Trasforma il carrello in una prenotazione vera: da **IN_ATTESA** a
+        **CONFERMATA**. E' qui che la camera viene riservata davvero.
+        **Ed e' qui che la disponibilita' si controlla sul serio.** Quello fatto
+        in creazione era un filtro di comodita': fra allora e adesso qualcun
+        altro puo' aver confermato l'ultima camera libera, e chi ha aggiunto al
+        carrello per primo non ha nessun diritto di precedenza. Se non c'e' piu'
+        posto la risposta e' **409** e la prenotazione resta IN_ATTESA — non si
+        perde, va cambiata di date o di tipologia.
+        Questo doppio controllo e' cio' che sostituisce la scadenza a tempo sul
+        carrello, valutata e scartata: nessun campo di scadenza, nessun lavoro
+        in background che ripulisca.
+        Confermare qualcosa che non e' IN_ATTESA e' **409**: una prenotazione
+        gia' confermata o annullata non torna indietro da questo endpoint.
+        Puo' confermare il titolare della prenotazione, oppure **STAFF** e
+        **ADMIN** per chiunque.
+        Non ha corpo: l'unica cosa che dice e' "questa, adesso".
+        Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      responses:
+        '200':
+          description: Prenotazione confermata ('data' = PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Prenotazione confermata
+                timestamp: 2026-08-26T10:15:30Z
+                data:
+                  id: 1
+                  dataCheckIn: 2026-09-10
+                  dataCheckOut: 2026-09-13
+                  numeroOspiti: 2
+                  stato: CONFERMATA
+                  canale: ONLINE
+                  importoTotale: 360.00
+                  note: null
+                  utente:
+                    id: 7
+                    nome: Mario
+                    cognome: Rossi
+                    email: mario.rossi@example.com
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+                  gestitaDa: null
+                  motivoCancellazione: null
+                  dataCancellazione: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prenotazioni/{id}/annullamento:
+
+    put:
+      tags:
+        - Prenotazioni
+      operationId: annullaPrenotazione
+      summary: Annulla una prenotazione
+      description: >
+        Porta la prenotazione in **ANNULLATA**, registrando quando e — se
+        indicato — perche'. Da quel momento non conta piu' per la
+        disponibilita': la camera torna prenotabile da chiunque.
+        Si annulla una prenotazione **IN_ATTESA** o **CONFERMATA**. Annullare
+        cio' che e' gia' annullato e' **409**.
+        **Non esiste un endpoint che cancelli una prenotazione**, e non e' una
+        dimenticanza: una prenotazione e' un fatto accaduto, e l'annullamento e'
+        il modo in cui smette di valere senza sparire dallo storico. Per lo
+        stesso motivo non esiste una PUT che ne cambi le date — si annulla e se
+        ne apre un'altra, cosi' la disponibilita' viene ricalcolata invece che
+        aggirata.
+        Puo' annullare il titolare della prenotazione, oppure **STAFF** e
+        **ADMIN** per chiunque.
+        Il corpo e' facoltativo: senza, l'annullamento e' registrato lo stesso e
+        il motivo resta null.
+        Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrenotazioneAnnullamentoRequest'
+      responses:
+        '200':
+          description: Prenotazione annullata ('data' = PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Prenotazione annullata
+                timestamp: 2026-08-26T10:15:30Z
+                data:
+                  id: 1
+                  dataCheckIn: 2026-09-10
+                  dataCheckOut: 2026-09-13
+                  numeroOspiti: 2
+                  stato: ANNULLATA
+                  canale: ONLINE
+                  importoTotale: 360.00
+                  note: null
+                  utente:
+                    id: 7
+                    nome: Mario
+                    cognome: Rossi
+                    email: mario.rossi@example.com
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+                  gestitaDa: null
+                  motivoCancellazione: Cambio di programma del cliente
+                  dataCancellazione: 2026-08-26T10:15:30Z
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -1245,6 +1595,28 @@ components:
         type: integer
         format: int64
         minimum: 1
+
+    IdPrenotazione:
+      name: id
+      in: path
+      required: true
+      description: Identificativo della prenotazione
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    FiltroStatoPrenotazione:
+      name: stato
+      in: query
+      required: false
+      description: >
+        Se valorizzato, restituisce le sole prenotazioni in quello stato — per
+        esempio le CONFERMATA da preparare, o le IN_ATTESA mai portate a
+        termine. Uno stato fuori dall'elenco e' un 400: e' un valore che non
+        esiste, non un filtro che non trova niente.
+      schema:
+        $ref: '#/components/schemas/StatoPrenotazione'
 
     FiltroTipologiaCamera:
       name: tipologiaCameraId
@@ -1844,6 +2216,240 @@ components:
         nome:
           type: string
           example: Doppia Superior
+
+    StatoPrenotazione:
+      type: string
+      description: >
+        Punto del ciclo di vita in cui si trova una prenotazione.
+        Il percorso normale e' IN_ATTESA -> CONFERMATA -> CHECK_IN ->
+        CHECK_OUT; da IN_ATTESA e da CONFERMATA si puo' uscire per ANNULLATA.
+        **Solo CONFERMATA, CHECK_IN e CHECK_OUT occupano una camera**: IN_ATTESA
+        e' il carrello e non riserva niente, ANNULLATA ha restituito il posto.
+        Le transizioni verso CHECK_IN e CHECK_OUT non hanno ancora un endpoint —
+        arrivano con il check-in — ma i due valori sono gia' qui perche' il
+        calcolo della disponibilita' li nomina: sono stati che occupano.
+      enum:
+        - IN_ATTESA
+        - CONFERMATA
+        - CHECK_IN
+        - CHECK_OUT
+        - ANNULLATA
+      example: CONFERMATA
+
+    CanalePrenotazione:
+      type: string
+      description: >
+        Da dove e' arrivata la prenotazione. Serve al backoffice per sapere di
+        cosa e' fatto il proprio riempimento, e non e' un dato che il cliente
+        sceglie: una prenotazione fatta dal sito e' ONLINE per costruzione, gli
+        altri tre valori li puo' indicare solo il personale che la registra.
+      enum:
+        - ONLINE
+        - TELEFONO
+        - WALK_IN
+        - AGENZIA
+      example: ONLINE
+
+    PrenotazioneRequest:
+      type: object
+      description: >
+        Dati per aprire una prenotazione. I limiti ricalcano le colonne del
+        database, vedi V1__init_schema.sql.
+        **Due campi valgono in un caso e sono vietati nell'altro**: `utenteId` e
+        `canale` servono a chi registra la prenotazione di qualcun altro
+        (STAFF/ADMIN) e vanno omessi da un cliente che prenota per se'. Sono
+        obbligatori nel primo caso e rifiutati con 400 nel secondo: chi ha il
+        token USER non puo' intestare una prenotazione a un altro, e ignorarli in
+        silenzio direbbe che ci ha provato senza dirgli che non ha funzionato.
+        Cosa non e' esprimibile qui e lo verifica il service: il **check-in non
+        puo' essere nel passato**, il **numero di ospiti non puo' superare la
+        capienza** della tipologia scelta, e per quel periodo **deve esserci una
+        camera libera**.
+      required:
+        - tipologiaCameraId
+        - dataCheckIn
+        - dataCheckOut
+        - numeroOspiti
+      properties:
+        tipologiaCameraId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            Tipologia che si prenota — non la singola camera: quale stanza
+            tocchera' si decide al check-in. Deve esistere: un id sconosciuto e'
+            un **400**, non un 404, perche' il 404 di questi endpoint significa
+            "questa prenotazione non esiste".
+          example: 1
+        dataCheckIn:
+          type: string
+          format: date
+          description: >
+            Giorno di arrivo. Non puo' essere nel passato: il vincolo non e'
+            esprimibile nello schema (dipende da che giorno e' oggi) e lo
+            verifica il service, che risponde 400.
+          example: 2026-09-10
+        dataCheckOut:
+          type: string
+          format: date
+          description: >
+            Giorno di partenza, che deve essere **successivo** al check-in — un
+            soggiorno di zero notti non esiste. Il vincolo e' anche nel database
+            (CHECK chk_prenotazione_date), ma a rifiutarlo con un 400 e' il
+            service: lasciarlo arrivare fino a Postgres lo trasformerebbe in un
+            500.
+            Il giorno di partenza **non e' occupato**: chi parte il 13 libera la
+            camera per chi arriva il 13.
+          example: 2026-09-13
+        numeroOspiti:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: >
+            Quante persone alloggeranno. Non puo' superare la capienza della
+            tipologia scelta — quel confronto lo fa il service, perche' il
+            massimo dipende da quale tipologia si e' scelta e non e' un numero
+            fisso. Il tetto dichiarato qui e' invece una difesa grossolana:
+            senza, il campo accetta due miliardi di ospiti.
+          example: 2
+        note:
+          type: string
+          maxLength: 1000
+          description: >
+            Richieste o annotazioni libere del cliente (orario di arrivo, culla,
+            piano alto). Non e' un campo che l'applicazione interpreta: e' un
+            promemoria per chi accoglie.
+          example: Arrivo in tarda serata
+        utenteId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            Cliente a cui intestare la prenotazione. **Solo per STAFF e ADMIN**,
+            dove e' obbligatorio; da un USER e' un 400. Deve corrispondere a un
+            account esistente, altrimenti 400.
+          example: 7
+        canale:
+          $ref: '#/components/schemas/CanalePrenotazione'
+
+    PrenotazioneAnnullamentoRequest:
+      type: object
+      description: >
+        Corpo facoltativo dell'annullamento: serve solo a dire perche'. Senza,
+        la prenotazione viene annullata lo stesso e il motivo resta null —
+        obbligare a scrivere una ragione produrrebbe soltanto stringhe come
+        "annullata".
+      properties:
+        motivo:
+          type: string
+          maxLength: 255
+          description: Perche' la prenotazione e' stata annullata, in testo libero
+          example: Cambio di programma del cliente
+
+    PrenotazioneResponse:
+      type: object
+      description: >
+        Prenotazione come viene restituita al client.
+        **La camera fisica non compare**, e non e' una dimenticanza: viene
+        assegnata al check-in, che e' un endpoint ancora da scrivere — finche'
+        nessun codice la valorizza, un campo sempre null direbbe al client che
+        esiste qualcosa che non esiste.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        dataCheckIn:
+          type: string
+          format: date
+          example: 2026-09-10
+        dataCheckOut:
+          type: string
+          format: date
+          example: 2026-09-13
+        numeroOspiti:
+          type: integer
+          example: 2
+        stato:
+          $ref: '#/components/schemas/StatoPrenotazione'
+        canale:
+          $ref: '#/components/schemas/CanalePrenotazione'
+        importoTotale:
+          type: number
+          description: >
+            Totale del soggiorno in euro: prezzo per notte della tipologia
+            moltiplicato per il numero di notti. E' **una fotografia presa alla
+            creazione** e non un calcolo rifatto ad ogni lettura — se domani il
+            listino cambia, questa prenotazione continua a valere quel che
+            valeva quando e' stata fatta.
+          example: 360.00
+        note:
+          type: string
+          example: Arrivo in tarda serata
+        utente:
+          $ref: '#/components/schemas/UtenteSintesi'
+        tipologia:
+          $ref: '#/components/schemas/TipologiaCameraSintesi'
+        gestitaDa:
+          $ref: '#/components/schemas/StaffSintesi'
+        motivoCancellazione:
+          type: string
+          description: Valorizzato solo su una prenotazione ANNULLATA, e solo se un motivo era stato indicato
+          example: Cambio di programma del cliente
+        dataCancellazione:
+          type: string
+          format: date-time
+          description: Quando e' stata annullata. Valorizzato solo su una prenotazione ANNULLATA
+        dataCreazione:
+          type: string
+          format: date-time
+          description: Quando la prenotazione e' stata aperta
+
+    UtenteSintesi:
+      type: object
+      description: >
+        Cliente ridotto a quel che serve per riconoscerlo dentro un'altra
+        risorsa. Non e' l'account completo per scelta: password, consensi e date
+        di registrazione non hanno niente a che fare con una prenotazione, e
+        farli passare di qui vorrebbe dire esporli ad ogni elenco.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        nome:
+          type: string
+          example: Mario
+        cognome:
+          type: string
+          example: Rossi
+        email:
+          type: string
+          format: email
+          description: >
+            Serve al personale per riconoscere il cliente e per contattarlo. E'
+            visibile solo a chi ha diritto di vedere la prenotazione, che per un
+            USER vuol dire soltanto le proprie.
+          example: mario.rossi@example.com
+
+    StaffSintesi:
+      type: object
+      description: >
+        Membro del personale ridotto a quel che serve per sapere chi ha fatto
+        cosa. **Senza email**, al contrario di UtenteSintesi: qui l'indirizzo
+        non servirebbe a nessuno scopo del client, e un dato di un dipendente che
+        non serve e' un dato che non si manda.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 3
+        nome:
+          type: string
+          example: Anna
+        cognome:
+          type: string
+          example: Bianchi
 
     DotazioneRequest:
       type: object

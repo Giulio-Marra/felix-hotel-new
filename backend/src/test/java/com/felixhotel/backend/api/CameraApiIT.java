@@ -54,9 +54,16 @@ class CameraApiIT extends IntegrationTestBase {
 
     /**
      * Serve a inserire una prenotazione che referenzi una camera, per provare che
-     * eliminarla dia 409. Si passa da SQL diretto perche' l'entity
-     * {@code Prenotazione} non esiste ancora in Java; la tabella e la sua chiave
-     * esterna pero' ci sono dal V1, ed e' il vincolo che si vuole verificare.
+     * eliminarla dia 409.
+     *
+     * <p>Si passa da SQL diretto anche adesso che l'entity {@code Prenotazione}
+     * esiste, e per un motivo che resta valido: quell'entity <b>non mappa
+     * {@code camera_id}</b>, perche' la camera fisica viene assegnata al check-in
+     * e finche' nessun codice la valorizza il campo non c'e'. La colonna e la sua
+     * chiave esterna pero' ci sono dal V1, ed e' quel vincolo che si vuole
+     * verificare — quindi l'unico modo di scrivere quella riga e' da qui. Il
+     * giorno che il check-in la mappera', questo test potra' passare dagli
+     * endpoint veri.
      */
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -550,8 +557,9 @@ class CameraApiIT extends IntegrationTestBase {
         @DisplayName("la DELETE di una camera con prenotazioni risponde 409")
         void eliminazione_conPrenotazioni_risponde409() throws Exception {
             // given: una camera a cui e' agganciata una prenotazione. La riga si scrive
-            // in SQL perche' l'entity Prenotazione non esiste ancora in Java; la tabella
-            // e la sua chiave esterna ci sono dal V1, ed e' quel vincolo che si prova
+            // in SQL perche' l'entity Prenotazione non mappa camera_id — la assegna il
+            // check-in, che non esiste ancora — mentre la colonna e la sua chiave
+            // esterna ci sono dal V1, ed e' quel vincolo che si prova
             String token = tokenAdmin();
             long idTipologia = creaTipologia(token);
             long idCamera = creaCamera(token, dati.cameraRequest(idTipologia));
