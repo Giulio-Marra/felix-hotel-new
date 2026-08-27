@@ -483,6 +483,35 @@ class StaffApiIT extends IntegrationTestBase {
         }
 
         @Test
+        @DisplayName("il token gia' emesso smette di funzionare subito")
+        void attivazione_disattivando_invalidaIlTokenGiaEmesso() throws Exception {
+            // given: un account che ha gia' in mano un token valido e lo sta usando
+            String tokenAdmin = tokenAdmin();
+            StaffRequest richiesta = dati.staffRequest();
+            long id = creaStaff(tokenAdmin, richiesta);
+            String suoToken = auth.ottieniToken(richiesta.getEmail());
+
+            mockMvc.perform(get("/api/camere").header("Authorization", "Bearer " + suoToken))
+                    .andExpect(status().isOk());
+
+            // when: lo si disattiva mentre quel token e' ancora in corso di validita'
+            disattiva(tokenAdmin, id);
+
+            // then: 401 con lo stesso identico token di prima. E' la differenza fra
+            // chiudere l'accesso e chiudere il prossimo accesso: il filtro rilegge
+            // 'attivo' dal database ad ogni richiesta invece di fidarsi di quel che il
+            // token diceva quando e' stato emesso.
+            // Che il filtro lo faccia lo prova gia' AuthApiIT.ValiditaToken, ribaltando
+            // la colonna a mano — era l'unico modo, prima che questa risorsa esistesse.
+            // Quello che questo test aggiunge e' l'altra meta': che a ribaltarla sia
+            // **l'endpoint**. Se impostaAttivazione scrivesse la colonna sbagliata o non
+            // arrivasse mai al database, quel test resterebbe verde e questo no
+            mockMvc.perform(get("/api/camere").header("Authorization", "Bearer " + suoToken))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.status").value(401));
+        }
+
+        @Test
         @DisplayName("riattivandolo l'accesso torna")
         void attivazione_riattivando_riapreLAccesso() throws Exception {
             // given: un account spento
