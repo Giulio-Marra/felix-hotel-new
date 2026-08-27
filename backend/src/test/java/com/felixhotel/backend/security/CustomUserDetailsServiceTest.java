@@ -64,7 +64,7 @@ class CustomUserDetailsServiceTest {
         @DisplayName("per un cliente marca il principal come CLIENTE")
         void loadUserByUsername_conUtente_marcaComeCliente() {
             // given
-            when(utenteRepository.findByEmail(EMAIL)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findByEmailIgnoreCase(EMAIL)).thenReturn(Optional.of(cliente()));
 
             // when
             AppUserPrincipal principal = (AppUserPrincipal) userDetailsService.loadUserByUsername(EMAIL);
@@ -79,8 +79,8 @@ class CustomUserDetailsServiceTest {
         @DisplayName("per il personale marca il principal come PERSONALE")
         void loadUserByUsername_conStaff_marcaComePersonale() {
             // given: nessun cliente con quell'email, uno staff si'
-            when(utenteRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
-            when(staffRepository.findByEmail(EMAIL)).thenReturn(Optional.of(personale()));
+            when(utenteRepository.findByEmailIgnoreCase(EMAIL)).thenReturn(Optional.empty());
+            when(staffRepository.findByEmailIgnoreCase(EMAIL)).thenReturn(Optional.of(personale()));
 
             // when
             AppUserPrincipal principal = (AppUserPrincipal) userDetailsService.loadUserByUsername(EMAIL);
@@ -96,8 +96,8 @@ class CustomUserDetailsServiceTest {
         @DisplayName("con un'email che non esiste in nessuna delle due tabelle solleva UsernameNotFoundException")
         void loadUserByUsername_conEmailSconosciuta_sollevaUsernameNotFound() {
             // given
-            when(utenteRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
-            when(staffRepository.findByEmail(EMAIL)).thenReturn(Optional.empty());
+            when(utenteRepository.findByEmailIgnoreCase(EMAIL)).thenReturn(Optional.empty());
+            when(staffRepository.findByEmailIgnoreCase(EMAIL)).thenReturn(Optional.empty());
 
             // when/then: il messaggio non riporta l'email, che e' un dato personale e da
             // qui finirebbe nei log ad ogni tentativo con un indirizzo inventato

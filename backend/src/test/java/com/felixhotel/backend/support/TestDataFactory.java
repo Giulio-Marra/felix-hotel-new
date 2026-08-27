@@ -9,6 +9,11 @@ import com.felixhotel.backend.dto.MediaCameraRequest;
 import com.felixhotel.backend.dto.PrenotazioneAnnullamentoRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.RuoloStaff;
+import com.felixhotel.backend.dto.StaffAggiornamentoRequest;
+import com.felixhotel.backend.dto.StaffAttivazioneRequest;
+import com.felixhotel.backend.dto.StaffPasswordRequest;
+import com.felixhotel.backend.dto.StaffRequest;
 import com.felixhotel.backend.dto.StatoCamera;
 import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
@@ -259,5 +264,59 @@ public class TestDataFactory {
      */
     public PrenotazioneAnnullamentoRequest annullamentoRequest(String motivo) {
         return new PrenotazioneAnnullamentoRequest().motivo(motivo);
+    }
+
+    /**
+     * Account del personale valido in ogni campo, con ruolo STAFF.
+     *
+     * <p>Il ruolo di default e' quello che non ha privilegi speciali: i test che
+     * vogliono un amministratore lo dicono
+     * ({@code staffRequest().ruolo(RuoloStaff.ADMIN)}), e cosi' un ADMIN in piu'
+     * in database compare solo dove qualcuno l'ha voluto — cosa che conta,
+     * perche' il conteggio degli amministratori attivi e' una regola di questa
+     * risorsa.
+     *
+     * <p>L'email e' univoca per la solita ragione, con in piu' una sua: qui
+     * l'unicita' vale sull'insieme di clienti e personale, quindi un indirizzo
+     * fisso si scontrerebbe anche con i test della registrazione.
+     */
+    public StaffRequest staffRequest() {
+        return new StaffRequest()
+                .nome("Anna")
+                .cognome("Bianchi")
+                .email(emailUnivoca())
+                .password(PASSWORD_VALIDA)
+                .telefono("+39 333 1234567")
+                .dataAssunzione(LocalDate.of(2024, 3, 1))
+                .ruolo(RuoloStaff.STAFF);
+    }
+
+    /**
+     * Aggiornamento valido di un account del personale: gli stessi campi della
+     * creazione tranne la password, che ha il suo endpoint.
+     *
+     * <p>Prende l'email invece di generarla, al contrario di
+     * {@link #staffRequest()}: e' una PUT, e il caso normale e' riconfermare
+     * quella che l'account ha gia' — che e' anche il caso in cui il controllo di
+     * unicita' non deve scattare contro se stesso.
+     */
+    public StaffAggiornamentoRequest staffAggiornamentoRequest(String email, RuoloStaff ruolo) {
+        return new StaffAggiornamentoRequest()
+                .nome("Anna")
+                .cognome("Bianchi")
+                .email(email)
+                .telefono("+39 333 1234567")
+                .dataAssunzione(LocalDate.of(2024, 3, 1))
+                .ruolo(ruolo);
+    }
+
+    /** Corpo di attivazione o disattivazione di un account del personale. */
+    public StaffAttivazioneRequest staffAttivazioneRequest(boolean attivo) {
+        return new StaffAttivazioneRequest().attivo(attivo);
+    }
+
+    /** Corpo del cambio password di un account del personale. */
+    public StaffPasswordRequest staffPasswordRequest(String password) {
+        return new StaffPasswordRequest().password(password);
     }
 }

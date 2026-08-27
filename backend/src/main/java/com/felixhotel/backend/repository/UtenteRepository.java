@@ -9,7 +9,10 @@ import java.util.Optional;
 public interface UtenteRepository extends JpaRepository<Utente, Long> {
 
     /**
-     * Login e caricamento UserDetails avvengono per email.
+     * Login e caricamento UserDetails avvengono per email, a meno delle
+     * maiuscole: chi si e' registrato come {@code Mario@example.com} deve poter
+     * entrare scrivendo {@code mario@example.com}, perche' e' lo stesso
+     * indirizzo e nessuno ricorda con che maiuscole l'ha scritto la prima volta.
      *
      * <p>Il {@code ruolo} va caricato nella stessa query: chi chiama
      * (CustomUserDetailsService) legge {@code getRuolo().getNome()} fuori da
@@ -18,7 +21,14 @@ public interface UtenteRepository extends JpaRepository<Utente, Long> {
      * LazyInitializationException.
      */
     @EntityGraph(attributePaths = "ruolo")
-    Optional<Utente> findByEmail(String email);
+    Optional<Utente> findByEmailIgnoreCase(String email);
 
-    boolean existsByEmail(String email);
+    /**
+     * Usata in registrazione. {@code IgnoreCase} perche' il vincolo in database
+     * e' su {@code lower(email)} (vedi
+     * V6__unicita_email_case_insensitive.sql): un controllo case-sensitive
+     * lascerebbe passare di qui un duplicato che si schianta la', cioe' un 500
+     * al posto di un 409.
+     */
+    boolean existsByEmailIgnoreCase(String email);
 }

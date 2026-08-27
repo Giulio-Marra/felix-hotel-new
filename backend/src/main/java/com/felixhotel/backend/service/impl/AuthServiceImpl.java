@@ -64,8 +64,8 @@ public class AuthServiceImpl implements AuthService {
 
     /**
      * Registra un nuovo cliente (Utente) con ruolo USER. La registrazione
-     * pubblica di Staff non e' prevista: quegli account si creano solo
-     * internamente.
+     * pubblica di Staff non e' prevista: quegli account nascono dal backoffice,
+     * con POST /api/staff, che e' riservato agli ADMIN.
      */
     @Override
     @Transactional
@@ -87,10 +87,6 @@ public class AuthServiceImpl implements AuthService {
         // esistenti, che a noi costa comunque una query per ogni chiamata.
         registrationAttemptService.recordAttempt(clientIp);
 
-        // L'unicita' email va controllata su entrambe le popolazioni: utente.email e staff.email
-        // sono due vincoli UNIQUE indipendenti in DB, altrimenti un cliente potrebbe registrarsi
-        // con l'email di un account Staff/ADMIN esistente e "oscurarlo" ai login successivi
-        // (CustomUserDetailsService cerca prima tra gli Utente).
         // Il consenso privacy (GDPR) deve essere esplicitamente true: OpenAPI puo' dichiarare
         // il campo obbligatorio ma non che debba valere true, quindi il vincolo si verifica
         // qui. E' un problema dell'input, non di stato: 400, non 409.
@@ -98,7 +94,17 @@ public class AuthServiceImpl implements AuthService {
             throw new BadRequestException("Il consenso al trattamento dei dati personali e' obbligatorio");
         }
 
-        if (utenteRepository.existsByEmail(request.getEmail()) || staffRepository.existsByEmail(request.getEmail())) {
+        // L'unicita' email va controllata su entrambe le popolazioni: utente.email e staff.email
+        // sono due indici unici indipendenti in DB, altrimenti un cliente potrebbe registrarsi
+        // con l'email di un account Staff/ADMIN esistente e "oscurarlo" ai login successivi
+        // (CustomUserDetailsService cerca prima tra gli Utente). E' lo stesso controllo che fa
+        // StaffServiceImpl.verificaEmailLibera, visto dal lato dei clienti.
+        // Il confronto ignora le maiuscole perche' cosi' fanno gli indici (vedi
+        // V6__unicita_email_case_insensitive.sql): con un controllo case-sensitive il
+        // duplicato passerebbe di qui per schiantarsi la', cioe' 500 invece di 409.
+        String email = request.getEmail();
+
+        if (utenteRepository.existsByEmailIgnoreCase(email) || staffRepository.existsByEmailIgnoreCase(email)) {
             throw new ConflictException("Email gia' registrata");
         }
 
@@ -109,7 +115,7 @@ public class AuthServiceImpl implements AuthService {
         Utente utente = new Utente();
         utente.setNome(request.getNome());
         utente.setCognome(request.getCognome());
-        utente.setEmail(request.getEmail());
+        utente.setEmail(email);
         utente.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         utente.setTelefono(request.getTelefono());
         utente.setDataNascita(request.getDataNascita());

@@ -153,7 +153,7 @@ class AuthApiIT extends IntegrationTestBase {
             // nessuna riga di codice applica. Questo test va cambiato insieme a quel flusso —
             // e il fatto che fallisca sara' il promemoria che il campo ha ricominciato a
             // significare qualcosa.
-            Utente salvato = utenteRepository.findByEmail(richiesta.getEmail()).orElseThrow();
+            Utente salvato = utenteRepository.findByEmailIgnoreCase(richiesta.getEmail()).orElseThrow();
             assertThat(salvato.isEmailVerificata()).isTrue();
         }
 
@@ -499,7 +499,7 @@ class AuthApiIT extends IntegrationTestBase {
                     .andExpect(status().isOk());
 
             // when: l'account viene disattivato mentre il suo token e' ancora valido
-            Utente utente = utenteRepository.findByEmail(registrazione.getEmail()).orElseThrow();
+            Utente utente = utenteRepository.findByEmailIgnoreCase(registrazione.getEmail()).orElseThrow();
             utente.setAttivo(false);
             utenteRepository.save(utente);
 
@@ -519,7 +519,7 @@ class AuthApiIT extends IntegrationTestBase {
             auth.registraAccount(registrazione);
             String token = auth.ottieniToken(registrazione.getEmail());
 
-            Utente utente = utenteRepository.findByEmail(registrazione.getEmail()).orElseThrow();
+            Utente utente = utenteRepository.findByEmailIgnoreCase(registrazione.getEmail()).orElseThrow();
             utente.setAttivo(false);
             utenteRepository.save(utente);
 

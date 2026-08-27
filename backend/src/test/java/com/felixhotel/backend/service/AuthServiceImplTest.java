@@ -119,7 +119,7 @@ class AuthServiceImplTest {
         void register_qualunqueEsito_contaIlTentativo() {
             // given: una richiesta che passa il limite di frequenza ma verra' rifiutata dopo
             RegisterRequest richiesta = dati.registerRequest();
-            when(utenteRepository.existsByEmail(richiesta.getEmail())).thenReturn(true);
+            when(utenteRepository.existsByEmailIgnoreCase(richiesta.getEmail())).thenReturn(true);
 
             // when: la registrazione fallisce con un conflitto
             assertThatThrownBy(() -> authService.register(richiesta, IP))
@@ -156,7 +156,7 @@ class AuthServiceImplTest {
         void register_conEmailDiUtenteEsistente_sollevaConflict() {
             // given: l'email risulta gia' registrata fra i clienti
             RegisterRequest richiesta = dati.registerRequest();
-            when(utenteRepository.existsByEmail(richiesta.getEmail())).thenReturn(true);
+            when(utenteRepository.existsByEmailIgnoreCase(richiesta.getEmail())).thenReturn(true);
 
             // when/then: 409, conflitto con lo stato attuale dei dati
             assertThatThrownBy(() -> authService.register(richiesta, IP))
@@ -173,8 +173,8 @@ class AuthServiceImplTest {
         void register_conEmailDiStaffEsistente_sollevaConflict() {
             // given: l'email non e' fra i clienti, ma appartiene a un account del personale
             RegisterRequest richiesta = dati.registerRequest();
-            when(utenteRepository.existsByEmail(richiesta.getEmail())).thenReturn(false);
-            when(staffRepository.existsByEmail(richiesta.getEmail())).thenReturn(true);
+            when(utenteRepository.existsByEmailIgnoreCase(richiesta.getEmail())).thenReturn(false);
+            when(staffRepository.existsByEmailIgnoreCase(richiesta.getEmail())).thenReturn(true);
 
             // when/then: deve valere lo stesso 409 del caso precedente.
             // Questo test protegge un problema di sicurezza gia' trovato una volta:
@@ -192,8 +192,8 @@ class AuthServiceImplTest {
         void register_senzaRuoloUserInDatabase_sollevaIllegalState() {
             // given: email libera, ma la tabella dei ruoli non contiene USER
             RegisterRequest richiesta = dati.registerRequest();
-            when(utenteRepository.existsByEmail(anyString())).thenReturn(false);
-            when(staffRepository.existsByEmail(anyString())).thenReturn(false);
+            when(utenteRepository.existsByEmailIgnoreCase(anyString())).thenReturn(false);
+            when(staffRepository.existsByEmailIgnoreCase(anyString())).thenReturn(false);
             when(ruoloRepository.findByNome("USER")).thenReturn(java.util.Optional.empty());
 
             // when/then: e' un errore di configurazione del database, non una colpa di chi

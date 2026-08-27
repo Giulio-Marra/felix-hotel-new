@@ -17,6 +17,13 @@ import org.springframework.stereotype.Service;
  * l'email deve essere univoca nell'insieme delle due popolazioni per
  * evitare ambiguita' in fase di autenticazione.
  *
+ * <p><b>La ricerca ignora le maiuscole</b>, come gli indici che garantiscono
+ * quell'unicita' (vedi V6__unicita_email_case_insensitive.sql). Cercare per
+ * valore esatto vorrebbe dire che chi si e' registrato come
+ * {@code Mario@example.com} non entra scrivendo {@code mario@example.com} — lo
+ * stesso indirizzo per chi lo scrive, due valori diversi per un confronto
+ * letterale.
+ *
  * <p>E' anche <b>l'unico punto del progetto che sa da quale delle due tabelle
  * l'account e' stato letto</b>, ed e' il motivo per cui il {@link TipoAccount}
  * si valorizza qui: e' un'informazione che esiste solo dentro questo metodo, e
@@ -31,9 +38,9 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        return utenteRepository.findByEmail(email)
+        return utenteRepository.findByEmailIgnoreCase(email)
                 .map(this::toPrincipal)
-                .or(() -> staffRepository.findByEmail(email).map(this::toPrincipal))
+                .or(() -> staffRepository.findByEmailIgnoreCase(email).map(this::toPrincipal))
                 // Il messaggio non riporta l'email: e' un dato personale, e da qui finirebbe
                 // nei log ad ogni tentativo di accesso con un indirizzo inesistente — cioe'
                 // proprio durante un attacco, che riempirebbe i log di indirizzi altrui.

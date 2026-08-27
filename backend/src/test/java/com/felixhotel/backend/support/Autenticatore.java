@@ -70,10 +70,20 @@ public class Autenticatore {
      * fabbricare, non che la catena login -&gt; token -&gt; uso funzioni davvero.
      */
     public String ottieniToken(String email) throws Exception {
+        return ottieniToken(email, TestDataFactory.PASSWORD_VALIDA);
+    }
+
+    /**
+     * Come sopra, ma con una password che non e' quella di default.
+     *
+     * <p>Serve da quando un ADMIN puo' assegnarne una nuova a un account del
+     * personale: li' la verifica che conta e' che con la password nuova si entri
+     * davvero, e il metodo senza argomenti proverebbe sempre la stessa.
+     */
+    public String ottieniToken(String email, String password) throws Exception {
         String risposta = mockMvc.perform(post(LOGIN)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                dati.loginRequest(email, TestDataFactory.PASSWORD_VALIDA))))
+                        .content(objectMapper.writeValueAsString(dati.loginRequest(email, password))))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

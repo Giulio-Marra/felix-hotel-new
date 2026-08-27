@@ -21,6 +21,10 @@ import java.time.LocalDateTime;
  * (credenziali, contatti, consenso privacy): i dati anagrafici/documento di
  * chi soggiorna effettivamente vivono in {@code Ospite}, per non duplicare
  * informazioni che potrebbero divergere (es. prenotazioni per altre persone).
+ *
+ * <p>L'email e' unica a meno delle maiuscole: il vincolo lo garantisce un
+ * indice su {@code lower(email)} (vedi
+ * V6__unicita_email_case_insensitive.sql), non questa classe.
  */
 @Entity
 @Table(name = "utente")
@@ -40,7 +44,7 @@ public class Utente extends BaseAuditableEntity {
     private String cognome;
 
     /** Usata anche come credenziale di login. */
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(nullable = false, length = 255)
     private String email;
 
     @Column(name = "password_hash", nullable = false, length = 255)

@@ -19,8 +19,12 @@ import java.time.LocalDate;
  * Personale interno (lato backoffice): gestisce camere, prenotazioni,
  * clienti. A differenza di {@link Utente} non ha campi GDPR/consenso (non
  * e' un cliente) e ha un solo {@link Ruolo} alla volta (ADMIN o STAFF, no
- * multi-ruolo). Niente registrazione pubblica: gli account si creano solo
- * internamente.
+ * multi-ruolo). Niente registrazione pubblica: gli account si creano dal
+ * backoffice, con POST /api/staff, che e' riservato agli ADMIN.
+ *
+ * <p>L'email e' unica a meno delle maiuscole: il vincolo lo garantisce un
+ * indice su {@code lower(email)} (vedi
+ * V6__unicita_email_case_insensitive.sql), non questa classe.
  */
 @Entity
 @Table(name = "staff")
@@ -40,7 +44,7 @@ public class Staff extends BaseAuditableEntity {
     private String cognome;
 
     /** Usata anche come credenziale di login. */
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(nullable = false, length = 255)
     private String email;
 
     @Column(name = "password_hash", nullable = false, length = 255)
