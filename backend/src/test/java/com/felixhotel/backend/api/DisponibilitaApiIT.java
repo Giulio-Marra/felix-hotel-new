@@ -61,11 +61,23 @@ class DisponibilitaApiIT extends IntegrationTestBase {
     }
 
     /**
-     * Una tipologia col prezzo che la distingue da ogni altra, {@code quante}
-     * camere, e la capienza richiesta. Restituisce il prezzo, che e' la chiave
-     * con cui i test la ritrovano nella risposta.
+     * Una tipologia di prova: il suo id, e il prezzo che la distingue da ogni
+     * altra del catalogo.
+     *
+     * <p><b>Porta tutti e due i valori di proposito.</b> La prima versione
+     * restituiva il solo prezzo, e i test che avevano bisogno dell'id se lo
+     * facevano dire dalla ricerca — cioe' costruivano la propria fixture
+     * <b>usando l'endpoint sotto esame</b>. Bastava che la ricerca si rompesse
+     * perche' quei test fallissero prima ancora di arrivare a cio' che volevano
+     * verificare, dicendo la cosa sbagliata su dove fosse il guasto.
      */
-    private BigDecimal tipologiaIsolata(String tokenAdmin, int quante, int capienza) throws Exception {
+    private record TipologiaDiProva(long id, BigDecimal prezzo) { }
+
+    /**
+     * Una tipologia col prezzo che la distingue da ogni altra, {@code quante}
+     * camere, e la capienza richiesta.
+     */
+    private TipologiaDiProva tipologiaIsolata(String tokenAdmin, int quante, int capienza) throws Exception {
         BigDecimal prezzo = dati.prezzoUnivoco();
 
         TipologiaCameraRequest richiesta = dati.tipologiaCameraRequest()
@@ -91,7 +103,7 @@ class DisponibilitaApiIT extends IntegrationTestBase {
                     .andExpect(status().isCreated());
         }
 
-        return prezzo;
+        return new TipologiaDiProva(idTipologia, prezzo);
     }
 
     /** Prenota e conferma: e' cio' che toglie davvero una camera dalla disponibilita'. */
@@ -131,7 +143,7 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         void ricerca_senzaToken_risponde200() throws Exception {
             // given: una tipologia con due camere, nessuna prenotazione
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 2, 2);
+            BigDecimal prezzo = tipologiaIsolata(admin, 2, 2).prezzo();
             LocalDate arrivo = fraSettimane(10);
 
             // when: nessun header Authorization
@@ -154,10 +166,10 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         void ricerca_conTipologiaEsaurita_mostraZero() throws Exception {
             // given: UNA camera, e quella camera gia' confermata nel periodo
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2);
-            long idTipologia = idDellaTipologia(prezzo);
+            TipologiaDiProva tipologia = tipologiaIsolata(admin, 1, 2);
+            BigDecimal prezzo = tipologia.prezzo();
             LocalDate arrivo = fraSettimane(11);
-            occupa(idTipologia, arrivo, arrivo.plusDays(3));
+            occupa(tipologia.id(), arrivo, arrivo.plusDays(3));
 
             // when
             mockMvc.perform(get(DISPONIBILITA)
@@ -181,13 +193,13 @@ class DisponibilitaApiIT extends IntegrationTestBase {
             // given: DUE camere e tre confermate consecutive, che stanno tutte in una
             // camera sola perche' il giorno di partenza non e' occupato
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 2, 2);
-            long idTipologia = idDellaTipologia(prezzo);
+            TipologiaDiProva tipologia = tipologiaIsolata(admin, 2, 2);
+            BigDecimal prezzo = tipologia.prezzo();
             LocalDate arrivo = fraSettimane(12);
 
-            occupa(idTipologia, arrivo, arrivo.plusDays(1));
-            occupa(idTipologia, arrivo.plusDays(1), arrivo.plusDays(2));
-            occupa(idTipologia, arrivo.plusDays(2), arrivo.plusDays(3));
+            occupa(tipologia.id(), arrivo, arrivo.plusDays(1));
+            occupa(tipologia.id(), arrivo.plusDays(1), arrivo.plusDays(2));
+            occupa(tipologia.id(), arrivo.plusDays(2), arrivo.plusDays(3));
 
             // when: si cercano tutte e tre le notti insieme
             mockMvc.perform(get(DISPONIBILITA)
@@ -207,7 +219,7 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         void ricerca_conNumeroOspiti_escludeLeTroppoPiccole() throws Exception {
             // given: una tipologia da due posti
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2);
+            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2).prezzo();
             LocalDate arrivo = fraSettimane(13);
 
             // when: se ne cercano per tre
@@ -229,7 +241,7 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         void ricerca_conNumeroOspitiCompatibile_laTiene() throws Exception {
             // given: la stessa tipologia da due posti
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2);
+            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2).prezzo();
             LocalDate arrivo = fraSettimane(14);
 
             // when: se ne cercano per due — il filtro e' "almeno", non "esattamente"
@@ -265,7 +277,7 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         void ricerca_conArrivoPassato_risponde200() throws Exception {
             // given: un periodo finito la settimana scorsa
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2);
+            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2).prezzo();
             LocalDate arrivo = LocalDate.now().minusDays(10);
 
             // when/then: 200, al contrario della creazione che qui darebbe 400. Chi sta
@@ -284,7 +296,7 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         void ricerca_conTipologiaSenzaCamere_mostraZero() throws Exception {
             // given: una tipologia a catalogo di cui nessuna stanza e' stata ancora creata
             String admin = tokenAdmin();
-            BigDecimal prezzo = tipologiaIsolata(admin, 0, 2);
+            BigDecimal prezzo = tipologiaIsolata(admin, 0, 2).prezzo();
             LocalDate arrivo = fraSettimane(16);
 
             // when
@@ -300,21 +312,6 @@ class DisponibilitaApiIT extends IntegrationTestBase {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.length()").value(1))
                     .andExpect(jsonPath("$.data[0].camereDisponibili").value(0));
-        }
-
-        /** L'id della tipologia che ha quel prezzo, ritrovata dalla ricerca stessa. */
-        private long idDellaTipologia(BigDecimal prezzo) throws Exception {
-            String risposta = mockMvc.perform(get(DISPONIBILITA)
-                            .param("dataCheckIn", fraSettimane(52).toString())
-                            .param("dataCheckOut", fraSettimane(52).plusDays(1).toString())
-                            .param("prezzoMinimo", prezzo.toPlainString())
-                            .param("prezzoMassimo", prezzo.toPlainString()))
-                    .andExpect(status().isOk())
-                    .andReturn()
-                    .getResponse()
-                    .getContentAsString();
-
-            return objectMapper.readTree(risposta).path("data").get(0).path("tipologia").path("id").asLong();
         }
     }
 }
