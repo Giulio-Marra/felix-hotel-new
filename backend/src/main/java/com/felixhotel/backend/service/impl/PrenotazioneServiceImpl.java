@@ -558,8 +558,33 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         return principal;
     }
 
-    /** Se chi chiama appartiene al personale, cioe' se puo' vedere e toccare le prenotazioni altrui. */
+    /**
+     * Se chi chiama appartiene al personale, cioe' se puo' vedere e toccare le
+     * prenotazioni altrui.
+     *
+     * <p><b>Le due fonti devono dire la stessa cosa</b>: il ruolo (una colonna
+     * che si puo' cambiare) e il tipo dell'account (la tabella da cui e' stato
+     * caricato). Fino al 2026-08-27 qui si guardava il solo ruolo, mentre
+     * {@link #staffChiamante} guardava il solo tipo, e le due risposte potevano
+     * divergere: una riga di {@code utente} con ruolo ADMIN — che nessun
+     * endpoint produce, ma una {@code UPDATE} a mano si' — leggeva <b>tutte</b>
+     * le prenotazioni e non poteva intestarne nessuna. Uno stato che nessuno
+     * aveva disegnato.
+     *
+     * <p><b>Perche' comandano tutte e due e non una sola.</b> La divergenza si
+     * poteva chiudere anche eleggendo una fonte sola, e non e' stato fatto
+     * perche' le due domande restano diverse — il ruolo dice cosa un account
+     * puo' fare, il tipo dice dove vive — e qui servono entrambe le risposte:
+     * per leggere le prenotazioni altrui bisogna avere il privilegio <i>e</i>
+     * essere una persona che lavora qui. Richiederle insieme fa fallire in
+     * sicurezza: un account ibrido non guadagna i privilegi del personale, resta
+     * il cliente che la sua tabella dice che e'.
+     */
     private boolean personale(AppUserPrincipal chiamante) {
+        if (chiamante.getTipo() != TipoAccount.PERSONALE) {
+            return false;
+        }
+
         return RUOLO_ADMIN.equals(chiamante.getRuoloNome()) || RUOLO_STAFF.equals(chiamante.getRuoloNome());
     }
 
@@ -592,6 +617,26 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * dire quale. Mandare {@code utenteId} da un USER e' un 400 e non un valore
      * ignorato: accettarlo in silenzio direbbe a chi ci ha provato che ha
      * funzionato.
+     *
+     * <p><b>Il cliente indicato dev'essere attivo.</b> Era un buco noto e
+     * rimandato: {@code attivo} veniva ricontrollato ad ogni richiesta per chi
+     * <i>chiama</i> ({@code AppUserPrincipal.isEnabled()}) e mai per chi viene
+     * <i>nominato</i>, cioe' due posti che leggevano lo stesso campo traendone
+     * conclusioni diverse. La regola che lo chiude e' quella scelta il
+     * 2026-08-27 per gli account disattivati, ed e' la stessa che vale per il
+     * personale: <b>quello che c'e' gia' resta, di nuovo non si aggiunge
+     * niente</b>. Le prenotazioni passate di un cliente disattivato restano
+     * intestate a lui — sono storia — ma non se ne registrano altre.
+     *
+     * <p>Vale solo per il ramo del personale, e non per una dimenticanza: un
+     * cliente disattivato non ha nessun modo di arrivare al ramo che intesta a
+     * se' stesso, perche' il suo token viene rifiutato prima, in fondo alla
+     * catena dei filtri.
+     *
+     * <p>E' un 400 e non un 409: il conflitto direbbe che due cose vere
+     * insieme non possono stare, mentre qui la richiesta nomina un account a cui
+     * non si puo' intestare niente — e' un valore sbagliato nel corpo, come
+     * l'utente che non esiste due righe piu' in la'.
      */
     private Utente intestatario(PrenotazioneRequest request, AppUserPrincipal chiamante, boolean daPersonale) {
         // Come per il canale qui sotto: il getter si legge una volta e si tiene, invece
@@ -610,9 +655,16 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                     "Chi registra la prenotazione di un cliente deve indicare l'utenteId a cui intestarla");
         }
 
-        return utenteRepository.findById(idIntestatario)
+        Utente intestatario = utenteRepository.findById(idIntestatario)
                 .orElseThrow(() -> new BadRequestException(
                         "Il cliente indicato non esiste: " + idIntestatario));
+
+        if (!intestatario.isAttivo()) {
+            throw new BadRequestException(
+                    "Il cliente indicato ha un account disattivato: " + idIntestatario);
+        }
+
+        return intestatario;
     }
 
     /**
@@ -682,27 +734,20 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * Il membro del personale corrispondente a chi chiama, da registrare come
      * gestore della prenotazione.
      *
-     * <p>Il tipo dell'account e il suo ruolo sono due cose diverse, e qui la
-     * differenza si vede: {@code personale()} ha guardato il ruolo, che e' una
-     * colonna modificabile, mentre a scrivere in {@code gestita_da_staff_id}
-     * serve una riga di {@code staff} vera. Un cliente a cui qualcuno ha messo a
-     * mano il ruolo ADMIN passa il primo controllo e non il secondo: e' 400,
-     * perche' quella situazione va vista e non aggirata scrivendo una
-     * prenotazione senza gestore.
+     * <p><b>Non ricontrolla il tipo dell'account</b>, e da qui in poi non ha
+     * piu' motivo di farlo: ci si arriva solo dopo un {@code personale()} vero,
+     * che dal 2026-08-27 pretende gia' un account di tipo PERSONALE. Fino a
+     * quel giorno il controllo stava qui e serviva davvero, perche' quello era
+     * l'unico punto in cui la divergenza fra ruolo e tipo veniva vista;
+     * spostarlo a monte l'ha chiusa per tutti i chiamanti invece che per questo
+     * solo — e ripeterlo adesso vorrebbe dire tenere in piedi un ramo che
+     * nessuna richiesta puo' percorrere, cioe' una promessa che nessun test puo'
+     * mantenere.
      *
-     * <p>I due esiti negativi <b>non sono lo stesso errore</b>. Il tipo
-     * sbagliato e' 400 — la richiesta chiede un'operazione da personale a un
-     * account che personale non e' — mentre la riga sparita e' 401, come per il
-     * cliente: il token e' valido per qualcuno che non c'e' piu'. Distinguerli
-     * si puo' solo da quando il tipo esiste; con la sola ricerca per email i due
-     * casi arrivavano qui indistinguibili.
+     * <p>Non trovare la riga resta invece un caso possibile, ed e' un 401 come
+     * per il cliente: il token e' valido per un account che non c'e' piu'.
      */
     private Staff staffChiamante(AppUserPrincipal chiamante) {
-        if (chiamante.getTipo() != TipoAccount.PERSONALE) {
-            throw new BadRequestException(
-                    "L'account che sta registrando la prenotazione non appartiene al personale");
-        }
-
         return staffRepository.findById(chiamante.getUserId())
                 .orElseThrow(() -> new UnauthorizedException("L'account autenticato non esiste piu'"));
     }

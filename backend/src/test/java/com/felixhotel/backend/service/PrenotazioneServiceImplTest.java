@@ -177,6 +177,16 @@ class PrenotazioneServiceImplTest {
     }
 
     private Utente cliente() {
+        return cliente(true);
+    }
+
+    /**
+     * Il cliente a cui si intesta la prenotazione. L'attivazione e' un parametro
+     * perche' e' l'unica cosa che cambia fra il caso normale e il rifiuto: da
+     * quando l'intestazione la guarda, un cliente costruito senza dirlo sarebbe
+     * disattivato per svista e farebbe fallire i test che non parlano di questo.
+     */
+    private Utente cliente(boolean attivo) {
         Ruolo ruolo = new Ruolo();
         ruolo.setNome("USER");
 
@@ -185,6 +195,7 @@ class PrenotazioneServiceImplTest {
         utente.setNome("Mario");
         utente.setCognome("Rossi");
         utente.setEmail(EMAIL_CLIENTE);
+        utente.setAttivo(attivo);
         utente.setRuolo(ruolo);
         return utente;
     }
@@ -450,24 +461,45 @@ class PrenotazioneServiceImplTest {
         }
 
         @Test
-        @DisplayName("da un ruolo di personale che non sta nella tabella staff risponde 400")
-        void crea_daPersonaleSenzaRigaStaff_sollevaBadRequest() {
+        @DisplayName("da un ruolo di personale che non sta nella tabella staff non ottiene i privilegi del personale")
+        void crea_daRuoloDiPersonaleSuAccountCliente_nonOttieneIPrivilegi() {
             // given: un account che vive nella tabella dei clienti e porta il ruolo STAFF —
             // cioe' un cliente a cui qualcuno ha cambiato il ruolo scrivendo a mano nel
-            // database. E' il caso in cui ruolo e tipo dell'account non combaciano, e da
-            // quando il principal porta il tipo si riconosce senza interrogare nessuno
+            // database. E' il caso in cui ruolo e tipo dell'account non combaciano
             autentica(TipoAccount.CLIENTE, ID_CLIENTE, EMAIL_CLIENTE, "STAFF");
             tipologiaEsiste();
-            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
 
-            // when/then: si rifiuta invece di scrivere una riga senza gestore. Quella
-            // situazione va vista, non aggirata in silenzio
+            // when/then: dal 2026-08-27 il ruolo da solo non basta piu' — personale()
+            // pretende anche il tipo dell'account — quindi questo resta un cliente, e a un
+            // cliente e' vietato intestare a un altro. Il 400 e' lo stesso di prima ma per
+            // una ragione diversa, e la differenza si vede da quel che NON succede: non si
+            // legge nessuna delle due tabelle, perche' non c'e' niente da risolvere
             assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()
                     .utenteId(ID_CLIENTE)
                     .canale(CanalePrenotazione.TELEFONO)))
                     .isInstanceOf(BadRequestException.class);
 
             verify(staffRepository, never()).findById(anyLong());
+            verify(utenteRepository, never()).findById(anyLong());
+        }
+
+        @Test
+        @DisplayName("dal personale con un cliente disattivato risponde 400")
+        void crea_daPersonaleConClienteDisattivato_sollevaBadRequest() {
+            // given: uno staff che intesta la prenotazione a un account chiuso
+            autenticaStaff();
+            tipologiaEsiste();
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente(false)));
+
+            // when/then: quello che c'e' gia' resta, di nuovo non si aggiunge niente. E' un
+            // 400 e non un 409: la richiesta nomina un account a cui non si puo' intestare
+            // niente, come se avesse nominato un id inesistente
+            assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()
+                    .utenteId(ID_CLIENTE)
+                    .canale(CanalePrenotazione.TELEFONO)))
+                    .isInstanceOf(BadRequestException.class);
+
+            verify(prenotazioneRepository, never()).save(any());
         }
 
         @Test
@@ -480,10 +512,11 @@ class PrenotazioneServiceImplTest {
             when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(staffRepository.findById(ID_STAFF)).thenReturn(Optional.empty());
 
-            // when/then: 401 e non 400, ed e' la coppia del test qui sopra — stesso metodo,
-            // due esiti diversi. La' la richiesta chiede un'operazione da personale a un
-            // account che personale non e'; qui non c'e' niente di sbagliato nella
-            // richiesta, e' il token a valere per un account che non esiste piu'
+            // when/then: 401 e non 404 e non 400. Non c'e' niente di sbagliato nella
+            // richiesta ne' nell'account nominato: e' il token di chi chiama a valere per
+            // una riga che non esiste piu'. Dal 2026-08-27 e' l'unico esito negativo che
+            // staffChiamante puo' produrre — il tipo dell'account lo garantisce
+            // personale(), a monte
             assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()
                     .utenteId(ID_CLIENTE)
                     .canale(CanalePrenotazione.TELEFONO)))
@@ -700,6 +733,25 @@ class PrenotazioneServiceImplTest {
                     .isInstanceOf(UnauthorizedException.class);
 
             verifyNoInteractions(prenotazioneRepository);
+        }
+
+        @Test
+        @DisplayName("a un cliente con ruolo di personale restringe comunque alle proprie")
+        void elenca_daClienteConRuoloDiPersonale_restringeAlleProprie() {
+            // given: una riga di 'utente' a cui qualcuno ha messo a mano il ruolo ADMIN.
+            // Fino al 2026-08-27 questo account leggeva TUTTE le prenotazioni, perche'
+            // personale() guardava il solo ruolo: e' il buco che quel giorno si e' chiuso
+            autentica(TipoAccount.CLIENTE, ID_CLIENTE, EMAIL_CLIENTE, "ADMIN");
+            when(prenotazioneRepository.cerca(eq(ID_CLIENTE), isNull(), any(Pageable.class)))
+                    .thenReturn(new PageImpl<>(List.of()));
+
+            // when
+            prenotazioneService.elenca(0, 20, null);
+
+            // then: il suo id arriva alla query come per qualunque altro cliente. Il ruolo
+            // da solo non apre piu' niente — servono il privilegio e il tipo di account che
+            // gli corrisponde, e chi ne ha uno solo resta quel che la sua tabella dice
+            verify(prenotazioneRepository).cerca(eq(ID_CLIENTE), isNull(), any(Pageable.class));
         }
 
         @Test
