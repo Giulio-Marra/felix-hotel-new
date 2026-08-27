@@ -80,6 +80,21 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      */
     private static final BigDecimal IMPORTO_MASSIMO = new BigDecimal("99999999.99");
 
+    /**
+     * Ordine dell'elenco: prima gli arrivi piu' recenti, e a parita' di giorno le
+     * prenotazioni aperte piu' di recente.
+     *
+     * <p><b>Il secondo criterio non e' un abbellimento, tiene in piedi la
+     * paginazione.</b> Le camere si ordinano per numero, che e' unico, quindi li'
+     * un criterio solo basta; qui la data di arrivo e' tutto il contrario di
+     * unica — in un albergo pieno decine di prenotazioni cominciano lo stesso
+     * giorno, ed e' il caso normale, non il caso limite. Con la sola data il
+     * database e' libero di restituire le righe pari merito in ordine diverso a
+     * ogni query, e la stessa prenotazione puo' comparire in due pagine o in
+     * nessuna. L'id spareggia sempre, perche' unico per costruzione.
+     */
+    private static final Sort ORDINE = Sort.by(Sort.Order.desc("dataCheckIn"), Sort.Order.desc("id"));
+
     private final PrenotazioneRepository prenotazioneRepository;
     private final TipologiaCameraRepository tipologiaCameraRepository;
 
@@ -164,7 +179,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         Page<Prenotazione> pagina = prenotazioneRepository.cerca(
                 utenteId,
                 stato == null ? null : prenotazioneMapper.toStatoEntity(stato),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "dataCheckIn")));
+                PageRequest.of(page, size, ORDINE));
 
         return apiResponseMapper.toPaginatedResponse(HttpStatus.OK, "Prenotazioni recuperate",
                 prenotazioneMapper.toResponseList(pagina.getContent()), pagina);
@@ -182,10 +197,20 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     /**
      * Apertura del carrello.
      *
-     * <p>L'ordine dei controlli non e' casuale: prima chi e' il cliente e chi la
-     * registra, poi le date, poi la capienza, e la disponibilita' per ultima.
-     * Quest'ultima e' l'unica che costa due query, e sarebbe uno spreco pagarla
-     * per una richiesta che ha le date invertite.
+     * <p><b>L'ordine dei controlli va dal piu' economico al piu' caro.</b> Le
+     * date si verificano in memoria e non costano niente, quindi vengono per
+     * prime: risolvere prima il cliente e il personale vorrebbe dire pagare due
+     * o tre letture a database per una richiesta che si sapeva gia' sbagliata.
+     * Poi la tipologia, che serve comunque a tutto il resto; poi la capienza,
+     * che e' un confronto fra due numeri gia' in mano. La disponibilita' resta
+     * per ultima perche' e' l'unica che costa <b>due</b> query.
+     *
+     * <p><b>Il costo non e' pero' l'unico criterio</b>, e conviene dirlo invece
+     * di lasciar credere che l'ordine sia una classifica di prezzi: {@code
+     * canale()} non tocca il database, eppure sta in fondo insieme
+     * all'intestatario e al gestore. Quei tre rispondono alla stessa domanda —
+     * di chi e' questa prenotazione e da dove arriva — e tenerli come un blocco
+     * solo vale piu' della lettura che si risparmierebbe spezzandoli.
      */
     @Override
     @Transactional
@@ -193,16 +218,25 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         AppUserPrincipal chiamante = chiamante();
         boolean daPersonale = personale(chiamante);
 
-        Prenotazione prenotazione = new Prenotazione();
-        prenotazione.setUtente(intestatario(request, chiamante, daPersonale));
-        prenotazione.setCanale(canale(request, daPersonale));
-        prenotazione.setGestitaDaStaff(daPersonale ? staffChiamante(chiamante) : null);
+        verificaDate(request.getDataCheckIn(), request.getDataCheckOut());
 
         TipologiaCamera tipologia = trovaTipologiaOrElseThrow(request.getTipologiaCameraId());
-        verificaDate(request.getDataCheckIn(), request.getDataCheckOut());
         verificaCapienza(request.getNumeroOspiti(), tipologia);
+
+        // Chi c'e' dietro la prenotazione: l'intestatario, da dove arriva, e — se non
+        // l'ha fatta il cliente — chi l'ha registrata. Si risolvono prima della
+        // disponibilita' perche' i loro errori riguardano la richiesta, e una richiesta
+        // sbagliata va detta sbagliata anche quando per giunta non c'e' posto.
+        Utente utenteIntestatario = intestatario(request, chiamante, daPersonale);
+        CanalePrenotazione canaleScelto = canale(request, daPersonale);
+        Staff gestore = daPersonale ? staffChiamante(chiamante) : null;
+
         verificaDisponibilita(tipologia, request.getDataCheckIn(), request.getDataCheckOut(), null);
 
+        Prenotazione prenotazione = new Prenotazione();
+        prenotazione.setUtente(utenteIntestatario);
+        prenotazione.setCanale(canaleScelto);
+        prenotazione.setGestitaDaStaff(gestore);
         prenotazione.setTipologiaCamera(tipologia);
         prenotazione.setDataCheckIn(request.getDataCheckIn());
         prenotazione.setDataCheckOut(request.getDataCheckOut());

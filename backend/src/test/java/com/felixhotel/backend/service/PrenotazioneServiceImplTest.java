@@ -41,7 +41,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
@@ -93,6 +95,7 @@ class PrenotazioneServiceImplTest {
 
     private static final String EMAIL_CLIENTE = "mario.rossi@example.com";
     private static final String EMAIL_STAFF = "anna.bianchi@example.com";
+    private static final String EMAIL_ADMIN = "luca.verdi@example.com";
 
     /** Un mercoledi' qualunque, scelto una volta: e' l'"oggi" di tutti i test di questa classe. */
     private static final LocalDate OGGI = LocalDate.of(2026, 9, 2);
@@ -141,6 +144,19 @@ class PrenotazioneServiceImplTest {
     /** Mette nel contesto un membro del personale. */
     private void autenticaStaff() {
         autentica(ID_STAFF, EMAIL_STAFF, "STAFF");
+    }
+
+    /**
+     * Mette nel contesto un amministratore.
+     *
+     * <p>Non e' un doppione di {@link #autenticaStaff()}: {@code personale()}
+     * riconosce due ruoli con un {@code ||}, e finche' nessun test arriva qui
+     * con ADMIN la meta' ADMIN di quella condizione non si e' mai vista agire —
+     * cioe' la frase dello spec <i>"STAFF e ADMIN vedono tutte"</i> aveva una
+     * meta' senza prove.
+     */
+    private void autenticaAdmin() {
+        autentica(1L, EMAIL_ADMIN, "ADMIN");
     }
 
     private void autentica(Long id, String email, String ruolo) {
@@ -201,6 +217,20 @@ class PrenotazioneServiceImplTest {
                 .dataCheckOut(OGGI.plusDays(10));
     }
 
+    /**
+     * La tipologia richiesta esiste.
+     *
+     * <p>Serve a quasi ogni test di creazione, e non per completezza: la
+     * tipologia si risolve <b>prima</b> dei controlli sull'intestatario e sul
+     * canale, quindi senza questo stub il finto repository risponde "non esiste"
+     * e il service solleva un BadRequestException per la tipologia. Che e' la
+     * stessa eccezione che quei test si aspettano — cioe' passerebbero senza
+     * arrivare mai dove volevano guardare.
+     */
+    private void tipologiaEsiste() {
+        when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
+    }
+
     /** Dice al finto repository che di quella tipologia ci sono {@code camere} stanze e {@code occupate} impegnate. */
     private void disponibilita(long camere, long occupate) {
         when(cameraRepository.countByTipologiaCameraId(ID_TIPOLOGIA)).thenReturn(camere);
@@ -248,6 +278,7 @@ class PrenotazioneServiceImplTest {
         void crea_daClienteConUtenteId_sollevaBadRequest() {
             // given: un cliente che prova a intestare la prenotazione a un altro
             autenticaCliente();
+            tipologiaEsiste();
 
             // when/then: 400. Ignorare il campo in silenzio direbbe a chi ci ha provato
             // che ha funzionato, ed e' esattamente il tipo di cosa che si scopre tardi
@@ -262,6 +293,7 @@ class PrenotazioneServiceImplTest {
         void crea_daClienteConCanale_sollevaBadRequest() {
             // given: un cliente che prova a dichiararsi arrivato per telefono
             autenticaCliente();
+            tipologiaEsiste();
             when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when/then: il canale lo determina chi registra, non chi prenota
@@ -305,6 +337,7 @@ class PrenotazioneServiceImplTest {
         void crea_daPersonaleSenzaUtenteId_sollevaBadRequest() {
             // given: uno staff che dimentica di dire per chi sta prenotando
             autenticaStaff();
+            tipologiaEsiste();
 
             // when/then: senza intestatario la prenotazione non e' di nessuno
             assertThatThrownBy(() -> prenotazioneService.crea(
@@ -317,6 +350,7 @@ class PrenotazioneServiceImplTest {
         void crea_daPersonaleSenzaCanale_sollevaBadRequest() {
             // given: uno staff che dice per chi ma non da dove
             autenticaStaff();
+            tipologiaEsiste();
             when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when/then: il canale e' l'unica cosa che quel campo serve a sapere
@@ -329,6 +363,7 @@ class PrenotazioneServiceImplTest {
         void crea_daPersonaleConClienteInesistente_sollevaBadRequest() {
             // given: l'id del cliente non corrisponde a niente
             autenticaStaff();
+            tipologiaEsiste();
             when(utenteRepository.findById(99L)).thenReturn(Optional.empty());
 
             // when/then: 400 e non 404, come per la tipologia: il 404 di questi endpoint
@@ -345,6 +380,7 @@ class PrenotazioneServiceImplTest {
             // given: un account con ruolo STAFF che nella tabella staff non c'e' — cioe'
             // un cliente a cui qualcuno ha cambiato il ruolo scrivendo a mano nel database
             autenticaStaff();
+            tipologiaEsiste();
             when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(staffRepository.findByEmail(EMAIL_STAFF)).thenReturn(Optional.empty());
 
@@ -361,7 +397,6 @@ class PrenotazioneServiceImplTest {
         void crea_conTipologiaInesistente_sollevaBadRequest() {
             // given
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.empty());
 
             // when/then
@@ -374,8 +409,6 @@ class PrenotazioneServiceImplTest {
         void crea_conDateInvertite_sollevaBadRequest() {
             // given: stesso giorno di arrivo e partenza, cioe' zero notti
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
-            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
 
             // when/then: il CHECK in database c'e' comunque, ma lasciarlo intervenire
             // trasformerebbe un errore di chi chiama in un 500 nostro
@@ -391,8 +424,6 @@ class PrenotazioneServiceImplTest {
         void crea_conArrivoNelPassato_sollevaBadRequest() {
             // given: un arrivo di ieri, dove "ieri" lo decide l'orologio pilotato
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
-            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
 
             // when/then
             assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()
@@ -426,7 +457,6 @@ class PrenotazioneServiceImplTest {
         void crea_conTroppiOspiti_sollevaBadRequest() {
             // given: una doppia da due posti e tre persone
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
 
             // when/then: il tetto dipende dalla tipologia scelta, quindi non e'
@@ -497,10 +527,30 @@ class PrenotazioneServiceImplTest {
         }
 
         @Test
+        @DisplayName("con il principal anonimo risponde 401 e non esplode")
+        void crea_conPrincipalAnonimo_sollevaUnauthorized() {
+            // given: quel che Spring Security mette nel contesto quando la richiesta non
+            // porta nessun token — un'autenticazione c'e', ma il suo principal e' la
+            // stringa "anonymousUser" e non un AppUserPrincipal. Non e' lo stesso caso
+            // del contesto vuoto qui sopra: li' non c'era niente, qui c'e' la cosa
+            // sbagliata
+            SecurityContextHolder.getContext().setAuthentication(
+                    new AnonymousAuthenticationToken("chiave", "anonymousUser",
+                            List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS"))));
+
+            // when/then: 401. Senza l'instanceof che fa da guardia sarebbe una
+            // ClassCastException, cioe' un 500 che da' la colpa a noi di una richiesta
+            // arrivata senza token
+            assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()))
+                    .isInstanceOf(UnauthorizedException.class);
+        }
+
+        @Test
         @DisplayName("con un token valido per un account sparito risponde 401")
         void crea_conAccountSparito_sollevaUnauthorized() {
             // given: il token e' buono ma la riga del cliente non c'e' piu'
             autenticaCliente();
+            tipologiaEsiste();
             when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.empty());
 
             // when/then: 401 e non 404 — non manca la prenotazione, manca chi chiede
@@ -527,9 +577,13 @@ class PrenotazioneServiceImplTest {
 
             // then: l'id arriva comunque alla query. Non e' un filtro che il client ha
             // scelto: e' il recinto, e un filtro che si puo' scegliere e' un filtro che
-            // si puo' non mandare
+            // si puo' non mandare.
+            // L'ordine ha due criteri e non uno: la data di arrivo non e' unica — in un
+            // albergo pieno decine di prenotazioni cominciano lo stesso giorno — quindi
+            // senza l'id a spareggiare la stessa riga potrebbe comparire in due pagine
+            // o in nessuna
             verify(prenotazioneRepository).cerca(ID_CLIENTE, null,
-                    PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "dataCheckIn")));
+                    PageRequest.of(0, 20, Sort.by(Sort.Order.desc("dataCheckIn"), Sort.Order.desc("id"))));
         }
 
         @Test
@@ -562,7 +616,7 @@ class PrenotazioneServiceImplTest {
 
             // then: al repository arriva l'enum di dominio, non quello dello spec
             verify(prenotazioneRepository).cerca(null, StatoPrenotazione.ANNULLATA,
-                    PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "dataCheckIn")));
+                    PageRequest.of(0, 20, Sort.by(Sort.Order.desc("dataCheckIn"), Sort.Order.desc("id"))));
         }
     }
 
@@ -618,6 +672,24 @@ class PrenotazioneServiceImplTest {
 
             // then
             verify(apiResponseMapper).toResponse(eq(HttpStatus.OK), anyString(), any());
+        }
+
+        @Test
+        @DisplayName("a un amministratore restituisce anche la prenotazione di un altro")
+        void dettaglio_allAmministratore_rispondeOk() {
+            // given: un ADMIN, che non e' il titolare della prenotazione
+            autenticaAdmin();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA)));
+
+            // when
+            prenotazioneService.dettaglio(ID_PRENOTAZIONE);
+
+            // then: passa senza che nessuno gli chieda di chi sia. Il test accanto prova
+            // la stessa cosa per lo STAFF, e non e' una ripetizione: sono i due rami
+            // dello stesso ||, e quello dell'ADMIN non era coperto da niente
+            verify(apiResponseMapper).toResponse(eq(HttpStatus.OK), anyString(), any());
+            verify(utenteRepository, never()).findByEmail(anyString());
         }
 
         @Test

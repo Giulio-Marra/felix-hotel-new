@@ -1205,8 +1205,12 @@ paths:
       summary: Elenco paginato delle prenotazioni
       description: >
         Restituisce le prenotazioni in ordine di data di check-in decrescente
-        (le piu' recenti per prime) e divise in pagine, con un filtro
-        facoltativo sullo stato.
+        (gli arrivi piu' recenti per primi) e divise in pagine, con un filtro
+        facoltativo sullo stato. A parita' di giorno di arrivo ordina per
+        identificativo decrescente, cioe' dalla prenotazione aperta piu' di
+        recente: serve a rendere la paginazione stabile, perche' molte
+        prenotazioni cominciano lo stesso giorno e senza un secondo criterio la
+        stessa riga potrebbe comparire in due pagine o in nessuna.
         **Cosa si vede dipende da chi chiede**, e non e' un dettaglio di
         comodita': un **USER** vede *solo le proprie*, **STAFF** e **ADMIN**
         vedono tutte. Non serve nessun parametro per dirlo — l'ambito lo decide
