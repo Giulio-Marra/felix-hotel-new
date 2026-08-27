@@ -138,6 +138,23 @@ class PrenotazioneApiIT extends IntegrationTestBase {
         return idTipologia;
     }
 
+    /** Conferma una prenotazione col token di chi puo' farlo. */
+    private void conferma(String token, long idPrenotazione) throws Exception {
+        mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/conferma")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
+    /** Prenota e conferma in un colpo: e' il modo in cui si occupa davvero una camera. */
+    private void occupa(String tokenAdmin, long idTipologia, LocalDate arrivo, LocalDate partenza)
+            throws Exception {
+        String cliente = tokenCliente();
+        long id = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
+                .dataCheckIn(arrivo)
+                .dataCheckOut(partenza));
+        conferma(cliente, id);
+    }
+
     private long creaPrenotazione(String token, PrenotazioneRequest richiesta) throws Exception {
         String risposta = mockMvc.perform(post(PRENOTAZIONI)
                         .header("Authorization", "Bearer " + token)
@@ -426,6 +443,64 @@ class PrenotazioneApiIT extends IntegrationTestBase {
                     // then: passa. E' la disuguaglianza stretta nella query: con un <= si
                     // perderebbe una notte vendibile ad ogni cambio di ospite
                     .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("tre soggiorni brevi in fila non bloccano un soggiorno lungo: si conta la notte peggiore")
+        void creazione_conSoggiorniConsecutivi_risponde201() throws Exception {
+            // given: DUE camere, e tre confermate una di seguito all'altra — 1->2, 2->3,
+            // 3->4. Sono consecutive e non si sovrappongono fra loro (il giorno di
+            // partenza non e' occupato), quindi stanno tutte e tre in UNA camera sola e
+            // la seconda resta libera tutte le notti
+            String admin = tokenAdmin();
+            long idTipologia = tipologiaPrenotabile(admin, 2);
+
+            LocalDate primoGiorno = LocalDate.now().plusDays(7);
+            occupa(admin, idTipologia, primoGiorno, primoGiorno.plusDays(1));
+            occupa(admin, idTipologia, primoGiorno.plusDays(1), primoGiorno.plusDays(2));
+            occupa(admin, idTipologia, primoGiorno.plusDays(2), primoGiorno.plusDays(3));
+
+            // when: qualcuno chiede tutte e quattro le notti insieme
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(idTipologia)
+                                    .dataCheckIn(primoGiorno)
+                                    .dataCheckOut(primoGiorno.plusDays(4)))))
+                    // then: 201. Contando le prenotazioni che toccano il periodo sarebbero
+                    // tre su due camere, cioe' un 409 — ed e' esattamente il difetto che
+                    // questo branch e' venuto a correggere. La domanda giusta e' quante
+                    // camere servono nella notte PEGGIORE, e in nessuna notte ne servono
+                    // piu' di una
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.status").value(201));
+        }
+
+        @Test
+        @DisplayName("la notte peggiore e' quella che decide, anche quando cade in mezzo al periodo")
+        void creazione_conPuntaInMezzoAlPeriodo_risponde409() throws Exception {
+            // given: DUE camere. Due confermate che si accavallano fra loro, ma solo nel
+            // mezzo del periodo che verra' chiesto: 2->4 e 3->5
+            String admin = tokenAdmin();
+            long idTipologia = tipologiaPrenotabile(admin, 2);
+
+            LocalDate primoGiorno = LocalDate.now().plusDays(7);
+            occupa(admin, idTipologia, primoGiorno.plusDays(1), primoGiorno.plusDays(3));
+            occupa(admin, idTipologia, primoGiorno.plusDays(2), primoGiorno.plusDays(4));
+
+            // when: qualcuno chiede dal primo giorno al quinto
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(idTipologia)
+                                    .dataCheckIn(primoGiorno)
+                                    .dataCheckOut(primoGiorno.plusDays(5)))))
+                    // then: 409. La prima notte e' libera e l'ultima pure, ma nella notte
+                    // fra il terzo e il quarto giorno le due confermate coesistono e
+                    // riempiono l'albergo. E' il caso simmetrico del test qui sopra: il
+                    // massimo va cercato dentro il periodo, non solo al suo inizio
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
         }
 
         @Test

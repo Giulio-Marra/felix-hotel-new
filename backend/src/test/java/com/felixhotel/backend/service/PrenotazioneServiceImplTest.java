@@ -231,10 +231,21 @@ class PrenotazioneServiceImplTest {
         when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
     }
 
-    /** Dice al finto repository che di quella tipologia ci sono {@code camere} stanze e {@code occupate} impegnate. */
+    /**
+     * Dice al finto repository che di quella tipologia ci sono {@code camere}
+     * stanze e che {@code occupate} sono impegnate nella notte peggiore del
+     * periodo.
+     *
+     * <p><b>"Nella notte peggiore" non e' un dettaglio di formulazione</b>: e'
+     * quello che il repository ora restituisce, e la differenza rispetto al
+     * "quante prenotazioni toccano il periodo" di prima e' il difetto che questo
+     * branch e' venuto a correggere. Qui il numero e' finto, quindi la
+     * distinzione non si vede: a vederla e' l'integrazione, che quel massimo lo
+     * fa calcolare davvero al database.
+     */
     private void disponibilita(long camere, long occupate) {
         when(cameraRepository.countByTipologiaCameraId(ID_TIPOLOGIA)).thenReturn(camere);
-        when(prenotazioneRepository.contaSovrapposte(eq(ID_TIPOLOGIA), any(LocalDate.class),
+        when(prenotazioneRepository.occupazioneMassimaDi(eq(ID_TIPOLOGIA), any(LocalDate.class),
                 any(LocalDate.class), any(Collection.class), any())).thenReturn(occupate);
     }
 
@@ -749,7 +760,7 @@ class PrenotazioneServiceImplTest {
             // cambierebbe niente — una IN_ATTESA non occupa comunque — ma e' cio' che
             // rende il metodo indifferente allo stato di partenza, invece di dipendere
             // da un dettaglio che chi aggiungera' altre transizioni non conosce
-            verify(prenotazioneRepository).contaSovrapposte(eq(ID_TIPOLOGIA), any(LocalDate.class),
+            verify(prenotazioneRepository).occupazioneMassimaDi(eq(ID_TIPOLOGIA), any(LocalDate.class),
                     any(LocalDate.class), any(Collection.class), eq(ID_PRENOTAZIONE));
         }
 
@@ -937,6 +948,19 @@ class PrenotazioneServiceImplTest {
 
             assertThat(StatoPrenotazione.IN_ATTESA.occupaCamera()).isFalse();
             assertThat(StatoPrenotazione.ANNULLATA.occupaCamera()).isFalse();
+        }
+
+        @Test
+        @DisplayName("i nomi per la query nativa sono gli stessi tre, derivati e non riscritti")
+        void nomiCheOccupano_seguonoIStati() {
+            // when/then: la query e' nativa, quindi gli stati ci arrivano come stringhe
+            // e non come enum. Il punto del test non e' che siano tre nomi: e' che
+            // siano *quei* nomi, cioe' che il secondo elenco resti agganciato al primo.
+            // Scritto a mano, il giorno che nasce un sesto stato sarebbero due posti da
+            // aggiornare e uno solo che se ne accorge
+            assertThat(StatoPrenotazione.nomiCheOccupano())
+                    .containsExactlyInAnyOrderElementsOf(
+                            StatoPrenotazione.statiCheOccupano().stream().map(Enum::name).toList());
         }
     }
 }

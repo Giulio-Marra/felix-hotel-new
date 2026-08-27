@@ -528,9 +528,17 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     }
 
     /**
-     * Il calcolo della disponibilita', che e' una sottrazione fra due conteggi:
-     * quante camere di quella tipologia esistono, meno quante risultano gia'
-     * impegnate nel periodo.
+     * Il calcolo della disponibilita', che e' una sottrazione fra due numeri:
+     * quante camere di quella tipologia esistono, meno quante ne risultano
+     * impegnate <b>nella notte peggiore</b> del periodo.
+     *
+     * <p><b>La notte peggiore, non il totale delle prenotazioni che toccano il
+     * periodo</b>: chi prenota vuole una stanza per tutte le notti che ha
+     * chiesto, quindi cio' che gli toglie il posto e' il momento di massimo
+     * affollamento. Tre soggiorni brevi messi in fila occupano una camera sola.
+     * Il perche' la prima versione sbagliasse, e come si evita di scorrere le
+     * notti a una a una, sta nel javadoc di
+     * {@code PrenotazioneRepository.occupazioneMassima}.
      *
      * <p><b>Non e' un campo salvato</b>, ed e' il motivo per cui va rifatto ogni
      * volta che serve: dipende da un intervallo di date, e non esiste nessun
@@ -546,10 +554,10 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     private void verificaDisponibilita(TipologiaCamera tipologia, LocalDate dataCheckIn,
                                        LocalDate dataCheckOut, Long esclusa) {
         long camereEsistenti = cameraRepository.countByTipologiaCameraId(tipologia.getId());
-        long camereImpegnate = prenotazioneRepository.contaSovrapposte(tipologia.getId(), dataCheckIn,
-                dataCheckOut, StatoPrenotazione.statiCheOccupano(), esclusa);
+        long occupateNellaNottePeggiore = prenotazioneRepository.occupazioneMassimaDi(tipologia.getId(),
+                dataCheckIn, dataCheckOut, StatoPrenotazione.nomiCheOccupano(), esclusa);
 
-        if (camereEsistenti - camereImpegnate <= 0) {
+        if (camereEsistenti - occupateNellaNottePeggiore <= 0) {
             throw new ConflictException(
                     "Nessuna camera disponibile di questa tipologia per il periodo richiesto");
         }

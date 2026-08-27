@@ -2,7 +2,9 @@ package com.felixhotel.backend.entity;
 
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Punto del ciclo di vita in cui si trova una prenotazione.
@@ -80,5 +82,25 @@ public enum StatoPrenotazione {
      */
     public static Set<StatoPrenotazione> statiCheOccupano() {
         return EnumSet.copyOf(Arrays.stream(values()).filter(StatoPrenotazione::occupaCamera).toList());
+    }
+
+    /**
+     * Gli stessi stati come stringhe, per la query nativa della disponibilita'.
+     *
+     * <p><b>Serve perche' quella query e' nativa e non JPQL</b>: la colonna
+     * {@code stato} e' un VARCHAR (l'entity la mappa con
+     * {@code EnumType.STRING}) e in SQL puro non c'e' nessuno che traduca un
+     * enum Java nel suo nome. In JPQL quella conversione la fa Hibernate, ed e'
+     * il motivo per cui {@link #statiCheOccupano()} bastava a se stesso finche'
+     * la query era JPQL.
+     *
+     * <p>Anche questo e' <b>derivato e non riscritto</b>, per la stessa ragione
+     * dell'altro: due elenchi in due posti prima o poi divergono, e adesso i
+     * posti sarebbero tre.
+     */
+    public static Set<String> nomiCheOccupano() {
+        return statiCheOccupano().stream()
+                .map(Enum::name)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 }
