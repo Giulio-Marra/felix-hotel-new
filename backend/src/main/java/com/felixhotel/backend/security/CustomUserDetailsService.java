@@ -16,6 +16,11 @@ import org.springframework.stereotype.Service;
  * tabelle separate ma condividono lo stesso meccanismo di login, quindi
  * l'email deve essere univoca nell'insieme delle due popolazioni per
  * evitare ambiguita' in fase di autenticazione.
+ *
+ * <p>E' anche <b>l'unico punto del progetto che sa da quale delle due tabelle
+ * l'account e' stato letto</b>, ed e' il motivo per cui il {@link TipoAccount}
+ * si valorizza qui: e' un'informazione che esiste solo dentro questo metodo, e
+ * se non la si mette nel principal e' persa per sempre.
  */
 @Service
 @RequiredArgsConstructor
@@ -37,12 +42,14 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     private AppUserPrincipal toPrincipal(Utente utente) {
-        return new AppUserPrincipal(utente.getId(), utente.getEmail(), utente.getPasswordHash(),
-                utente.getNome(), utente.getCognome(), utente.getRuolo().getNome(), utente.isAttivo());
+        return new AppUserPrincipal(TipoAccount.CLIENTE, utente.getId(), utente.getEmail(),
+                utente.getPasswordHash(), utente.getNome(), utente.getCognome(),
+                utente.getRuolo().getNome(), utente.isAttivo());
     }
 
     private AppUserPrincipal toPrincipal(Staff staff) {
-        return new AppUserPrincipal(staff.getId(), staff.getEmail(), staff.getPasswordHash(),
-                staff.getNome(), staff.getCognome(), staff.getRuolo().getNome(), staff.isAttivo());
+        return new AppUserPrincipal(TipoAccount.PERSONALE, staff.getId(), staff.getEmail(),
+                staff.getPasswordHash(), staff.getNome(), staff.getCognome(),
+                staff.getRuolo().getNome(), staff.isAttivo());
     }
 }

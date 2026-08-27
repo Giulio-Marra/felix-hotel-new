@@ -24,6 +24,7 @@ import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
+import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.impl.PrenotazioneServiceImpl;
 import com.felixhotel.backend.support.OrologioPilotato;
 import com.felixhotel.backend.support.TestDataFactory;
@@ -62,6 +63,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -138,12 +140,12 @@ class PrenotazioneServiceImplTest {
 
     /** Mette nel contesto un cliente autenticato: e' il caso normale di quasi tutti i test. */
     private void autenticaCliente() {
-        autentica(ID_CLIENTE, EMAIL_CLIENTE, "USER");
+        autentica(TipoAccount.CLIENTE, ID_CLIENTE, EMAIL_CLIENTE, "USER");
     }
 
     /** Mette nel contesto un membro del personale. */
     private void autenticaStaff() {
-        autentica(ID_STAFF, EMAIL_STAFF, "STAFF");
+        autentica(TipoAccount.PERSONALE, ID_STAFF, EMAIL_STAFF, "STAFF");
     }
 
     /**
@@ -156,11 +158,12 @@ class PrenotazioneServiceImplTest {
      * meta' senza prove.
      */
     private void autenticaAdmin() {
-        autentica(1L, EMAIL_ADMIN, "ADMIN");
+        autentica(TipoAccount.PERSONALE, 1L, EMAIL_ADMIN, "ADMIN");
     }
 
-    private void autentica(Long id, String email, String ruolo) {
-        AppUserPrincipal principal = new AppUserPrincipal(id, email, "hash", "Mario", "Rossi", ruolo, true);
+    private void autentica(TipoAccount tipo, Long id, String email, String ruolo) {
+        AppUserPrincipal principal =
+                new AppUserPrincipal(tipo, id, email, "hash", "Mario", "Rossi", ruolo, true);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
@@ -258,7 +261,7 @@ class PrenotazioneServiceImplTest {
         void crea_daCliente_intestaAChiChiamaECalcolaTotale() {
             // given: un cliente autenticato, una camera libera su una sola esistente
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
             disponibilita(1, 0);
             when(prenotazioneRepository.save(any(Prenotazione.class)))
@@ -305,7 +308,7 @@ class PrenotazioneServiceImplTest {
             // given: un cliente che prova a dichiararsi arrivato per telefono
             autenticaCliente();
             tipologiaEsiste();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when/then: il canale lo determina chi registra, non chi prenota
             assertThatThrownBy(() -> prenotazioneService.crea(
@@ -321,7 +324,7 @@ class PrenotazioneServiceImplTest {
             // given: uno staff che registra una prenotazione telefonica
             autenticaStaff();
             when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
-            when(staffRepository.findByEmail(EMAIL_STAFF)).thenReturn(Optional.of(staff()));
+            when(staffRepository.findById(ID_STAFF)).thenReturn(Optional.of(staff()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
             disponibilita(1, 0);
             when(prenotazioneRepository.save(any(Prenotazione.class)))
@@ -388,12 +391,13 @@ class PrenotazioneServiceImplTest {
         @Test
         @DisplayName("da un ruolo di personale che non sta nella tabella staff risponde 400")
         void crea_daPersonaleSenzaRigaStaff_sollevaBadRequest() {
-            // given: un account con ruolo STAFF che nella tabella staff non c'e' — cioe'
-            // un cliente a cui qualcuno ha cambiato il ruolo scrivendo a mano nel database
-            autenticaStaff();
+            // given: un account che vive nella tabella dei clienti e porta il ruolo STAFF —
+            // cioe' un cliente a cui qualcuno ha cambiato il ruolo scrivendo a mano nel
+            // database. E' il caso in cui ruolo e tipo dell'account non combaciano, e da
+            // quando il principal porta il tipo si riconosce senza interrogare nessuno
+            autentica(TipoAccount.CLIENTE, ID_CLIENTE, EMAIL_CLIENTE, "STAFF");
             tipologiaEsiste();
             when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
-            when(staffRepository.findByEmail(EMAIL_STAFF)).thenReturn(Optional.empty());
 
             // when/then: si rifiuta invece di scrivere una riga senza gestore. Quella
             // situazione va vista, non aggirata in silenzio
@@ -401,6 +405,28 @@ class PrenotazioneServiceImplTest {
                     .utenteId(ID_CLIENTE)
                     .canale(CanalePrenotazione.TELEFONO)))
                     .isInstanceOf(BadRequestException.class);
+
+            verify(staffRepository, never()).findById(anyLong());
+        }
+
+        @Test
+        @DisplayName("dal personale con la riga di staff sparita risponde 401")
+        void crea_daPersonaleConRigaSparita_sollevaUnauthorized() {
+            // given: il tipo dell'account e' giusto — sta davvero nella tabella staff — ma
+            // quella riga nel frattempo non c'e' piu'
+            autenticaStaff();
+            tipologiaEsiste();
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(staffRepository.findById(ID_STAFF)).thenReturn(Optional.empty());
+
+            // when/then: 401 e non 400, ed e' la coppia del test qui sopra — stesso metodo,
+            // due esiti diversi. La' la richiesta chiede un'operazione da personale a un
+            // account che personale non e'; qui non c'e' niente di sbagliato nella
+            // richiesta, e' il token a valere per un account che non esiste piu'
+            assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()
+                    .utenteId(ID_CLIENTE)
+                    .canale(CanalePrenotazione.TELEFONO)))
+                    .isInstanceOf(UnauthorizedException.class);
         }
 
         @Test
@@ -447,7 +473,7 @@ class PrenotazioneServiceImplTest {
         void crea_conArrivoOggi_nonSollevaNiente() {
             // given: si prenota per stanotte, che e' quel che fa un walk-in
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
             disponibilita(1, 0);
             when(prenotazioneRepository.save(any(Prenotazione.class)))
@@ -481,7 +507,7 @@ class PrenotazioneServiceImplTest {
         void crea_senzaDisponibilita_sollevaConflict() {
             // given: due camere, due gia' impegnate in quel periodo
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
             disponibilita(2, 2);
 
@@ -498,7 +524,7 @@ class PrenotazioneServiceImplTest {
         void crea_conTipologiaSenzaCamere_sollevaConflict() {
             // given: una tipologia a catalogo di cui non esiste nessuna stanza
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(tipologia()));
             disponibilita(0, 0);
 
@@ -515,7 +541,7 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             TipologiaCamera cara = tipologia();
             cara.setPrezzoNotte(new BigDecimal("99999999.99"));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(cara));
             disponibilita(1, 0);
 
@@ -562,7 +588,7 @@ class PrenotazioneServiceImplTest {
             // given: il token e' buono ma la riga del cliente non c'e' piu'
             autenticaCliente();
             tipologiaEsiste();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.empty());
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.empty());
 
             // when/then: 401 e non 404 — non manca la prenotazione, manca chi chiede
             assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()))
@@ -579,7 +605,6 @@ class PrenotazioneServiceImplTest {
         void elenca_daCliente_restringeAlleProprie() {
             // given
             autenticaCliente();
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(prenotazioneRepository.cerca(eq(ID_CLIENTE), isNull(), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA))));
 
@@ -598,6 +623,25 @@ class PrenotazioneServiceImplTest {
         }
 
         @Test
+        @DisplayName("a un account del personale con ruolo USER risponde 401 invece delle prenotazioni di un altro")
+        void elenca_daPersonaleConRuoloUtente_sollevaUnauthorized() {
+            // given: un account che sta nella tabella staff ma porta il ruolo USER — di
+            // nuovo ruolo e tipo che non combaciano, stavolta nel verso opposto. Il suo
+            // id vale su 'staff', e lo stesso numero su 'utente' e' quasi certamente
+            // il cliente di qualcun altro
+            autentica(TipoAccount.PERSONALE, ID_CLIENTE, EMAIL_STAFF, "USER");
+
+            // when/then: 401. E' il motivo per cui il tipo va guardato e non solo letto:
+            // senza il controllo, questo id finirebbe nel filtro della query come se
+            // fosse quello di un cliente, e la risposta conterrebbe le prenotazioni di
+            // un utente che non ha niente a che vedere con chi ha chiamato
+            assertThatThrownBy(() -> prenotazioneService.elenca(0, 20, null))
+                    .isInstanceOf(UnauthorizedException.class);
+
+            verifyNoInteractions(prenotazioneRepository);
+        }
+
+        @Test
         @DisplayName("al personale passa null come utente, cioe' tutte")
         void elenca_daPersonale_nonRestringe() {
             // given
@@ -611,7 +655,7 @@ class PrenotazioneServiceImplTest {
             // then: null qui e' un privilegio, non l'assenza di una preferenza. E il
             // personale non passa nemmeno da utenteRepository: non gli serve sapere chi e'
             verify(prenotazioneRepository).cerca(isNull(), isNull(), any(Pageable.class));
-            verify(utenteRepository, never()).findByEmail(anyString());
+            verifyNoInteractions(utenteRepository);
         }
 
         @Test
@@ -642,7 +686,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when
             prenotazioneService.dettaglio(ID_PRENOTAZIONE);
@@ -654,14 +697,12 @@ class PrenotazioneServiceImplTest {
         @Test
         @DisplayName("a un cliente che non e' il titolare risponde 404 e non 403")
         void dettaglio_aUnEstraneo_sollevaNotFound() {
-            // given: la prenotazione esiste, ma e' di qualcun altro
-            autentica(99L, "altro.cliente@example.com", "USER");
+            // given: la prenotazione esiste, ma e' di qualcun altro. L'id del cliente si
+            // legge dal principal, quindi basta autenticarne uno con un id diverso: non
+            // c'e' nessuna riga da preparare
+            autentica(TipoAccount.CLIENTE, 99L, "altro.cliente@example.com", "USER");
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA)));
-
-            Utente estraneo = cliente();
-            estraneo.setId(99L);
-            when(utenteRepository.findByEmail("altro.cliente@example.com")).thenReturn(Optional.of(estraneo));
 
             // when/then: 404, la stessa risposta di un id inventato. Un 403 direbbe
             // "esiste ma non e' tua", cioe' lascerebbe scoprire quali id esistono
@@ -700,7 +741,7 @@ class PrenotazioneServiceImplTest {
             // la stessa cosa per lo STAFF, e non e' una ripetizione: sono i due rami
             // dello stesso ||, e quello dell'ADMIN non era coperto da niente
             verify(apiResponseMapper).toResponse(eq(HttpStatus.OK), anyString(), any());
-            verify(utenteRepository, never()).findByEmail(anyString());
+            verifyNoInteractions(utenteRepository);
         }
 
         @Test
@@ -727,7 +768,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.IN_ATTESA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             disponibilita(1, 0);
             when(prenotazioneRepository.save(any(Prenotazione.class)))
                     .thenReturn(prenotazioneEsistente(StatoPrenotazione.CONFERMATA));
@@ -771,7 +811,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.IN_ATTESA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             disponibilita(1, 1);
 
             // when/then: 409, e soprattutto niente save — la prenotazione resta
@@ -794,7 +833,6 @@ class PrenotazioneServiceImplTest {
             dimenticata.setDataCheckIn(OGGI.minusDays(2));
             dimenticata.setDataCheckOut(OGGI.plusDays(1));
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(dimenticata));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when/then: 409, e nessun addebito per un soggiorno gia' cominciato. E' il
             // controllo che la creazione aveva gia' fatto e che va rifatto qui, perche'
@@ -839,7 +877,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when/then: al contrario del cambio di stato di una camera, qui ripetere
             // l'operazione non e' innocuo — la seconda chiamata chiederebbe un posto che
@@ -862,7 +899,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(prenotazioneRepository.save(any(Prenotazione.class)))
                     .thenReturn(prenotazioneEsistente(StatoPrenotazione.ANNULLATA));
 
@@ -886,7 +922,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.IN_ATTESA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
             when(prenotazioneRepository.save(any(Prenotazione.class)))
                     .thenReturn(prenotazioneEsistente(StatoPrenotazione.ANNULLATA));
 
@@ -908,7 +943,6 @@ class PrenotazioneServiceImplTest {
             autenticaCliente();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.ANNULLATA)));
-            when(utenteRepository.findByEmail(EMAIL_CLIENTE)).thenReturn(Optional.of(cliente()));
 
             // when/then
             assertThatThrownBy(() -> prenotazioneService.annulla(ID_PRENOTAZIONE, null))

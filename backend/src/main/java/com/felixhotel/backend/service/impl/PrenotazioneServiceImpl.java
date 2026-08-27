@@ -22,6 +22,7 @@ import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
+import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.PrenotazioneService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -56,13 +57,13 @@ import java.time.temporal.ChronoUnit;
  * conferma, nessuno ha preso niente, quindi non serve nessun lavoro in
  * background che ripulisca i carrelli abbandonati.
  *
- * <p><b>L'account di chi chiama si risolve per email e non per id.</b> Il
- * principal porta un {@code userId} che vale sulla tabella {@code utente} per i
- * clienti e su {@code staff} per il personale, senza dire quale delle due:
- * l'id 3 esiste probabilmente in entrambe. L'email invece e' univoca
- * nell'insieme delle due popolazioni — e' il presupposto su cui
- * {@code CustomUserDetailsService} costruisce il login — quindi e' l'unica
- * chiave che identifica una persona sola.
+ * <p><b>L'account di chi chiama si risolve per id, dicendo prima di quale
+ * tabella.</b> Il principal porta un {@code userId} affiancato da un
+ * {@link TipoAccount} che dice su quale delle due popolazioni vale: da soli
+ * nessuno dei due identifica una persona, insieme si'. Ne discende che qui si
+ * legge il database solo dove serve l'<b>entita'</b> — cioe' per intestare una
+ * prenotazione e per registrarne il gestore; dove basta confrontare un id non
+ * c'e' niente da leggere.
  */
 @Service
 public class PrenotazioneServiceImpl implements PrenotazioneService {
@@ -174,7 +175,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         // Null vuol dire "tutte" ed e' un privilegio, non l'assenza di un filtro: lo
         // ottiene solo chi e' del personale. Per un cliente l'id e' sempre il proprio,
         // e non perche' l'abbia chiesto.
-        Long utenteId = personale(chiamante) ? null : clienteChiamante(chiamante).getId();
+        Long utenteId = personale(chiamante) ? null : idClienteChiamante(chiamante);
 
         Page<Prenotazione> pagina = prenotazioneRepository.cerca(
                 utenteId,
@@ -380,7 +381,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                 .orElseThrow(() -> new NotFoundException("Prenotazione non trovata"));
 
         AppUserPrincipal chiamante = chiamante();
-        if (!personale(chiamante) && !prenotazione.getUtente().getId().equals(clienteChiamante(chiamante).getId())) {
+        if (!personale(chiamante) && !prenotazione.getUtente().getId().equals(idClienteChiamante(chiamante))) {
             throw new NotFoundException("Prenotazione non trovata");
         }
 
@@ -448,15 +449,36 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     }
 
     /**
-     * Il cliente corrispondente a chi chiama. Vedi il javadoc di classe per il
-     * perche' si cerchi per email: l'id del principal non dice a quale delle due
-     * tabelle appartenga.
+     * L'id del cliente che sta chiamando, <b>senza toccare il database</b>: per
+     * un account di tipo CLIENTE l'id del principal e' gia' la chiave di
+     * {@code utente}, e finche' serve solo confrontarlo non c'e' niente da
+     * leggere. E' il caso di gran lunga piu' frequente — ogni lettura di un
+     * cliente passa di qui.
+     *
+     * <p>Il controllo sul tipo non e' una formalita': un account che sta nella
+     * tabella del personale ma porta il ruolo USER arriverebbe fin qui, e usare
+     * il suo id come se fosse quello di un cliente vorrebbe dire mostrargli le
+     * prenotazioni di un utente che non ha niente a che fare con lui. E' 401 e
+     * non 403 perche' non e' una questione di permessi: quel token vale per un
+     * account che non e' quello che dice di essere.
+     */
+    private Long idClienteChiamante(AppUserPrincipal chiamante) {
+        if (chiamante.getTipo() != TipoAccount.CLIENTE) {
+            throw new UnauthorizedException("L'account autenticato non e' quello di un cliente");
+        }
+
+        return chiamante.getUserId();
+    }
+
+    /**
+     * Il cliente corrispondente a chi chiama, quando serve l'entita' e non il
+     * solo id — cioe' solo per intestargli una prenotazione.
      *
      * <p>Non trovarlo non e' un 404 ma un 401: vuol dire che il token e' valido
      * per un account che non c'e' piu'.
      */
     private Utente clienteChiamante(AppUserPrincipal chiamante) {
-        return utenteRepository.findByEmail(chiamante.getUsername())
+        return utenteRepository.findById(idClienteChiamante(chiamante))
                 .orElseThrow(() -> new UnauthorizedException("L'account autenticato non esiste piu'"));
     }
 
@@ -464,16 +486,29 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * Il membro del personale corrispondente a chi chiama, da registrare come
      * gestore della prenotazione.
      *
-     * <p>Non trovarlo e' un caso storto ma possibile: un account con ruolo ADMIN
-     * o STAFF che non sta nella tabella {@code staff} — cioe' un cliente a cui
-     * qualcuno ha cambiato il ruolo a mano nel database. Rispondere 400 invece di
-     * lasciar scrivere una riga senza gestore e' la scelta rumorosa: quella
-     * situazione va vista, non aggirata.
+     * <p>Il tipo dell'account e il suo ruolo sono due cose diverse, e qui la
+     * differenza si vede: {@code personale()} ha guardato il ruolo, che e' una
+     * colonna modificabile, mentre a scrivere in {@code gestita_da_staff_id}
+     * serve una riga di {@code staff} vera. Un cliente a cui qualcuno ha messo a
+     * mano il ruolo ADMIN passa il primo controllo e non il secondo: e' 400,
+     * perche' quella situazione va vista e non aggirata scrivendo una
+     * prenotazione senza gestore.
+     *
+     * <p>I due esiti negativi <b>non sono lo stesso errore</b>. Il tipo
+     * sbagliato e' 400 — la richiesta chiede un'operazione da personale a un
+     * account che personale non e' — mentre la riga sparita e' 401, come per il
+     * cliente: il token e' valido per qualcuno che non c'e' piu'. Distinguerli
+     * si puo' solo da quando il tipo esiste; con la sola ricerca per email i due
+     * casi arrivavano qui indistinguibili.
      */
     private Staff staffChiamante(AppUserPrincipal chiamante) {
-        return staffRepository.findByEmail(chiamante.getUsername())
-                .orElseThrow(() -> new BadRequestException(
-                        "L'account che sta registrando la prenotazione non appartiene al personale"));
+        if (chiamante.getTipo() != TipoAccount.PERSONALE) {
+            throw new BadRequestException(
+                    "L'account che sta registrando la prenotazione non appartiene al personale");
+        }
+
+        return staffRepository.findById(chiamante.getUserId())
+                .orElseThrow(() -> new UnauthorizedException("L'account autenticato non esiste piu'"));
     }
 
     /**
