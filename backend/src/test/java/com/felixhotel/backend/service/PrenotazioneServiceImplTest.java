@@ -626,10 +626,10 @@ class PrenotazioneServiceImplTest {
         @DisplayName("a un account del personale con ruolo USER risponde 401 invece delle prenotazioni di un altro")
         void elenca_daPersonaleConRuoloUtente_sollevaUnauthorized() {
             // given: un account che sta nella tabella staff ma porta il ruolo USER — di
-            // nuovo ruolo e tipo che non combaciano, stavolta nel verso opposto. Il suo
-            // id vale su 'staff', e lo stesso numero su 'utente' e' quasi certamente
-            // il cliente di qualcun altro
-            autentica(TipoAccount.PERSONALE, ID_CLIENTE, EMAIL_STAFF, "USER");
+            // nuovo ruolo e tipo che non combaciano, stavolta nel verso opposto. Il suo id
+            // vale su 'staff', e lo stesso numero su 'utente' e' un cliente che non ha
+            // niente a che vedere con lui
+            autentica(TipoAccount.PERSONALE, ID_STAFF, EMAIL_STAFF, "USER");
 
             // when/then: 401. E' il motivo per cui il tipo va guardato e non solo letto:
             // senza il controllo, questo id finirebbe nel filtro della query come se
