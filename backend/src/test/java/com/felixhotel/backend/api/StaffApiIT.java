@@ -193,10 +193,16 @@ class StaffApiIT extends IntegrationTestBase {
             // when: quella persona fa il login come farebbe il primo giorno di lavoro
             String token = auth.ottieniToken(richiesta.getEmail());
 
-            // then: e con quel token entra dove il suo ruolo le permette di entrare.
+            // then: e con quel token entra dove il suo ruolo gli permette di entrare.
             // E' la verifica che vale per tutte le altre: la password scelta
             // dall'amministratore arriva cifrata fino al confronto del login, e il ruolo
-            // scritto nella richiesta e' quello che il token porta con se'
+            // scritto nella richiesta e' quello con cui la richiesta successiva viene
+            // giudicata.
+            // L'endpoint e' di un'altra risorsa perche' non c'e' scelta: questa e'
+            // riservata agli ADMIN, e serviva qualcosa che uno STAFF possa raggiungere.
+            // E' un accoppiamento vero — il giorno che le camere cambiassero permessi,
+            // questo test diventerebbe rosso per una ragione che non lo riguarda — e si
+            // ripara guardando il messaggio, non indovinando
             mockMvc.perform(get("/api/camere").header("Authorization", "Bearer " + token))
                     .andExpect(status().isOk());
         }

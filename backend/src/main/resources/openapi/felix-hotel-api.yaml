@@ -2043,6 +2043,11 @@ paths:
         Disattivare l'ultimo ADMIN attivo e' un **409**, per la stessa ragione
         per cui non lo si puo' degradare: e' l'unica operazione da cui non si
         torna indietro senza aprire il database.
+        **Un ADMIN puo' disattivare se stesso**, purche' non sia l'ultimo: da
+        quel momento non passa piu' nemmeno la sua richiesta successiva, perche'
+        l'attivazione viene riletta dal database ad ogni chiamata e il token gia'
+        emesso non basta piu'. A riaprirgli la porta e' un collega, ed e'
+        esattamente il motivo per cui il 409 sull'ultimo esiste.
         Rimandare lo stato che l'account ha gia' risponde 200: l'operazione e'
         idempotente.
         Risposta: busta ApiBaseResponse con **StaffResponse** in 'data'.
