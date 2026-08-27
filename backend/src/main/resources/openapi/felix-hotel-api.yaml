@@ -1550,6 +1550,73 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/disponibilita:
+
+    get:
+      tags:
+        - Disponibilita
+      operationId: cercaDisponibilita
+      summary: Cerca le tipologie prenotabili in un periodo
+      description: >
+        E' la ricerca del cliente: date di arrivo e partenza, e in risposta le
+        tipologie con **quante camere restano** in quel periodo e **quanto
+        costerebbe** il soggiorno.
+        **Pubblico**, come il catalogo: e' la domanda che un visitatore fa prima
+        di registrarsi, e obbligarlo a un account per sapere se c'e' posto e' il
+        modo di non ricevere prenotazioni.
+        **Restituisce anche le tipologie esaurite**, con `camereDisponibili` a
+        zero, e non e' una svista: sapere che la Suite esiste ed e' finita e'
+        un'informazione diversa dal non vederla affatto — e togliere le righe
+        dopo aver impaginato farebbe pagine di dimensione variabile, cioe' il
+        difetto che questo progetto ha gia' evitato altrove.
+        La disponibilita' e' calcolata sulla **notte peggiore** del periodo, non
+        sul numero di prenotazioni che lo toccano: chi prenota vuole una stanza
+        per tutte le notti che ha chiesto. Tre soggiorni brevi messi in fila
+        occupano una camera sola.
+        Risposta: busta ApiBaseResponsePaginated con un **array di
+        DisponibilitaTipologia** in 'data' e i metadati di pagina in 'page'.
+      parameters:
+        - $ref: '#/components/parameters/DataCheckInRicerca'
+        - $ref: '#/components/parameters/DataCheckOutRicerca'
+        - $ref: '#/components/parameters/FiltroNumeroOspiti'
+        - $ref: '#/components/parameters/FiltroPrezzoMinimo'
+        - $ref: '#/components/parameters/FiltroPrezzoMassimo'
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+      responses:
+        '200':
+          description: Pagina di tipologie con la loro disponibilita' ('data' = array di DisponibilitaTipologia)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+              example:
+                status: 200
+                message: Disponibilita' calcolata
+                timestamp: 2026-08-27T10:15:30Z
+                data:
+                  - tipologia:
+                      id: 1
+                      nome: Doppia Superior
+                      descrizione: Camera doppia con vista sul giardino
+                      capienzaMax: 2
+                      prezzoNotte: 120.00
+                      dotazioni:
+                        - id: 1
+                          nome: Wi-Fi
+                          descrizione: Connessione senza fili gratuita in tutta la struttura
+                    camereDisponibili: 3
+                    importoTotale: 360.00
+                page:
+                  pageNumber: 0
+                  pageSize: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -1621,6 +1688,87 @@ components:
         esiste, non un filtro che non trova niente.
       schema:
         $ref: '#/components/schemas/StatoPrenotazione'
+
+    DataCheckInRicerca:
+      name: dataCheckIn
+      in: query
+      required: true
+      description: >
+        Giorno di arrivo del soggiorno cercato. **Obbligatorio**: senza un
+        periodo non c'e' nessuna disponibilita' da calcolare, e la domanda
+        diventa quella del catalogo — che ha gia' il suo endpoint.
+        A differenza della creazione, qui un arrivo nel passato **non e' un
+        errore**: si sta guardando, non prenotando, e una ricerca sbagliata si
+        corregge da sola cambiando le date. Il risultato pero' e' quello che e' —
+        cio' che risulta libero ieri non e' un'offerta.
+      schema:
+        type: string
+        format: date
+      example: 2026-09-10
+
+    DataCheckOutRicerca:
+      name: dataCheckOut
+      in: query
+      required: true
+      description: >
+        Giorno di partenza, che deve essere **successivo** all'arrivo: un
+        soggiorno di zero notti non esiste, e il vincolo non e' esprimibile
+        nello schema perche' lega due campi fra loro. Lo verifica il service,
+        che risponde 400.
+        Come nella prenotazione, **il giorno di partenza non e' occupato**: chi
+        parte il 13 libera la camera per chi arriva il 13.
+      schema:
+        type: string
+        format: date
+      example: 2026-09-13
+
+    FiltroNumeroOspiti:
+      name: numeroOspiti
+      in: query
+      required: false
+      description: >
+        Se valorizzato, restituisce le sole tipologie che ospitano almeno
+        quelle persone. E' il **filtro per capienza** rimandato il 2026-08-06
+        proprio in attesa di questo endpoint: farlo prima sul catalogo voleva
+        dire scriverlo due volte, perche' qui capienza e date si chiedono
+        insieme.
+        Facoltativo perche' "cosa c'e' libero" e' una domanda legittima quanto
+        "cosa c'e' libero per tre".
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+      example: 2
+
+    FiltroPrezzoMinimo:
+      name: prezzoMinimo
+      in: query
+      required: false
+      description: >
+        Se valorizzato, esclude le tipologie che costano **meno** di tanto per
+        notte. Il confronto e' sul prezzo di una notte e non sul totale del
+        soggiorno: e' il numero con cui si ragiona scegliendo una camera, e
+        l'unico che non cambia se si spostano le date.
+      schema:
+        type: number
+        minimum: 0
+        maximum: 99999999.99
+      example: 80.00
+
+    FiltroPrezzoMassimo:
+      name: prezzoMassimo
+      in: query
+      required: false
+      description: >
+        Se valorizzato, esclude le tipologie che costano **piu'** di tanto per
+        notte. Si combina col minimo; un massimo inferiore al minimo non e' un
+        errore, e' una pagina vuota — come per gli altri filtri, una domanda ben
+        posta a cui la risposta e' "niente".
+      schema:
+        type: number
+        minimum: 0
+        maximum: 99999999.99
+      example: 200.00
 
     FiltroTipologiaCamera:
       name: tipologiaCameraId
@@ -2408,6 +2556,37 @@ components:
           type: string
           format: date-time
           description: Quando la prenotazione e' stata aperta
+
+    DisponibilitaTipologia:
+      type: object
+      description: >
+        Una tipologia vista attraverso un periodo: cos'e', quante camere ne
+        restano in quei giorni, e quanto verrebbe a costare.
+        **La tipologia e' quella intera e non la sintesi**, al contrario di
+        quanto succede dentro una prenotazione: li' serve solo a riconoscerla,
+        qui e' cio' su cui il cliente sta decidendo, quindi servono descrizione,
+        prezzo e dotazioni.
+      properties:
+        tipologia:
+          $ref: '#/components/schemas/TipologiaCameraResponse'
+        camereDisponibili:
+          type: integer
+          description: >
+            Camere libere per **tutto** il periodo richiesto, cioe' quante ne
+            restano nella notte piu' affollata. **Zero e' un valore legittimo**
+            e vuol dire esaurito, non "errore": la tipologia compare lo stesso,
+            perche' sapere che esiste ed e' finita e' diverso dal non vederla.
+          example: 3
+        importoTotale:
+          type: number
+          description: >
+            Quanto costerebbe il soggiorno: prezzo per notte per il numero di
+            notti. E' **il preventivo di oggi**, non un impegno — il totale che
+            vale e' quello fotografato alla creazione della prenotazione, e se il
+            listino cambia in mezzo i due numeri possono differire.
+            Compare anche sulle tipologie esaurite: e' il prezzo di quella
+            camera per quel periodo, e non dipende da quante ne restano.
+          example: 360.00
 
     UtenteSintesi:
       type: object

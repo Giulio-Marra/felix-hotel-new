@@ -106,29 +106,31 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
      * notte di {@code giorno} se e' cominciata entro quel giorno e riparte dopo.
      * Chi arriva il 13 prende cosi' la camera che qualcuno libera il 13.
      *
-     * @param tipologiaCameraId se null, calcola per tutte le tipologie: e' la
-     *                          forma che serve alla ricerca del cliente, mentre
-     *                          creazione e conferma ne guardano una sola
-     * @param esclusa           prenotazione da non contare, o null per contarle
-     *                          tutte. Serve alle verifiche fatte su una
-     *                          prenotazione che gia' esiste: senza, una
-     *                          CONFERMATA riesaminata conterebbe se stessa fra
-     *                          quelle che le tolgono il posto
+     * @param tipologiaCameraIds le tipologie su cui calcolare. <b>Mai vuoto</b>:
+     *                           un {@code in ()} non e' SQL valido, e chi chiama
+     *                           deve saltare la query quando non ha niente da
+     *                           chiedere — che e' anche l'unica risposta sensata
+     *                           in quel caso. Ne basta uno per creazione e
+     *                           conferma, sono quelli di una pagina per la
+     *                           ricerca del cliente
+     * @param esclusa            prenotazione da non contare, o null per contarle
+     *                           tutte. Serve alle verifiche fatte su una
+     *                           prenotazione che gia' esiste: senza, una
+     *                           CONFERMATA riesaminata conterebbe se stessa fra
+     *                           quelle che le tolgono il posto
      */
     @Query(nativeQuery = true, value = """
             with giorni as (
                 select t.id as tipologia, cast(:dataCheckIn as date) as giorno
                   from tipologia_camera t
-                 where cast(:tipologiaCameraId as bigint) is null
-                    or t.id = cast(:tipologiaCameraId as bigint)
+                 where t.id in (:tipologiaCameraIds)
                 union
                 select p.tipologia_camera_id, p.data_check_in
                   from prenotazione p
-                 where p.stato in (:statiCheOccupano)
+                 where p.tipologia_camera_id in (:tipologiaCameraIds)
+                   and p.stato in (:statiCheOccupano)
                    and p.data_check_in > cast(:dataCheckIn as date)
                    and p.data_check_in < cast(:dataCheckOut as date)
-                   and (cast(:tipologiaCameraId as bigint) is null
-                        or p.tipologia_camera_id = cast(:tipologiaCameraId as bigint))
                    and (cast(:esclusa as bigint) is null or p.id <> cast(:esclusa as bigint))
             ),
             occupazione as (
@@ -150,7 +152,7 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
              group by o.tipologia
             """)
     List<OccupazioneTipologia> occupazioneMassima(
-            @Param("tipologiaCameraId") Long tipologiaCameraId,
+            @Param("tipologiaCameraIds") Collection<Long> tipologiaCameraIds,
             @Param("dataCheckIn") LocalDate dataCheckIn,
             @Param("dataCheckOut") LocalDate dataCheckOut,
             @Param("statiCheOccupano") Collection<String> statiCheOccupano,
@@ -170,7 +172,8 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
     default long occupazioneMassimaDi(Long tipologiaCameraId, LocalDate dataCheckIn,
                                       LocalDate dataCheckOut, Collection<String> statiCheOccupano,
                                       Long esclusa) {
-        return occupazioneMassima(tipologiaCameraId, dataCheckIn, dataCheckOut, statiCheOccupano, esclusa)
+        return occupazioneMassima(List.of(tipologiaCameraId), dataCheckIn, dataCheckOut,
+                statiCheOccupano, esclusa)
                 .stream()
                 .findFirst()
                 .map(OccupazioneTipologia::getOccupate)

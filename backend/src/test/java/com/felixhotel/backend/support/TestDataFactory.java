@@ -94,6 +94,26 @@ public class TestDataFactory {
     }
 
     /**
+     * Un prezzo per notte che nessun'altra tipologia ha, preso dallo stesso
+     * contatore che genera i nomi.
+     *
+     * <p><b>Serve a isolare i test della ricerca di disponibilita'</b>, che a
+     * differenza di tutti gli altri elenchi guarda <b>l'intero catalogo</b>: li'
+     * crearsi la propria tipologia non basta a stare per conto proprio, perche'
+     * nella risposta finiscono anche quelle degli altri test. Il filtro di
+     * prezzo, stretto su un valore che appartiene a una tipologia sola, ritaglia
+     * la propria riga — e usa per farlo uno dei filtri che quei test devono
+     * comunque esercitare.
+     *
+     * <p>Parte da 1000 per stare sopra ai prezzi scritti a mano altrove, cosi'
+     * un intervallo stretto qui non puo' pescare per sbaglio una tipologia
+     * creata da un altro test con il prezzo di default.
+     */
+    public BigDecimal prezzoUnivoco() {
+        return new BigDecimal(1000 + CONTATORE.incrementAndGet()).setScale(2);
+    }
+
+    /**
      * Nome di dotazione mai usato prima in questa esecuzione, per la stessa
      * ragione del nome di tipologia: e' unico in database (indice su
      * lower(nome), vedi V3) e il database non viene ripulito fra un test e

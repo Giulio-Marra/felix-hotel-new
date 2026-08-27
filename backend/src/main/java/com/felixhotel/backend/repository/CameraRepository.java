@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -83,4 +85,26 @@ public interface CameraRepository extends JpaRepository<Camera, Long> {
      * indisponibilita', con le sue date.
      */
     long countByTipologiaCameraId(Long tipologiaCameraId);
+
+    /**
+     * Lo stesso conteggio per piu' tipologie in un colpo solo.
+     *
+     * <p>Serve alla ricerca di disponibilita', che ne vuole uno per ogni
+     * tipologia della pagina: chiamare il metodo qui sopra in un ciclo sarebbe
+     * una query per riga mostrata. Il metodo singolo resta perche' creazione e
+     * conferma guardano una tipologia sola, dove non c'e' niente da raggruppare.
+     *
+     * <p><b>Una tipologia senza camere non compare fra i risultati</b>, perche'
+     * il {@code group by} raggruppa righe che non esistono. Chi chiama deve
+     * leggerla come zero — che e' anche la verita': una tipologia a catalogo di
+     * cui non e' stata ancora creata nessuna stanza non ha niente da vendere.
+     */
+    @Query("""
+            select c.tipologiaCamera.id as tipologiaCameraId, count(c) as totale
+            from Camera c
+            where c.tipologiaCamera.id in :tipologiaCameraIds
+            group by c.tipologiaCamera.id
+            """)
+    List<ConteggioCamere> contaPerTipologia(
+            @Param("tipologiaCameraIds") Collection<Long> tipologiaCameraIds);
 }

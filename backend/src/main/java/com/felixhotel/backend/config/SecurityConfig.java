@@ -93,7 +93,17 @@ public class SecurityConfig {
                                 // Le dotazioni sono pubbliche per lo stesso motivo: sono le voci
                                 // che compaiono nella scheda di ogni camera del catalogo.
                                 "/api/dotazioni",
-                                "/api/dotazioni/*"
+                                "/api/dotazioni/*",
+                                // La ricerca di disponibilita': e' la domanda che un visitatore fa
+                                // prima di registrarsi, e obbligarlo a un account per sapere se
+                                // c'e' posto e' il modo di non ricevere prenotazioni. Espone quante
+                                // camere restano libere, cioe' un dato di riempimento — che pero'
+                                // e' esattamente cio' che un albergo pubblica di sua volonta' su
+                                // ogni portale, non un'informazione che si sta lasciando sfuggire.
+                                // Nessun path delle *prenotazioni* entra qui: quelle restano
+                                // dietro l'autenticazione, e da questa rotta non se ne intravede
+                                // nessuna — solo un conteggio.
+                                "/api/disponibilita"
                         ).permitAll()
                         .requestMatchers(
                                 // Solo questi due endpoint di auth sono pubblici, elencati uno per uno:
