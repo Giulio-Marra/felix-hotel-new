@@ -925,17 +925,17 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             long cameraPrima = idCameraAssegnata(staff, prima);
             long cameraSeconda = idCameraAssegnata(staff, seconda);
 
-            // then: e' la prova che l'assegnazione guarda le prenotazioni gia' arrivate e
-            // non solo lo stato operativo. Senza quel controllo la seconda riceverebbe la
-            // stessa stanza — che nel frattempo e' OCCUPATA, quindi in realta' la
-            // filtrerebbe anche lo stato: il test vale perche' le due condizioni
-            // insieme non lasciano scampo, ed e' il risultato che conta
+            // then: due ospiti, due stanze. E' il comportamento visto da fuori, e a
+            // garantirlo qui basta gia' lo stato operativo — la prima camera e' OCCUPATA
+            // quando arriva il secondo. Che l'assegnazione guardi <b>anche</b> le
+            // prenotazioni in CHECK_IN lo provano gli altri due test qui sotto, dove lo
+            // stato e' stato rimesso a mano o l'ospite e' partito in anticipo
             assertThat(cameraPrima).isNotEqualTo(cameraSeconda);
         }
 
         @Test
-        @DisplayName("con la camera indicata gia' impegnata in quei giorni risponde 409")
-        void checkIn_conCameraGiaImpegnata_risponde409() throws Exception {
+        @DisplayName("con la camera indicata gia' occupata da un altro ospite risponde 409")
+        void checkIn_conCameraGiaOccupata_risponde409() throws Exception {
             // given: una camera gia' assegnata a un ospite arrivato, e una seconda
             // prenotazione che la chiede
             String admin = tokenAdmin();
