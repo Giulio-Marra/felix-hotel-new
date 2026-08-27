@@ -123,12 +123,66 @@ class PrenotazioneApiIT extends IntegrationTestBase {
     /** Aggiunge {@code quante} camere alla tipologia: e' cio' che rende disponibile una tipologia. */
     private void creaCamere(String tokenAdmin, long idTipologia, int quante) throws Exception {
         for (int i = 0; i < quante; i++) {
-            mockMvc.perform(post(CAMERE)
-                            .header("Authorization", "Bearer " + tokenAdmin)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(json(dati.cameraRequest(idTipologia))))
-                    .andExpect(status().isCreated());
+            creaCamera(tokenAdmin, idTipologia);
         }
+    }
+
+    /**
+     * Una camera sola, restituendone l'id.
+     *
+     * <p>Serve al check-in, che al contrario di tutto il resto ha bisogno di
+     * sapere <b>quale</b> stanza e' stata creata: per nominarla in una richiesta,
+     * per guardarne lo stato operativo dopo, o per assegnarla a due prenotazioni
+     * diverse e vedere che la seconda venga rifiutata.
+     */
+    private long creaCamera(String tokenAdmin, long idTipologia) throws Exception {
+        String risposta = mockMvc.perform(post(CAMERE)
+                        .header("Authorization", "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(dati.cameraRequest(idTipologia))))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return objectMapper.readTree(risposta).path("data").path("id").asLong();
+    }
+
+    /**
+     * Lo stato operativo di una camera, letto dall'endpoint vero.
+     *
+     * <p>E' il modo di verificare l'<b>effetto collaterale</b> del check-in senza
+     * andarselo a leggere dal database: se lo si guardasse col repository si
+     * proverebbe che il service ha scritto qualcosa, non che l'applicazione lo
+     * racconta.
+     */
+    private String statoCamera(String tokenStaff, long idCamera) throws Exception {
+        String risposta = mockMvc.perform(get(CAMERE + "/" + idCamera)
+                        .header("Authorization", "Bearer " + tokenStaff))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        return objectMapper.readTree(risposta).path("data").path("stato").asText();
+    }
+
+    /**
+     * Una prenotazione confermata che <b>comincia oggi</b>, cioe' la sola su cui
+     * si possa registrare un arrivo.
+     *
+     * <p>Il resto dell'IT prenota nel futuro, che e' il caso valido per creazione
+     * e conferma; per il check-in il futuro e' proprio il caso da rifiutare, e
+     * questi test girano sull'orologio vero — nel contesto Spring non c'e'
+     * nessun {@code OrologioPilotato}, che vive solo negli unitari.
+     */
+    private long confermataDiOggi(long idTipologia) throws Exception {
+        String cliente = tokenCliente();
+        long id = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
+                .dataCheckIn(LocalDate.now())
+                .dataCheckOut(LocalDate.now().plusDays(3)));
+        conferma(cliente, id);
+        return id;
     }
 
     /** Una tipologia con {@code quante} camere, pronta per essere prenotata. */
@@ -741,6 +795,443 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrima + "/conferma")
                             .header("Authorization", "Bearer " + tokenCliente()))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    @DisplayName("PUT /api/prenotazioni/{id}/check-in")
+    class Arrivo {
+
+        @Test
+        @DisplayName("dal personale assegna una camera, la porta a OCCUPATA e passa a CHECK_IN")
+        void checkIn_dalPersonale_assegnaEOccupa() throws Exception {
+            // given: una tipologia con una camera sola e una prenotazione che comincia oggi
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            long idCamera = creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+            String staff = tokenStaff();
+
+            // when
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    // then: la busta porta lo stato nuovo e la camera assegnata, che fino a
+                    // un momento fa era null
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value(200))
+                    .andExpect(jsonPath("$.message").value("Check-in registrato"))
+                    .andExpect(jsonPath("$.data.stato").value("CHECK_IN"))
+                    .andExpect(jsonPath("$.data.camera.id").value(idCamera))
+                    .andExpect(jsonPath("$.data.camera.numero").isNotEmpty())
+                    .andExpect(jsonPath("$.data.camera.tipologia.id").value(idTipologia));
+
+            // e l'effetto collaterale c'e' davvero: la stanza risulta occupata anche a
+            // chi la guarda dall'inventario, che e' l'unico posto da cui se ne accorge
+            // chi non ha visto passare questa richiesta
+            assertThat(statoCamera(staff, idCamera)).isEqualTo("OCCUPATA");
+        }
+
+        @Test
+        @DisplayName("da un cliente risponde 403 anche sulla propria prenotazione")
+        void checkIn_daUnCliente_risponde403() throws Exception {
+            // given: il cliente e' il titolare, quindi "e' tua?" direbbe di si'
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamera(admin, idTipologia);
+
+            String cliente = tokenCliente();
+            long idPrenotazione = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
+                    .dataCheckIn(LocalDate.now())
+                    .dataCheckOut(LocalDate.now().plusDays(3)));
+            conferma(cliente, idPrenotazione);
+
+            // when/then: 403 e non 404, ed e' la differenza rispetto a tutti gli altri
+            // endpoint delle prenotazioni. Qui la domanda torna a essere "che ruolo hai":
+            // non e' il cliente a consegnarsi le chiavi, e dirglielo non rivela niente
+            // che non sappia gia'
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + cliente))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.status").value(403));
+        }
+
+        @Test
+        @DisplayName("senza token risponde 401")
+        void checkIn_senzaToken_risponde401() throws Exception {
+            mockMvc.perform(put(PRENOTAZIONI + "/1/check-in"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.status").value(401));
+        }
+
+        @Test
+        @DisplayName("con una camera indicata assegna quella e non un'altra")
+        void checkIn_conCameraIndicata_assegnaQuella() throws Exception {
+            // given: due camere disponibili, e chi sta al banco vuole la seconda
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamera(admin, idTipologia);
+            long voluta = creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+
+            // when
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": " + voluta + "}"))
+                    // then: senza il corpo il service avrebbe scelto la prima in ordine di
+                    // numero, che qui non e' questa
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.camera.id").value(voluta));
+        }
+
+        @Test
+        @DisplayName("l'upgrade e' permesso: camera di un'altra tipologia, tipologia e importo invariati")
+        void checkIn_conCameraDiAltraTipologia_assegnaSenzaCambiarePrezzo() throws Exception {
+            // given: il cliente ha comprato la tipologia A, al banco gli danno una stanza
+            // della tipologia B
+            String admin = tokenAdmin();
+            long comprata = creaTipologia(admin);
+            creaCamera(admin, comprata);
+            long altra = creaTipologia(admin);
+            long cameraAltra = creaCamera(admin, altra);
+            long idPrenotazione = confermataDiOggi(comprata);
+
+            // when
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": " + cameraAltra + "}"))
+                    // then: la camera e' dell'altra tipologia, ma cosa il cliente ha comprato
+                    // e quanto ha pagato non cambiano. E' anche il motivo per cui la camera
+                    // porta con se' la propria tipologia: e' qui che le due si vedono diverse
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.camera.id").value(cameraAltra))
+                    .andExpect(jsonPath("$.data.camera.tipologia.id").value(altra))
+                    .andExpect(jsonPath("$.data.tipologia.id").value(comprata));
+        }
+
+        @Test
+        @DisplayName("due prenotazioni sovrapposte ricevono due camere diverse")
+        void checkIn_diDueSovrapposte_assegnaCamereDiverse() throws Exception {
+            // given: due camere, due prenotazioni negli stessi giorni
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamere(admin, idTipologia, 2);
+            long prima = confermataDiOggi(idTipologia);
+            long seconda = confermataDiOggi(idTipologia);
+            String staff = tokenStaff();
+
+            // when
+            long cameraPrima = idCameraAssegnata(staff, prima);
+            long cameraSeconda = idCameraAssegnata(staff, seconda);
+
+            // then: e' la prova che l'assegnazione guarda le prenotazioni gia' arrivate e
+            // non solo lo stato operativo. Senza quel controllo la seconda riceverebbe la
+            // stessa stanza — che nel frattempo e' OCCUPATA, quindi in realta' la
+            // filtrerebbe anche lo stato: il test vale perche' le due condizioni
+            // insieme non lasciano scampo, ed e' il risultato che conta
+            assertThat(cameraPrima).isNotEqualTo(cameraSeconda);
+        }
+
+        @Test
+        @DisplayName("con la camera indicata gia' impegnata in quei giorni risponde 409")
+        void checkIn_conCameraGiaImpegnata_risponde409() throws Exception {
+            // given: una camera gia' assegnata a un ospite arrivato, e una seconda
+            // prenotazione che la chiede
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            long idCamera = creaCamera(admin, idTipologia);
+            creaCamera(admin, idTipologia);
+            String staff = tokenStaff();
+
+            long prima = confermataDiOggi(idTipologia);
+            mockMvc.perform(put(PRENOTAZIONI + "/" + prima + "/check-in")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": " + idCamera + "}"))
+                    .andExpect(status().isOk());
+
+            long seconda = confermataDiOggi(idTipologia);
+
+            // when/then
+            mockMvc.perform(put(PRENOTAZIONI + "/" + seconda + "/check-in")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": " + idCamera + "}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("una camera rimessa LIBERA a mano con dentro un ospite non viene riassegnata")
+        void checkIn_conStatoRimessoAMano_nonRiassegnaLaStanzaAbitata() throws Exception {
+            // given: due camere, cosi' che una seconda prenotazione negli stessi giorni
+            // si possa creare — con una sola sarebbe la disponibilita' a fermarla, che e'
+            // un'altra regola e non quella sotto esame. Un ospite entra nella prima, poi
+            // qualcuno sbagliando la riporta a LIBERA dall'inventario: quell'endpoint e'
+            // idempotente e senza macchina a stati di proposito, quindi niente glielo
+            // impedisce
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamere(admin, idTipologia, 2);
+            String staff = tokenStaff();
+
+            long primo = confermataDiOggi(idTipologia);
+            long abitata = idCameraAssegnata(staff, primo);
+
+            mockMvc.perform(put(CAMERE + "/" + abitata + "/stato")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.cameraStatoRequest(
+                                    com.felixhotel.backend.dto.StatoCamera.LIBERA))))
+                    .andExpect(status().isOk());
+
+            long secondo = confermataDiOggi(idTipologia);
+
+            // when/then: chiedere proprio quella stanza da' 409, e non perche' lo stato
+            // lo vieti — adesso dice LIBERA. A vietarlo e' la prenotazione in CHECK_IN su
+            // quelle notti, che e' l'unica fonte che una persona non puo' sbagliare a
+            // mano. Senza quel controllo qui ci sarebbe un 200, e due clienti avrebbero
+            // la stessa chiave
+            mockMvc.perform(put(PRENOTAZIONI + "/" + secondo + "/check-in")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": " + abitata + "}"))
+                    .andExpect(status().isConflict());
+
+            // e lasciando scegliere il service viene assegnata l'altra, non quella: e' lo
+            // stesso controllo visto dall'altra query, quella che cerca fra le assegnabili
+            assertThat(idCameraAssegnata(staff, secondo)).isNotEqualTo(abitata);
+        }
+
+        @Test
+        @DisplayName("chi parte in anticipo libera la stanza per le notti che restano")
+        void checkIn_dopoUnaPartenzaAnticipata_riassegnaLaStessaStanza() throws Exception {
+            // given: due camere, per la stessa ragione del test qui sopra. Il primo
+            // ospite arriva oggi per tre notti e riparte subito: la sua prenotazione
+            // resta CHECK_OUT e copre ancora domani e dopodomani
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamere(admin, idTipologia, 2);
+            String staff = tokenStaff();
+
+            long primo = confermataDiOggi(idTipologia);
+            long liberata = idCameraAssegnata(staff, primo);
+            mockMvc.perform(put(PRENOTAZIONI + "/" + primo + "/check-out")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isOk());
+
+            long secondo = confermataDiOggi(idTipologia);
+
+            // when/then: quella stessa stanza si puo' chiedere di nuovo. E' il motivo per
+            // cui il controllo guarda CHECK_IN e non tutti gli stati che occupano:
+            // CHECK_OUT consuma disponibilita' — e' storia — ma non tiene fisicamente la
+            // stanza. Con l'elenco largo questo darebbe 409 e la camera resterebbe
+            // bloccata a vuoto per le notti di un ospite che se n'e' gia' andato
+            mockMvc.perform(put(PRENOTAZIONI + "/" + secondo + "/check-in")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": " + liberata + "}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.camera.id").value(liberata));
+        }
+
+        @Test
+        @DisplayName("con una camera che non esiste risponde 400")
+        void checkIn_conCameraInesistente_risponde400() throws Exception {
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"cameraId\": 99999999}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+        }
+
+        @Test
+        @DisplayName("prima del giorno di arrivo risponde 409")
+        void checkIn_primaDellArrivo_risponde409() throws Exception {
+            // given: una prenotazione confermata che comincia fra una settimana
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamera(admin, idTipologia);
+
+            String cliente = tokenCliente();
+            long idPrenotazione = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
+                    .dataCheckIn(LocalDate.now().plusDays(7))
+                    .dataCheckOut(LocalDate.now().plusDays(10)));
+            conferma(cliente, idPrenotazione);
+
+            // when/then: metterebbe OCCUPATA una stanza per una settimana, togliendola a
+            // tutti gli arrivi veri di quei giorni
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("senza nessuna camera assegnabile risponde 409 pur essendo confermata")
+        void checkIn_conLUnicaCameraInManutenzione_risponde409() throws Exception {
+            // given: la tipologia ha una camera sola, e stamattina si e' rotta
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            long idCamera = creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+
+            mockMvc.perform(put(CAMERE + "/" + idCamera + "/stato")
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.cameraStatoRequest(
+                                    com.felixhotel.backend.dto.StatoCamera.MANUTENZIONE))))
+                    .andExpect(status().isOk());
+
+            // when/then: la conferma era passata perche' la disponibilita' conta tutte le
+            // camere della tipologia, stato operativo compreso — una stanza rotta oggi
+            // non dice niente su un soggiorno di novembre. Oggi pero' la chiave va data
+            // su una stanza che esiste davvero, e non ce n'e'
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("ripetuto risponde 409: non e' idempotente")
+        void checkIn_ripetuto_risponde409() throws Exception {
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamere(admin, idTipologia, 2);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+            String staff = tokenStaff();
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isOk());
+
+            // then: la seconda chiamata non e' innocua come rimandare a una camera lo
+            // stato che ha gia' — assegnerebbe una seconda stanza allo stesso ospite
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isConflict());
+        }
+
+        /** Registra l'arrivo lasciando scegliere il service, e restituisce l'id della camera toccata. */
+        private long idCameraAssegnata(String tokenStaff, long idPrenotazione) throws Exception {
+            String risposta = mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+
+            return objectMapper.readTree(risposta).path("data").path("camera").path("id").asLong();
+        }
+    }
+
+    @Nested
+    @DisplayName("PUT /api/prenotazioni/{id}/check-out")
+    class Partenza {
+
+        @Test
+        @DisplayName("da CHECK_IN riporta la camera a LIBERA e lascia scritto dove ha dormito")
+        void checkOut_daCheckIn_liberaLaCamera() throws Exception {
+            // given: un ospite dentro
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            long idCamera = creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+            String staff = tokenStaff();
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isOk());
+
+            // when
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-out")
+                            .header("Authorization", "Bearer " + staff))
+                    // then: lo stato cambia, la camera <b>resta</b>. Cancellarla renderebbe
+                    // impossibile rispondere a "chi c'era nella 101 a settembre"
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").value("Check-out registrato"))
+                    .andExpect(jsonPath("$.data.stato").value("CHECK_OUT"))
+                    .andExpect(jsonPath("$.data.camera.id").value(idCamera));
+
+            assertThat(statoCamera(staff, idCamera)).isEqualTo("LIBERA");
+        }
+
+        @Test
+        @DisplayName("una camera segnata MANUTENZIONE durante il soggiorno resta fuori servizio")
+        void checkOut_conCameraInManutenzione_nonLaRimetteInServizio() throws Exception {
+            // given: l'ospite e' dentro e segnala un guasto, che qualcuno registra
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            long idCamera = creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+            String staff = tokenStaff();
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isOk());
+
+            mockMvc.perform(put(CAMERE + "/" + idCamera + "/stato")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.cameraStatoRequest(
+                                    com.felixhotel.backend.dto.StatoCamera.MANUTENZIONE))))
+                    .andExpect(status().isOk());
+
+            // when
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-out")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isOk());
+
+            // then: la partenza di un ospite non e' una buona ragione per rimettere in
+            // servizio una stanza rotta, e senza questo controllo la segnalazione
+            // sparirebbe senza che nessuno lo sapesse
+            assertThat(statoCamera(staff, idCamera)).isEqualTo("MANUTENZIONE");
+        }
+
+        @Test
+        @DisplayName("su una prenotazione mai arrivata risponde 409")
+        void checkOut_senzaCheckIn_risponde409() throws Exception {
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamera(admin, idTipologia);
+            long idPrenotazione = confermataDiOggi(idTipologia);
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-out")
+                            .header("Authorization", "Bearer " + tokenStaff()))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.status").value(409));
+        }
+
+        @Test
+        @DisplayName("da un cliente risponde 403 anche sulla propria prenotazione")
+        void checkOut_daUnCliente_risponde403() throws Exception {
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            creaCamera(admin, idTipologia);
+
+            String cliente = tokenCliente();
+            long idPrenotazione = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
+                    .dataCheckIn(LocalDate.now())
+                    .dataCheckOut(LocalDate.now().plusDays(3)));
+            conferma(cliente, idPrenotazione);
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + tokenStaff()))
+                    .andExpect(status().isOk());
+
+            // then: come per il check-in, e per la stessa ragione — non e' l'ospite a
+            // chiudere il proprio conto
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-out")
+                            .header("Authorization", "Bearer " + cliente))
+                    .andExpect(status().isForbidden());
         }
     }
 

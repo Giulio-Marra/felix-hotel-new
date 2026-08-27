@@ -17,12 +17,19 @@ import java.util.Optional;
 /**
  * Accesso ai dati delle prenotazioni.
  *
- * <p>Ogni lettura che finisce in una risposta carica anche cliente, tipologia e
- * personale con {@code @EntityGraph}: sono relazioni LAZY e il progetto ha
- * {@code open-in-view=false} (regola 15). Tutte e tre sono {@code ManyToOne},
- * quindi il fetch resta innocuo anche sull'elenco paginato — sono join che non
- * moltiplicano le righe, al contrario di quel che succederebbe con una
- * collezione.
+ * <p>Ogni lettura che finisce in una risposta carica anche cliente, tipologia,
+ * personale e camera assegnata con {@code @EntityGraph}: sono relazioni LAZY e
+ * il progetto ha {@code open-in-view=false} (regola 15). Sono tutte
+ * {@code ManyToOne}, quindi il fetch resta innocuo anche sull'elenco paginato —
+ * sono join che non moltiplicano le righe, al contrario di quel che
+ * succederebbe con una collezione.
+ *
+ * <p>Della camera serve anche <b>la sua</b> tipologia e non solo il numero:
+ * puo' non essere quella prenotata, ed e' proprio quando le due differiscono che
+ * mostrarle entrambe conta. Il percorso annidato resta un secondo
+ * {@code ManyToOne} sulla stessa riga, quindi non cambia la natura del join. La
+ * camera e' nullable e l'{@code @EntityGraph} produce una left join: una
+ * prenotazione senza camera continua a comparire.
  */
 public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long> {
 
@@ -39,7 +46,8 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
      * @param utenteId se null, non restringe a nessun cliente
      * @param stato    se null, non filtra per stato
      */
-    @EntityGraph(attributePaths = {"utente", "tipologiaCamera", "gestitaDaStaff"})
+    @EntityGraph(attributePaths = {"utente", "tipologiaCamera", "gestitaDaStaff",
+            "camera.tipologiaCamera"})
     @Query("""
             select p from Prenotazione p
             where (:utenteId is null or p.utente.id = :utenteId)
@@ -51,8 +59,41 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
 
     /** Lettura per id con le relazioni gia' caricate: e' il preambolo di ogni metodo che risponde. */
     @Override
-    @EntityGraph(attributePaths = {"utente", "tipologiaCamera", "gestitaDaStaff"})
+    @EntityGraph(attributePaths = {"utente", "tipologiaCamera", "gestitaDaStaff",
+            "camera.tipologiaCamera"})
     Optional<Prenotazione> findById(Long id);
+
+    /**
+     * Se una camera <b>precisa</b> risulti gia' impegnata in un periodo.
+     *
+     * <p>Serve al check-in quando la stanza la nomina chi sta al banco invece di
+     * lasciarla scegliere: li' non si cerca fra le assegnabili, se ne verifica
+     * una sola. Filtrare l'elenco delle assegnabili darebbe la stessa risposta
+     * caricando tutte le camere di una tipologia per guardarne una — e
+     * soprattutto <b>non funzionerebbe per l'upgrade</b>, dove la stanza scelta
+     * e' di un'altra tipologia e in quell'elenco non comparirebbe mai.
+     *
+     * <p><b>Solo CHECK_IN</b>, per la stessa ragione spiegata per esteso in
+     * {@code CameraRepository.trovaAssegnabili}: la domanda e' "c'e' qualcuno
+     * dentro adesso", non "questa prenotazione consuma disponibilita'". Un
+     * ospite partito in anticipo lascia una CHECK_OUT che copre ancora le notti
+     * successive, e quella stanza va potuta ridare subito.
+     *
+     * <p>Le disuguaglianze sono strette come ovunque: chi parte il 13 libera la
+     * stanza per chi arriva il 13.
+     */
+    @Query("""
+            select count(p) > 0 from Prenotazione p
+            where p.camera.id = :cameraId
+              and p.stato = :statoOccupante
+              and p.dataCheckIn  <  :dataCheckOut
+              and p.dataCheckOut >  :dataCheckIn
+            """)
+    boolean esisteSovrapposizioneSuCamera(
+            @Param("cameraId") Long cameraId,
+            @Param("statoOccupante") StatoPrenotazione statoOccupante,
+            @Param("dataCheckIn") LocalDate dataCheckIn,
+            @Param("dataCheckOut") LocalDate dataCheckOut);
 
     /**
      * Quante camere di ogni tipologia risultano impegnate <b>nella notte

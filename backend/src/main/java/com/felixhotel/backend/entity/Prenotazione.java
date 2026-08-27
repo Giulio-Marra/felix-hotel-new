@@ -29,13 +29,10 @@ import java.time.LocalDateTime;
  * conteggio (quante stanze di quel tipo restano) e non la ricerca di una riga
  * libera.
  *
- * <p><b>La camera fisica non e' mappata qui</b>, benche' la colonna
- * {@code camera_id} esista nel DDL. E' deliberato: la valorizza il check-in, che
- * non esiste ancora, e un campo che nessun codice scrive e' una promessa senza
- * codice dietro (regola 17). La aggiungera' il branch che le dara' un
- * significato. La colonna intanto non da' fastidio — Hibernate valida che le
- * cose mappate esistano, non che esista solo cio' che e' mappato — e la chiave
- * esterna continua a proteggere le camere dalla cancellazione.
+ * <p><b>La camera fisica arriva al check-in</b> e prima e' null, il che rende
+ * questa entita' l'unica del progetto in cui un campo nullo racconta a che punto
+ * del ciclo di vita si e'. Non e' "non si sa quale stanza": e' "quella decisione
+ * non e' ancora stata presa".
  */
 @Entity
 @Table(name = "prenotazione")
@@ -72,6 +69,27 @@ public class Prenotazione extends BaseAuditableEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "tipologia_camera_id", nullable = false)
     private TipologiaCamera tipologiaCamera;
+
+    /**
+     * Camera fisica assegnata, <b>valorizzata al check-in</b> e null fino ad
+     * allora.
+     *
+     * <p><b>Non sostituisce {@link #tipologiaCamera}, le si affianca</b>, e i due
+     * campi possono anche non combaciare: il cliente ha comprato una tipologia —
+     * ed e' su quella che l'importo e' stato calcolato — mentre chi sta al banco
+     * puo' assegnargli a mano una stanza di categoria diversa. Sovrascrivere la
+     * tipologia con quella della camera assegnata farebbe sparire cos'era stato
+     * venduto, e l'importo resterebbe accanto a un prodotto che non lo spiega
+     * piu'.
+     *
+     * <p><b>Resta scritta anche dopo il check-out</b>: in quella stanza ci ha
+     * dormito qualcuno, ed e' un fatto accaduto. Azzerarla renderebbe impossibile
+     * rispondere a "chi c'era nella 101 a settembre", che e' una domanda che un
+     * albergo si fa davvero.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "camera_id")
+    private Camera camera;
 
     /** Giorno di arrivo. */
     @Column(name = "data_check_in", nullable = false)

@@ -1,10 +1,13 @@
 package com.felixhotel.backend.service;
 
 import com.felixhotel.backend.dto.CanalePrenotazione;
+import com.felixhotel.backend.dto.PrenotazioneCheckInRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
+import com.felixhotel.backend.entity.Camera;
 import com.felixhotel.backend.entity.Prenotazione;
 import com.felixhotel.backend.entity.Ruolo;
 import com.felixhotel.backend.entity.Staff;
+import com.felixhotel.backend.entity.StatoCamera;
 import com.felixhotel.backend.entity.StatoPrenotazione;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import com.felixhotel.backend.entity.Utente;
@@ -13,6 +16,7 @@ import com.felixhotel.backend.exception.ConflictException;
 import com.felixhotel.backend.exception.NotFoundException;
 import com.felixhotel.backend.exception.UnauthorizedException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
+import com.felixhotel.backend.mapper.CameraMapper;
 import com.felixhotel.backend.mapper.DotazioneMapper;
 import com.felixhotel.backend.mapper.PrenotazioneMapper;
 import com.felixhotel.backend.mapper.StaffMapper;
@@ -37,6 +41,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -94,6 +99,7 @@ class PrenotazioneServiceImplTest {
     private static final Long ID_TIPOLOGIA = 4L;
     private static final Long ID_CLIENTE = 7L;
     private static final Long ID_STAFF = 3L;
+    private static final Long ID_CAMERA = 11L;
 
     private static final String EMAIL_CLIENTE = "mario.rossi@example.com";
     private static final String EMAIL_STAFF = "anna.bianchi@example.com";
@@ -125,8 +131,10 @@ class PrenotazioneServiceImplTest {
 
         // Mapper veri: la conversione fra i due StatoPrenotazione e i due
         // CanalePrenotazione e' logica, e con dei finti non verrebbe esercitata.
+        TipologiaCameraMapper tipologiaCameraMapper = new TipologiaCameraMapper(new DotazioneMapper());
         PrenotazioneMapper prenotazioneMapper = new PrenotazioneMapper(
-                new UtenteMapper(), new TipologiaCameraMapper(new DotazioneMapper()), new StaffMapper());
+                new UtenteMapper(), tipologiaCameraMapper, new StaffMapper(),
+                new CameraMapper(tipologiaCameraMapper));
 
         prenotazioneService = new PrenotazioneServiceImpl(prenotazioneRepository, tipologiaCameraRepository,
                 cameraRepository, utenteRepository, staffRepository, prenotazioneMapper, apiResponseMapper,
@@ -213,6 +221,37 @@ class PrenotazioneServiceImplTest {
         return prenotazione;
     }
 
+    /**
+     * Una prenotazione il cui soggiorno comincia <b>oggi</b>, che e' la
+     * condizione normale di un check-in.
+     *
+     * <p>{@link #prenotazioneEsistente} arriva fra una settimana, ed e' giusto
+     * cosi' per creazione, conferma e annullamento — li' il futuro e' il caso
+     * valido. Per il check-in il futuro e' il caso che va rifiutato, quindi la
+     * base di partenza dev'essere un'altra.
+     */
+    private Prenotazione prenotazioneDiOggi(StatoPrenotazione stato) {
+        Prenotazione prenotazione = prenotazioneEsistente(stato);
+        prenotazione.setDataCheckIn(OGGI);
+        prenotazione.setDataCheckOut(OGGI.plusDays(3));
+        return prenotazione;
+    }
+
+    /** Una camera libera della tipologia prenotata. */
+    private Camera camera(Long id, String numero) {
+        return camera(id, numero, tipologia());
+    }
+
+    private Camera camera(Long id, String numero, TipologiaCamera tipologiaCamera) {
+        Camera camera = new Camera();
+        camera.setId(id);
+        camera.setNumero(numero);
+        camera.setPiano(1);
+        camera.setStato(StatoCamera.LIBERA);
+        camera.setTipologiaCamera(tipologiaCamera);
+        return camera;
+    }
+
     /** Richiesta valida, con le date ancorate all'orologio pilotato invece che a quello vero. */
     private PrenotazioneRequest richiestaValida() {
         return dati.prenotazioneRequest(ID_TIPOLOGIA)
@@ -250,6 +289,28 @@ class PrenotazioneServiceImplTest {
         when(cameraRepository.countByTipologiaCameraId(ID_TIPOLOGIA)).thenReturn(camere);
         when(prenotazioneRepository.occupazioneMassimaDi(eq(ID_TIPOLOGIA), any(LocalDate.class),
                 any(LocalDate.class), any(Collection.class), any())).thenReturn(occupate);
+    }
+
+    /**
+     * Quali camere il finto repository considera assegnabili. Senza argomenti
+     * vuol dire nessuna, che e' il caso del 409 al banco.
+     *
+     * <p>Qui il filtro e' finto e la distinzione fra "assegnabile" e "esiste" non
+     * si vede: a vederla e' l'integrazione, dove stato operativo e
+     * sovrapposizioni li valuta davvero il database.
+     */
+    private void assegnabili(Camera... camere) {
+        when(cameraRepository.trovaAssegnabili(eq(ID_TIPOLOGIA), eq(StatoCamera.LIBERA),
+                eq(StatoPrenotazione.CHECK_IN), any(LocalDate.class), any(LocalDate.class),
+                any(Limit.class)))
+                .thenReturn(List.of(camere));
+    }
+
+    /** La camera indicata non e' impegnata da nessun'altra prenotazione nel periodo. */
+    private void liberaNelPeriodo() {
+        when(prenotazioneRepository.esisteSovrapposizioneSuCamera(eq(ID_CAMERA),
+                eq(StatoPrenotazione.CHECK_IN), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(false);
     }
 
     @Nested
@@ -885,6 +946,352 @@ class PrenotazioneServiceImplTest {
                     .isInstanceOf(ConflictException.class);
 
             verify(cameraRepository, never()).countByTipologiaCameraId(anyLong());
+        }
+    }
+
+    @Nested
+    @DisplayName("checkIn")
+    class CheckIn {
+
+        @Test
+        @DisplayName("assegna la prima camera libera, la porta a OCCUPATA e passa a CHECK_IN")
+        void checkIn_conCameraLibera_assegnaEOccupa() {
+            // given: uno staff al banco, una prenotazione confermata che comincia oggi
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            assegnabili(camera(ID_CAMERA, "101"));
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_IN));
+
+            // when: nessun corpo, cioe' "scegli tu"
+            prenotazioneService.checkIn(ID_PRENOTAZIONE, null);
+
+            // then: due scritture, e nessuna delle due si puo' omettere — la
+            // prenotazione senza la camera direbbe che l'ospite e' entrato in nessun
+            // posto, la camera senza lo stato lascerebbe la stanza assegnabile a un altro
+            ArgumentCaptor<Camera> cameraSalvata = ArgumentCaptor.forClass(Camera.class);
+            verify(cameraRepository).save(cameraSalvata.capture());
+            assertThat(cameraSalvata.getValue().getStato()).isEqualTo(StatoCamera.OCCUPATA);
+
+            ArgumentCaptor<Prenotazione> salvata = ArgumentCaptor.forClass(Prenotazione.class);
+            verify(prenotazioneRepository).save(salvata.capture());
+            assertThat(salvata.getValue().getStato()).isEqualTo(StatoPrenotazione.CHECK_IN);
+            assertThat(salvata.getValue().getCamera()).isNotNull();
+            assertThat(salvata.getValue().getCamera().getNumero()).isEqualTo("101");
+        }
+
+        @Test
+        @DisplayName("con l'ospite arrivato un giorno in ritardo passa lo stesso")
+        void checkIn_conArrivoInRitardo_passa() {
+            // given: il soggiorno e' cominciato ieri e finisce fra due giorni
+            autenticaStaff();
+            Prenotazione inRitardo = prenotazioneDiOggi(StatoPrenotazione.CONFERMATA);
+            inRitardo.setDataCheckIn(OGGI.minusDays(1));
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(inRitardo));
+            assegnabili(camera(ID_CAMERA, "101"));
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_IN));
+
+            // when/then: succede davvero che qualcuno arrivi la sera dopo. Il confine e'
+            // la partenza, non l'arrivo
+            prenotazioneService.checkIn(ID_PRENOTAZIONE, null);
+
+            verify(prenotazioneRepository).save(any(Prenotazione.class));
+        }
+
+        @Test
+        @DisplayName("prima del giorno di arrivo risponde 409")
+        void checkIn_primaDellArrivo_sollevaConflict() {
+            // given: la prenotazione base arriva fra una settimana
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneEsistente(StatoPrenotazione.CONFERMATA)));
+
+            // when/then: registrarlo oggi metterebbe OCCUPATA una stanza per una
+            // settimana, e quella stanza sparirebbe dall'assegnazione di tutti gli
+            // arrivi veri
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class);
+
+            verifyNoInteractions(cameraRepository);
+        }
+
+        @Test
+        @DisplayName("il giorno della partenza risponde 409: quella notte non e' prenotata")
+        void checkIn_ilGiornoDellaPartenza_sollevaConflict() {
+            // given: si presenta il giorno in cui avrebbe dovuto andarsene
+            autenticaStaff();
+            Prenotazione finita = prenotazioneDiOggi(StatoPrenotazione.CONFERMATA);
+            finita.setDataCheckIn(OGGI.minusDays(3));
+            finita.setDataCheckOut(OGGI);
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(finita));
+
+            // when/then: e' lo stesso confine che rende la camera riassegnabile a chi
+            // arriva oggi — chi parte il 13 non dorme la notte del 13
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class);
+        }
+
+        @Test
+        @DisplayName("su una prenotazione non confermata risponde 409")
+        void checkIn_suNonConfermata_sollevaConflict() {
+            // given: un carrello, non una prenotazione
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.IN_ATTESA)));
+
+            // when/then: prima si conferma, poi si arriva
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class);
+        }
+
+        @Test
+        @DisplayName("senza nessuna camera assegnabile risponde 409")
+        void checkIn_senzaCamereAssegnabili_sollevaConflict() {
+            // given: la prenotazione e' regolare, ma nessuna stanza di quella tipologia
+            // e' materialmente utilizzabile oggi
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            assegnabili();
+
+            // when/then: non e' una contraddizione con la conferma, che aveva trovato
+            // posto. Quella conta tutte le camere della tipologia, comprese quelle oggi
+            // in manutenzione, perche' uno stato di oggi non dice niente su un soggiorno
+            // futuro; qui la chiave va data su una stanza che esiste davvero
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class);
+
+            verify(prenotazioneRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("con una camera indicata assegna quella, senza cercare fra le assegnabili")
+        void checkIn_conCameraIndicata_assegnaQuella() {
+            // given: chi sta al banco vuole la 203
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.of(camera(ID_CAMERA, "203")));
+            liberaNelPeriodo();
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_IN));
+
+            // when
+            prenotazioneService.checkIn(ID_PRENOTAZIONE, new PrenotazioneCheckInRequest().cameraId(ID_CAMERA));
+
+            // then: la scelta e' sua e non si passa nemmeno dalla ricerca. Non e' un
+            // dettaglio di efficienza: per un upgrade quella ricerca darebbe sempre zero
+            // risultati, perche' cerca in un'altra tipologia
+            ArgumentCaptor<Prenotazione> salvata = ArgumentCaptor.forClass(Prenotazione.class);
+            verify(prenotazioneRepository).save(salvata.capture());
+            assertThat(salvata.getValue().getCamera().getNumero()).isEqualTo("203");
+            verify(cameraRepository, never()).trovaAssegnabili(any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("l'upgrade e' permesso: la camera puo' essere di un'altra tipologia, e l'importo non cambia")
+        void checkIn_conCameraDiAltraTipologia_assegnaSenzaToccareImporto() {
+            // given: la doppia comprata e una suite da dare al suo posto
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+
+            TipologiaCamera suite = new TipologiaCamera();
+            suite.setId(99L);
+            suite.setNome("Suite");
+            suite.setCapienzaMax(4);
+            suite.setPrezzoNotte(new BigDecimal("400.00"));
+            when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.of(camera(ID_CAMERA, "500", suite)));
+            liberaNelPeriodo();
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_IN));
+
+            // when
+            prenotazioneService.checkIn(ID_PRENOTAZIONE, new PrenotazioneCheckInRequest().cameraId(ID_CAMERA));
+
+            // then: la camera e' la suite, ma tipologia e importo restano quelli
+            // comprati. Sono le due cose che dicono cosa il cliente ha pagato, e un
+            // upgrade che le riscrivesse cancellerebbe la vendita per registrare un
+            // regalo
+            ArgumentCaptor<Prenotazione> salvata = ArgumentCaptor.forClass(Prenotazione.class);
+            verify(prenotazioneRepository).save(salvata.capture());
+            assertThat(salvata.getValue().getCamera().getTipologiaCamera().getNome()).isEqualTo("Suite");
+            assertThat(salvata.getValue().getTipologiaCamera().getNome()).isEqualTo("Doppia Superior");
+            assertThat(salvata.getValue().getImportoTotale()).isEqualByComparingTo("360.00");
+        }
+
+        @Test
+        @DisplayName("con una camera indicata che non esiste risponde 400")
+        void checkIn_conCameraInesistente_sollevaBadRequest() {
+            // given
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.empty());
+
+            // when/then: 400 e non 409 — un id che non esiste e' un errore della
+            // richiesta, non uno stato del mondo che non permette l'operazione
+            assertThatThrownBy(() -> prenotazioneService.checkIn(
+                    ID_PRENOTAZIONE, new PrenotazioneCheckInRequest().cameraId(ID_CAMERA)))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        @Test
+        @DisplayName("con una camera indicata che non e' LIBERA risponde 409")
+        void checkIn_conCameraNonLibera_sollevaConflict() {
+            // given: la stanza voluta e' in manutenzione
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            Camera guasta = camera(ID_CAMERA, "203");
+            guasta.setStato(StatoCamera.MANUTENZIONE);
+            when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.of(guasta));
+
+            // when/then: nemmeno un upgrade deciso a mano puo' mettere un ospite in una
+            // stanza fuori servizio
+            assertThatThrownBy(() -> prenotazioneService.checkIn(
+                    ID_PRENOTAZIONE, new PrenotazioneCheckInRequest().cameraId(ID_CAMERA)))
+                    .isInstanceOf(ConflictException.class);
+
+            verify(prenotazioneRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("con una camera LIBERA ma con dentro un ospite risponde 409")
+        void checkIn_conCameraGiaImpegnata_sollevaConflict() {
+            // given: la stanza risulta LIBERA — qualcuno l'ha rimessa cosi' a mano
+            // sbagliando — ma c'e' una prenotazione in CHECK_IN su quelle notti
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.of(camera(ID_CAMERA, "203")));
+            when(prenotazioneRepository.esisteSovrapposizioneSuCamera(eq(ID_CAMERA),
+                    eq(StatoPrenotazione.CHECK_IN), any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(true);
+
+            // when/then: lo stato operativo lo scrive anche una persona, e PUT
+            // /api/camere/{id}/stato non ha nessuna macchina a stati che glielo impedisca.
+            // Le prenotazioni in CHECK_IN le scrive solo l'applicazione: e' la fonte che
+            // non si puo' sbagliare a mano, ed e' per questo che il controllo e' doppio
+            assertThatThrownBy(() -> prenotazioneService.checkIn(
+                    ID_PRENOTAZIONE, new PrenotazioneCheckInRequest().cameraId(ID_CAMERA)))
+                    .isInstanceOf(ConflictException.class);
+        }
+
+        @Test
+        @DisplayName("un corpo senza cameraId equivale a nessun corpo")
+        void checkIn_conCorpoVuoto_scegliIlService() {
+            // given: il client manda {} invece di niente
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            assegnabili(camera(ID_CAMERA, "101"));
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_IN));
+
+            // when
+            prenotazioneService.checkIn(ID_PRENOTAZIONE, new PrenotazioneCheckInRequest());
+
+            // then: sono i due rami dello stesso ternario, e senza questo test quello
+            // del corpo presente ma vuoto non lo esercita nessuno
+            verify(cameraRepository, never()).findById(any());
+            verify(prenotazioneRepository).save(any(Prenotazione.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("checkOut")
+    class CheckOut {
+
+        @Test
+        @DisplayName("da CHECK_IN riporta la camera a LIBERA e passa a CHECK_OUT")
+        void checkOut_daCheckIn_liberaLaCamera() {
+            // given: l'ospite e' dentro la 101
+            autenticaStaff();
+            Prenotazione inCorso = prenotazioneDiOggi(StatoPrenotazione.CHECK_IN);
+            Camera occupata = camera(ID_CAMERA, "101");
+            occupata.setStato(StatoCamera.OCCUPATA);
+            inCorso.setCamera(occupata);
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(inCorso));
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_OUT));
+
+            // when
+            prenotazioneService.checkOut(ID_PRENOTAZIONE);
+
+            // then
+            ArgumentCaptor<Camera> cameraSalvata = ArgumentCaptor.forClass(Camera.class);
+            verify(cameraRepository).save(cameraSalvata.capture());
+            assertThat(cameraSalvata.getValue().getStato()).isEqualTo(StatoCamera.LIBERA);
+
+            ArgumentCaptor<Prenotazione> salvata = ArgumentCaptor.forClass(Prenotazione.class);
+            verify(prenotazioneRepository).save(salvata.capture());
+            assertThat(salvata.getValue().getStato()).isEqualTo(StatoPrenotazione.CHECK_OUT);
+
+            // e la camera resta scritta: in quella stanza ci ha dormito qualcuno, ed e'
+            // l'unico posto in cui quel fatto e' registrato
+            assertThat(salvata.getValue().getCamera()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("una camera segnata MANUTENZIONE durante il soggiorno non torna LIBERA")
+        void checkOut_conCameraInManutenzione_nonLaTocca() {
+            // given: durante il soggiorno e' saltato il condizionatore e qualcuno ha
+            // segnato la stanza
+            autenticaStaff();
+            Prenotazione inCorso = prenotazioneDiOggi(StatoPrenotazione.CHECK_IN);
+            Camera guasta = camera(ID_CAMERA, "101");
+            guasta.setStato(StatoCamera.MANUTENZIONE);
+            inCorso.setCamera(guasta);
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(inCorso));
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_OUT));
+
+            // when
+            prenotazioneService.checkOut(ID_PRENOTAZIONE);
+
+            // then: il check-out avviene, ma la stanza resta fuori servizio. Rimetterla
+            // LIBERA vorrebbe dire che la partenza di un ospite cancella in silenzio una
+            // segnalazione tecnica
+            verify(cameraRepository, never()).save(any());
+            assertThat(guasta.getStato()).isEqualTo(StatoCamera.MANUTENZIONE);
+            verify(prenotazioneRepository).save(any(Prenotazione.class));
+        }
+
+        @Test
+        @DisplayName("senza camera assegnata registra la partenza lo stesso invece di esplodere")
+        void checkOut_senzaCamera_nonSollevaNiente() {
+            // given: una riga in CHECK_IN senza camera. Dagli endpoint non ci si arriva
+            // — il check-in la assegna sempre — ma una scrittura a mano nel database si'
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CHECK_IN)));
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneDiOggi(StatoPrenotazione.CHECK_OUT));
+
+            // when/then: senza la guardia sarebbe una NullPointerException, cioe' un 500
+            // che da' la colpa a noi di un dato storto
+            prenotazioneService.checkOut(ID_PRENOTAZIONE);
+
+            verify(cameraRepository, never()).save(any());
+            verify(prenotazioneRepository).save(any(Prenotazione.class));
+        }
+
+        @Test
+        @DisplayName("su una prenotazione che non e' in CHECK_IN risponde 409")
+        void checkOut_suNonInCheckIn_sollevaConflict() {
+            // given: confermata ma l'ospite non e' mai arrivato
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+
+            // when/then: non si fa uscire chi non e' mai entrato
+            assertThatThrownBy(() -> prenotazioneService.checkOut(ID_PRENOTAZIONE))
+                    .isInstanceOf(ConflictException.class);
+
+            verifyNoInteractions(cameraRepository);
         }
     }
 

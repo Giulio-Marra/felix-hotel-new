@@ -3,10 +3,13 @@ package com.felixhotel.backend.service.impl;
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
 import com.felixhotel.backend.dto.PrenotazioneAnnullamentoRequest;
+import com.felixhotel.backend.dto.PrenotazioneCheckInRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
+import com.felixhotel.backend.entity.Camera;
 import com.felixhotel.backend.entity.CanalePrenotazione;
 import com.felixhotel.backend.entity.Prenotazione;
 import com.felixhotel.backend.entity.Staff;
+import com.felixhotel.backend.entity.StatoCamera;
 import com.felixhotel.backend.entity.StatoPrenotazione;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import com.felixhotel.backend.entity.Utente;
@@ -25,6 +28,7 @@ import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.PrenotazioneService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -306,6 +310,198 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Prenotazione confermata",
                 prenotazioneMapper.toResponse(salvata));
+    }
+
+    /**
+     * Check-in: l'ospite e' arrivato, e da adesso ha una stanza.
+     *
+     * <p><b>E' l'unico punto dell'applicazione che cambia da solo lo stato
+     * operativo di una camera.</b> Fin qui quel campo lo muoveva soltanto una
+     * persona, con {@code PUT /api/camere/{id}/stato}; qui lo muove un fatto —
+     * qualcuno e' entrato in quella stanza — ed e' la ragione per cui vale la
+     * pena che lo faccia il codice invece di ricordarselo chi sta al banco.
+     *
+     * <p><b>Le date si controllano di nuovo, e non e' una ripetizione.</b> La
+     * creazione rifiuta un arrivo nel passato e la conferma lo rifiuta un'altra
+     * volta perche' nel frattempo il tempo passa; qui la domanda e' rovesciata:
+     * non "e' troppo tardi" ma <b>"e' gia' ora"</b>. Registrare oggi l'arrivo di
+     * un soggiorno di novembre metterebbe OCCUPATA una stanza per due mesi, e
+     * quella stanza sparirebbe dall'assegnazione di tutti gli arrivi veri.
+     * Dall'altro capo, il giorno di partenza e' gia' fuori: chi parte il 13 non
+     * dorme la notte del 13, quindi il 13 non si entra.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse checkIn(Long id, PrenotazioneCheckInRequest request) {
+        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+
+        if (prenotazione.getStato() != StatoPrenotazione.CONFERMATA) {
+            throw new ConflictException(
+                    "Si puo' registrare l'arrivo solo su una prenotazione confermata: questa e' "
+                            + prenotazione.getStato().name());
+        }
+
+        verificaSoggiornoInCorso(prenotazione);
+
+        // Il getter si legge una volta e si tiene, come per canale e intestatario in
+        // creazione: chiamarlo due volte vuol dire fidarsi che dia la stessa risposta.
+        Long idCameraIndicata = request == null ? null : request.getCameraId();
+
+        Camera camera = idCameraIndicata == null
+                ? cameraScelta(prenotazione)
+                : cameraIndicata(prenotazione, idCameraIndicata);
+
+        camera.setStato(StatoCamera.OCCUPATA);
+        cameraRepository.save(camera);
+
+        prenotazione.setCamera(camera);
+        prenotazione.setStato(StatoPrenotazione.CHECK_IN);
+
+        Prenotazione salvata = prenotazioneRepository.save(prenotazione);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Check-in registrato",
+                prenotazioneMapper.toResponse(salvata));
+    }
+
+    /**
+     * Check-out: l'ospite e' partito.
+     *
+     * <p><b>La camera resta scritta sulla prenotazione</b>, e cancellarla
+     * sarebbe la cosa sbagliata da fare: in quella stanza ci ha dormito
+     * qualcuno, ed e' l'unico posto in cui quel fatto e' registrato. "Chi c'era
+     * nella 101 a settembre" e' una domanda che un albergo si fa davvero.
+     *
+     * <p><b>Lo stato torna a LIBERA solo se era OCCUPATA</b>, ed e' la parte che
+     * vale la pena leggere due volte. Se durante il soggiorno qualcuno ha
+     * segnato la stanza in MANUTENZIONE — un guasto scoperto dall'ospite —
+     * riportarla a LIBERA vorrebbe dire che la partenza di una persona rimette
+     * in servizio una stanza rotta, cioe' che un'operazione di reception
+     * cancella in silenzio una segnalazione tecnica. Meglio lasciare che se ne
+     * occupi chi l'ha segnalata.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse checkOut(Long id) {
+        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+
+        if (prenotazione.getStato() != StatoPrenotazione.CHECK_IN) {
+            throw new ConflictException(
+                    "Si puo' registrare la partenza solo su una prenotazione in corso: questa e' "
+                            + prenotazione.getStato().name());
+        }
+
+        Camera camera = prenotazione.getCamera();
+
+        // Il null non e' raggiungibile dagli endpoint — l'unico modo di arrivare in
+        // CHECK_IN e' il metodo qui sopra, che la camera la assegna sempre — ma una
+        // riga scritta a mano nel database ci arriverebbe, e la differenza fra 500 e
+        // "il check-out funziona lo stesso" e' abbastanza grande da non affidarla a
+        // un'invariante che questo metodo non puo' verificare.
+        if (camera != null && camera.getStato() == StatoCamera.OCCUPATA) {
+            camera.setStato(StatoCamera.LIBERA);
+            cameraRepository.save(camera);
+        }
+
+        prenotazione.setStato(StatoPrenotazione.CHECK_OUT);
+
+        Prenotazione salvata = prenotazioneRepository.save(prenotazione);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Check-out registrato",
+                prenotazioneMapper.toResponse(salvata));
+    }
+
+    /**
+     * Che il soggiorno sia cominciato e non ancora finito, cioe' che oggi sia una
+     * delle notti prenotate.
+     *
+     * <p>409 e non 400 su entrambi i lati: la richiesta e' ben formata, e' il
+     * calendario che non e' d'accordo. E' la stessa scelta gia' fatta dalla
+     * conferma per l'arrivo ormai passato.
+     */
+    private void verificaSoggiornoInCorso(Prenotazione prenotazione) {
+        LocalDate oggi = LocalDate.now(clock);
+
+        if (oggi.isBefore(prenotazione.getDataCheckIn())) {
+            throw new ConflictException("Il soggiorno comincia il " + prenotazione.getDataCheckIn()
+                    + ": non si registra un arrivo prima del giorno di arrivo");
+        }
+
+        if (!oggi.isBefore(prenotazione.getDataCheckOut())) {
+            throw new ConflictException("Il soggiorno e' finito il " + prenotazione.getDataCheckOut()
+                    + ": non si registra un arrivo su un soggiorno concluso");
+        }
+    }
+
+    /**
+     * La camera scelta dal service: la prima assegnabile della tipologia
+     * prenotata.
+     *
+     * <p><b>Il 409 qui puo' capitare a prenotazione perfettamente regolare</b>, e
+     * non e' una contraddizione col controllo di disponibilita' fatto alla
+     * conferma: quello conta <i>tutte</i> le camere della tipologia, comprese
+     * quelle che oggi sono in manutenzione, perche' uno stato di oggi non dice
+     * niente su un soggiorno di novembre. Quando novembre arriva, pero', la
+     * chiave va data su una stanza che esiste davvero. Le due domande sono
+     * diverse e possono rispondere diversamente — vedi
+     * {@code CameraRepository.trovaAssegnabili}.
+     */
+    private Camera cameraScelta(Prenotazione prenotazione) {
+        return cameraRepository.trovaAssegnabili(
+                        prenotazione.getTipologiaCamera().getId(),
+                        StatoCamera.LIBERA,
+                        StatoPrenotazione.CHECK_IN,
+                        prenotazione.getDataCheckIn(),
+                        prenotazione.getDataCheckOut(),
+                        Limit.of(1))
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new ConflictException(
+                        "Nessuna camera di questa tipologia e' assegnabile per il periodo del soggiorno"));
+    }
+
+    /**
+     * La camera che chi sta al banco ha nominato.
+     *
+     * <p><b>Non si controlla che sia della tipologia prenotata</b>, ed e'
+     * deliberato: e' l'upgrade, cioe' il modo in cui un albergo risolve un
+     * guasto o un pienone spostando un ospite in una stanza migliore. Quel che
+     * <b>non</b> cambia e' l'importo — resta la fotografia presa alla creazione,
+     * sulla tipologia comprata — perche' un upgrade che costasse di piu' non
+     * sarebbe un upgrade. Per lo stesso motivo la tipologia della prenotazione
+     * non viene riscritta: quella dice cosa il cliente ha comprato, la camera
+     * dice dove ha dormito, e la risposta le mostra tutte e due.
+     *
+     * <p>Le due condizioni che restano non sono negoziabili nemmeno per un
+     * upgrade: una stanza occupata, in pulizia o in manutenzione non si assegna,
+     * e una con dentro un ospite nemmeno. <b>Non sono la stessa condizione detta
+     * due volte</b>: la prima legge un campo che scrive anche una persona — e
+     * {@code PUT /api/camere/{id}/stato} non ha nessuna macchina a stati che le
+     * impedisca di rimettere LIBERA una stanza abitata — mentre la seconda legge
+     * le prenotazioni in CHECK_IN, che scrive solo l'applicazione. La seconda si
+     * verifica su <b>quella camera</b> e non filtrando l'elenco delle
+     * assegnabili, che per un upgrade non la conterrebbe mai.
+     *
+     * <p>400 per la camera inesistente e 409 per la camera non disponibile: la
+     * stessa distinzione gia' usata in creazione fra "questo id non esiste" e
+     * "lo stato del mondo non lo permette".
+     */
+    private Camera cameraIndicata(Prenotazione prenotazione, Long cameraId) {
+        Camera camera = cameraRepository.findById(cameraId)
+                .orElseThrow(() -> new BadRequestException("La camera indicata non esiste: " + cameraId));
+
+        if (camera.getStato() != StatoCamera.LIBERA) {
+            throw new ConflictException("La camera " + camera.getNumero() + " non e' assegnabile: e' "
+                    + camera.getStato().name());
+        }
+
+        if (prenotazioneRepository.esisteSovrapposizioneSuCamera(cameraId,
+                StatoPrenotazione.CHECK_IN,
+                prenotazione.getDataCheckIn(), prenotazione.getDataCheckOut())) {
+            throw new ConflictException("La camera " + camera.getNumero()
+                    + " e' gia' occupata da un altro ospite in quei giorni");
+        }
+
+        return camera;
     }
 
     /**

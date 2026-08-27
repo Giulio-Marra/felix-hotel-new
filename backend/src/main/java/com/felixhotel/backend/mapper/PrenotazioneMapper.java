@@ -22,9 +22,9 @@ import java.util.List;
  * di progetto (niente MapStruct); i DTO di destinazione sono generati dallo
  * spec.
  *
- * <p>Cliente, tipologia e personale passano dai rispettivi mapper in versione
- * {@code Sintesi}: dentro una prenotazione servono per essere riconosciuti, non
- * per essere letti per intero.
+ * <p>Cliente, tipologia, personale e camera passano dai rispettivi mapper in
+ * versione {@code Sintesi}: dentro una prenotazione servono per essere
+ * riconosciuti, non per essere letti per intero.
  */
 @Component
 @RequiredArgsConstructor
@@ -33,18 +33,17 @@ public class PrenotazioneMapper {
     private final UtenteMapper utenteMapper;
     private final TipologiaCameraMapper tipologiaCameraMapper;
     private final StaffMapper staffMapper;
+    private final CameraMapper cameraMapper;
 
     /**
-     * <b>Va chiamato dentro la transazione</b> che ha caricato l'entity: le tre
+     * <b>Va chiamato dentro la transazione</b> che ha caricato l'entity: le
      * relazioni sono LAZY e il progetto ha {@code open-in-view=false}. Le query
      * del repository le caricano gia' con {@code @EntityGraph}, quindi nella
      * pratica non c'e' niente da inizializzare — ma se un domani nascesse una
      * query senza quel fetch, il guasto comparirebbe qui.
      *
-     * <p><b>La camera fisica non compare nella risposta</b> perche' non e'
-     * nemmeno mappata sull'entity: la assegna il check-in, che non esiste
-     * ancora. Vedi {@link Prenotazione} per il perche' un campo sempre null sia
-     * peggio di un campo assente.
+     * <p><b>La camera fisica c'e' solo dopo il check-in</b>, e prima e' null.
+     * Non e' un dato che manca: e' una decisione che non e' ancora stata presa.
      */
     public PrenotazioneResponse toResponse(Prenotazione prenotazione) {
         return new PrenotazioneResponse()
@@ -58,6 +57,7 @@ public class PrenotazioneMapper {
                 .note(prenotazione.getNote())
                 .utente(utenteMapper.toSintesi(prenotazione.getUtente()))
                 .tipologia(tipologiaCameraMapper.toSintesi(prenotazione.getTipologiaCamera()))
+                .camera(cameraMapper.toSintesi(prenotazione.getCamera()))
                 .gestitaDa(staffMapper.toSintesi(prenotazione.getGestitaDaStaff()))
                 .motivoCancellazione(prenotazione.getMotivoCancellazione())
                 .dataCancellazione(toOffset(prenotazione.getDataCancellazione()))

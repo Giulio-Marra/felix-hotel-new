@@ -1,6 +1,7 @@
 package com.felixhotel.backend.mapper;
 
 import com.felixhotel.backend.dto.CameraResponse;
+import com.felixhotel.backend.dto.CameraSintesi;
 // Lo stato esiste in due enum omonimi: quello di dominio e quello generato dallo
 // spec. Qui si importa il secondo e si scrive per esteso il primo — uno dei due
 // deve restare qualificato comunque, e in questa classe il DTO ricorre di piu'.
@@ -39,6 +40,37 @@ public class CameraMapper {
                 .numero(camera.getNumero())
                 .piano(camera.getPiano())
                 .stato(toStatoDto(camera.getStato()))
+                .tipologia(tipologiaCameraMapper.toSintesi(camera.getTipologiaCamera()));
+    }
+
+    /**
+     * Camera ridotta a quel che serve per riconoscerla dentro una prenotazione:
+     * quale stanza e', a che piano, e di che tipo.
+     *
+     * <p><b>Senza lo stato operativo</b>, al contrario di {@link #toResponse}, e
+     * non per risparmiare un campo: quello stato descrive com'e' messa la stanza
+     * <i>adesso</i>, mentre una prenotazione parla di un periodo che puo' essere
+     * finito da mesi. Una prenotazione che mostrasse "OCCUPATA" accanto a un
+     * check-out di settembre direbbe una cosa vera rispondendo a un'altra
+     * domanda.
+     *
+     * <p><b>La tipologia c'e' e non e' un doppione</b> di quella della
+     * prenotazione: le due possono differire, perche' chi sta al banco puo'
+     * assegnare a mano una stanza di categoria diversa da quella comprata. E'
+     * proprio quando differiscono che serve vederle entrambe.
+     *
+     * <p>Accetta null e risponde null: la camera arriva al check-in, e prima di
+     * allora la sua assenza significa "non ancora deciso", non "dato mancante".
+     */
+    public CameraSintesi toSintesi(Camera camera) {
+        if (camera == null) {
+            return null;
+        }
+
+        return new CameraSintesi()
+                .id(camera.getId())
+                .numero(camera.getNumero())
+                .piano(camera.getPiano())
                 .tipologia(tipologiaCameraMapper.toSintesi(camera.getTipologiaCamera()));
     }
 

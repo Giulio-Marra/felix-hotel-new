@@ -1550,6 +1550,182 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/prenotazioni/{id}/check-in:
+
+    put:
+      tags:
+        - Prenotazioni
+      operationId: checkInPrenotazione
+      summary: Registra l'arrivo dell'ospite e gli assegna una camera (CONFERMATA -> CHECK_IN)
+      description: >
+        L'ospite e' arrivato al banco. Da **CONFERMATA** a **CHECK_IN**, ed e'
+        qui che la prenotazione smette di riguardare una *tipologia* e comincia
+        a riguardare una *stanza*: fino a questo momento il cliente aveva
+        comprato "una doppia superior dal 10 al 13", da adesso ha la 101.
+        **La camera la sceglie il backend**, fra quelle della tipologia
+        prenotata che sono LIBERA e che nessun'altra prenotazione gia' arrivata
+        occupa in quei giorni; a parita' di condizioni vince la prima in ordine
+        di numero, cosi' la scelta e' ripetibile e non dipende dall'ordine in cui
+        il database restituisce le righe. L'ordine e' alfabetico e non numerico,
+        perche' un numero di camera e' una targhetta e non una quantita': la 10
+        viene prima della 9. Il corpo e' **facoltativo** e serve a una
+        cosa sola: se chi sta al banco vuole una stanza precisa la nomina in
+        'cameraId', e quella prevale.
+        **Quando si puo' fare**: dal giorno di arrivo fino alla notte prima
+        della partenza. Prima e' **409** — non si mette OCCUPATA una camera per
+        un soggiorno non ancora cominciato — e dal giorno di partenza in poi
+        pure, perche' non si entra in un soggiorno gia' finito.
+        **Effetto sulla camera**: passa a **OCCUPATA**. E' l'unico posto in cui
+        l'applicazione cambia da sola lo stato operativo di una stanza; per
+        tutto il resto c'e' PUT /api/camere/{id}/stato.
+        **409 se non c'e' nessuna camera assegnabile**, e puo' succedere anche a
+        prenotazione regolarmente confermata: la disponibilita' conta tutte le
+        camere della tipologia, comprese quelle che oggi sono in manutenzione,
+        perche' uno stato di oggi non dice niente su un soggiorno di novembre.
+        Chi sta al banco lo risolve come si risolve in un albergo: libera una
+        stanza, oppure ne assegna a mano un'altra.
+        Solo **STAFF** e **ADMIN**: e' un'operazione di turno, non qualcosa che
+        un cliente faccia da solo.
+        Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data',
+        stavolta con 'camera' valorizzata.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrenotazioneCheckInRequest'
+      responses:
+        '200':
+          description: Arrivo registrato ('data' = PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Check-in registrato
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  id: 1
+                  dataCheckIn: 2026-09-10
+                  dataCheckOut: 2026-09-13
+                  numeroOspiti: 2
+                  stato: CHECK_IN
+                  canale: ONLINE
+                  importoTotale: 360.00
+                  note: null
+                  utente:
+                    id: 7
+                    nome: Mario
+                    cognome: Rossi
+                    email: mario.rossi@example.com
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+                  camera:
+                    id: 4
+                    numero: "101"
+                    piano: 1
+                    tipologia:
+                      id: 1
+                      nome: Doppia Superior
+                  gestitaDa: null
+                  motivoCancellazione: null
+                  dataCancellazione: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prenotazioni/{id}/check-out:
+
+    put:
+      tags:
+        - Prenotazioni
+      operationId: checkOutPrenotazione
+      summary: Registra la partenza dell'ospite (CHECK_IN -> CHECK_OUT)
+      description: >
+        L'ospite e' partito. Da **CHECK_IN** a **CHECK_OUT**. Da qualunque altro
+        stato e' **409**: non si fa uscire chi non e' mai entrato.
+        **La camera assegnata resta scritta sulla prenotazione**, perche' e' un
+        fatto accaduto — in quella stanza ci ha dormito qualcuno, e a distanza
+        di mesi puo' servire saperlo.
+        **Effetto sulla camera**: torna **LIBERA**, ma solo se era OCCUPATA. Se
+        nel frattempo qualcuno l'ha segnata MANUTENZIONE — un guasto scoperto
+        durante il soggiorno — quello stato **resta**: la partenza dell'ospite
+        non e' una buona ragione per rimettere in servizio una stanza rotta.
+        **La prenotazione continua a occupare il suo periodo** anche da
+        CHECK_OUT, ed e' voluto: e' storia, non disponibilita' futura. Quel
+        periodo e' passato, quindi non toglie niente a nessuno.
+        Non ha corpo. Solo **STAFF** e **ADMIN**.
+        Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      responses:
+        '200':
+          description: Partenza registrata ('data' = PrenotazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Check-out registrato
+                timestamp: 2026-09-13T10:20:00Z
+                data:
+                  id: 1
+                  dataCheckIn: 2026-09-10
+                  dataCheckOut: 2026-09-13
+                  numeroOspiti: 2
+                  stato: CHECK_OUT
+                  canale: ONLINE
+                  importoTotale: 360.00
+                  note: null
+                  utente:
+                    id: 7
+                    nome: Mario
+                    cognome: Rossi
+                    email: mario.rossi@example.com
+                  tipologia:
+                    id: 1
+                    nome: Doppia Superior
+                  camera:
+                    id: 4
+                    numero: "101"
+                    piano: 1
+                    tipologia:
+                      id: 1
+                      nome: Doppia Superior
+                  gestitaDa: null
+                  motivoCancellazione: null
+                  dataCancellazione: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/disponibilita:
 
     get:
@@ -2353,6 +2529,35 @@ components:
         tipologia:
           $ref: '#/components/schemas/TipologiaCameraSintesi'
 
+    CameraSintesi:
+      type: object
+      description: >
+        Camera fisica ridotta a quel che serve per riconoscerla dentro una
+        prenotazione: quale stanza e', a che piano, e di che tipo.
+        Non e' CameraResponse per una ragione precisa: quella porta anche lo
+        **stato operativo**, che descrive com'e' messa la stanza *adesso* e non
+        ha niente a che fare con un soggiorno di tre mesi fa. Una prenotazione
+        che mostrasse "OCCUPATA" accanto a un check-out del 13 settembre
+        starebbe dicendo una cosa vera su un'altra domanda.
+        **La tipologia c'e' e non e' ridondante** rispetto a quella della
+        prenotazione: le due possono differire. Il cliente compra una tipologia,
+        ma chi sta al banco puo' assegnargli a mano una stanza di categoria
+        diversa — un upgrade — e allora e' proprio qui che la differenza si
+        vede, invece di restare un fatto che conosce solo il database.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 4
+        numero:
+          type: string
+          example: "101"
+        piano:
+          type: integer
+          example: 1
+        tipologia:
+          $ref: '#/components/schemas/TipologiaCameraSintesi'
+
     TipologiaCameraSintesi:
       type: object
       description: >
@@ -2377,9 +2582,10 @@ components:
         CHECK_OUT; da IN_ATTESA e da CONFERMATA si puo' uscire per ANNULLATA.
         **Solo CONFERMATA, CHECK_IN e CHECK_OUT occupano una camera**: IN_ATTESA
         e' il carrello e non riserva niente, ANNULLATA ha restituito il posto.
-        Le transizioni verso CHECK_IN e CHECK_OUT non hanno ancora un endpoint —
-        arrivano con il check-in — ma i due valori sono gia' qui perche' il
-        calcolo della disponibilita' li nomina: sono stati che occupano.
+        **CHECK_OUT occupa anche se l'ospite se n'e' andato**: il suo periodo e'
+        passato, quindi non toglie niente a chi prenota per il futuro, e
+        toglierlo dal conteggio vorrebbe dire che una notte gia' venduta
+        risulterebbe libera a chi guarda indietro.
       enum:
         - IN_ATTESA
         - CONFERMATA
@@ -2484,6 +2690,34 @@ components:
         canale:
           $ref: '#/components/schemas/CanalePrenotazione'
 
+    PrenotazioneCheckInRequest:
+      type: object
+      description: >
+        Corpo facoltativo del check-in. Senza, la camera la sceglie il backend
+        fra quelle assegnabili della tipologia prenotata, prendendo il numero
+        piu' basso — che e' il caso normale e non richiede di dire niente.
+        Serve solo quando chi sta al banco vuole una stanza **precisa**: una
+        richiesta del cliente, un piano da evitare, un upgrade.
+      properties:
+        cameraId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            La camera da assegnare, invece di lasciar scegliere il backend.
+            Deve esistere (altrimenti **400**), essere **LIBERA** e non avere
+            dentro un ospite in quelle notti (altrimenti **409**). I due
+            controlli non sono lo stesso detto due volte: lo stato operativo lo
+            scrive anche una persona e puo' essere sbagliato, le prenotazioni in
+            CHECK_IN le scrive solo l'applicazione.
+            **Puo' essere di una tipologia diversa da quella prenotata**: e'
+            l'upgrade, ed e' consentito di proposito perche' e' cosi' che un
+            albergo risolve un guasto o un pienone. Quel che **non** cambia e'
+            l'importo: il totale e' una fotografia presa alla creazione e resta
+            quello della tipologia comprata. Un upgrade deciso al banco e' un
+            gesto commerciale, e se costasse di piu' non sarebbe un upgrade.
+          example: 4
+
     PrenotazioneAnnullamentoRequest:
       type: object
       description: >
@@ -2502,10 +2736,9 @@ components:
       type: object
       description: >
         Prenotazione come viene restituita al client.
-        **La camera fisica non compare**, e non e' una dimenticanza: viene
-        assegnata al check-in, che e' un endpoint ancora da scrivere — finche'
-        nessun codice la valorizza, un campo sempre null direbbe al client che
-        esiste qualcosa che non esiste.
+        **La camera fisica compare solo dopo il check-in**: prima di allora e'
+        null, e non perche' manchi un dato — perche' quella decisione non e'
+        ancora stata presa. Si prenota una tipologia, si dorme in una stanza.
       properties:
         id:
           type: integer
@@ -2542,6 +2775,8 @@ components:
           $ref: '#/components/schemas/UtenteSintesi'
         tipologia:
           $ref: '#/components/schemas/TipologiaCameraSintesi'
+        camera:
+          $ref: '#/components/schemas/CameraSintesi'
         gestitaDa:
           $ref: '#/components/schemas/StaffSintesi'
         motivoCancellazione:

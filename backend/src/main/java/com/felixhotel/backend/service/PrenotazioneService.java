@@ -3,6 +3,7 @@ package com.felixhotel.backend.service;
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
 import com.felixhotel.backend.dto.PrenotazioneAnnullamentoRequest;
+import com.felixhotel.backend.dto.PrenotazioneCheckInRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.StatoPrenotazione;
 
@@ -71,6 +72,43 @@ public interface PrenotazioneService {
      * carrello non scade.
      */
     ApiBaseResponse conferma(Long id);
+
+    /**
+     * Registra l'arrivo dell'ospite: da CONFERMATA a CHECK_IN, assegnandogli una
+     * camera fisica e portandola a OCCUPATA.
+     *
+     * <p><b>E' il momento in cui la prenotazione smette di riguardare una
+     * tipologia e comincia a riguardare una stanza.</b> Se la richiesta non
+     * nomina nessuna camera la sceglie il service, fra quelle assegnabili della
+     * tipologia prenotata; se la nomina, prevale quella — anche di un'altra
+     * tipologia, che e' l'upgrade.
+     *
+     * <p>Solleva {@code NotFoundException} se non esiste,
+     * {@code BadRequestException} se la camera indicata non esiste,
+     * {@code ConflictException} se la prenotazione non e' CONFERMATA, se il
+     * soggiorno non e' ancora cominciato o e' gia' finito, se la camera indicata
+     * non e' libera o e' gia' impegnata in quei giorni, o se non c'e' nessuna
+     * camera assegnabile.
+     *
+     * @param request corpo facoltativo: se null o senza {@code cameraId}, la
+     *                camera la sceglie il service
+     */
+    ApiBaseResponse checkIn(Long id, PrenotazioneCheckInRequest request);
+
+    /**
+     * Registra la partenza dell'ospite: da CHECK_IN a CHECK_OUT, riportando a
+     * LIBERA la camera che aveva.
+     *
+     * <p><b>La camera resta scritta sulla prenotazione</b>: e' un fatto
+     * accaduto, e a distanza di mesi puo' servire sapere chi ha dormito dove.
+     * Anche lo stato continua a occupare il proprio periodo, che pero' e'
+     * passato e non toglie niente a nessuno.
+     *
+     * <p>Solleva {@code NotFoundException} se non esiste,
+     * {@code ConflictException} se la prenotazione non e' in CHECK_IN: non si fa
+     * uscire chi non e' mai entrato.
+     */
+    ApiBaseResponse checkOut(Long id);
 
     /**
      * Porta la prenotazione in ANNULLATA, registrando l'istante e — se indicato
