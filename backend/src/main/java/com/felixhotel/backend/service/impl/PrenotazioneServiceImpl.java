@@ -20,6 +20,7 @@ import com.felixhotel.backend.exception.UnauthorizedException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.PrenotazioneMapper;
 import com.felixhotel.backend.repository.CameraRepository;
+import com.felixhotel.backend.repository.OspiteRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
@@ -104,6 +105,12 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
 
     private final UtenteRepository utenteRepository;
     private final StaffRepository staffRepository;
+
+    /**
+     * Serve a una domanda sola, ed e' il check-in a farla: quante persone sono
+     * gia' state registrate col loro documento.
+     */
+    private final OspiteRepository ospiteRepository;
     private final PrenotazioneMapper prenotazioneMapper;
     private final ApiResponseMapper apiResponseMapper;
 
@@ -130,6 +137,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    CameraRepository cameraRepository,
                                    UtenteRepository utenteRepository,
                                    StaffRepository staffRepository,
+                                   OspiteRepository ospiteRepository,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente) {
@@ -138,7 +146,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         // "oggi" per un albergo e' il giorno che si legge sul calendario alla
         // reception. Con UTC, alle due di notte in Italia sarebbe ancora ieri.
         this(prenotazioneRepository, tipologiaCameraRepository, cameraRepository, utenteRepository,
-                staffRepository, prenotazioneMapper, apiResponseMapper, chiamanteCorrente,
+                staffRepository, ospiteRepository, prenotazioneMapper, apiResponseMapper, chiamanteCorrente,
                 Clock.systemDefaultZone());
     }
 
@@ -153,6 +161,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    CameraRepository cameraRepository,
                                    UtenteRepository utenteRepository,
                                    StaffRepository staffRepository,
+                                   OspiteRepository ospiteRepository,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente,
@@ -162,6 +171,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         this.cameraRepository = cameraRepository;
         this.utenteRepository = utenteRepository;
         this.staffRepository = staffRepository;
+        this.ospiteRepository = ospiteRepository;
         this.prenotazioneMapper = prenotazioneMapper;
         this.apiResponseMapper = apiResponseMapper;
         this.chiamanteCorrente = chiamanteCorrente;
@@ -348,6 +358,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         }
 
         verificaSoggiornoInCorso(prenotazione);
+        verificaOspitiRegistrati(prenotazione);
 
         // Il getter si legge una volta e si tiene, come per canale e intestatario in
         // creazione: chiamarlo due volte vuol dire fidarsi che dia la stessa risposta.
@@ -435,6 +446,48 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         if (!oggi.isBefore(prenotazione.getDataCheckOut())) {
             throw new ConflictException("Il soggiorno e' finito il " + prenotazione.getDataCheckOut()
                     + ": non si registra un arrivo su un soggiorno concluso");
+        }
+    }
+
+    /**
+     * Che il documento di <b>ogni</b> persona che dormira' qui sia gia' stato
+     * registrato.
+     *
+     * <p><b>E' un obbligo di legge e non una comodita' gestionale.</b> Il TULPS
+     * — l'articolo 109, quello della "schedina alloggiati" — pretende che il
+     * documento si acquisisca <i>all'atto dell'arrivo</i>: il gesto del banco e'
+     * documenti sul bancone, dati registrati, chiave in mano, e questo controllo
+     * e' l'ultimo dei tre. La sequenza per chi usa l'API e' quindi
+     * {@code POST /api/prenotazioni/id/ospiti} per ognuno, poi questo check-in.
+     *
+     * <p><b>Un'uguaglianza e non un "almeno uno"</b>, ed e' il punto che vale la
+     * pena capire: la legge vuole il documento di ogni persona che soggiorna,
+     * non di una. Il conteggio e' vincolato dai due lati dallo stesso numero —
+     * {@code OspiteServiceImpl} rifiuta l'ospite oltre {@code numeroOspiti},
+     * questo metodo pretende che ci si arrivi — quindi "almeno" e "esattamente"
+     * qui coincidono, e scriverlo come uguaglianza dice cosa si sta chiedendo.
+     * Il {@code >} invece del {@code !=} nel primo ramo non e' pedanteria: se il
+     * conto fosse in eccesso (due registrazioni simultanee sull'ultimo posto,
+     * vedi {@code OspiteServiceImpl.salvaGestendoIlDuplicato}), un messaggio che
+     * dice "ne mancano -1" manderebbe chi sta al banco a cercare una persona che
+     * non esiste.
+     *
+     * <p>409 come gli altri controlli di questo metodo: la richiesta e' ben
+     * formata, e' lo stato del registro a non essere pronto.
+     */
+    private void verificaOspitiRegistrati(Prenotazione prenotazione) {
+        long registrati = ospiteRepository.countByPrenotazioneId(prenotazione.getId());
+        int attesi = prenotazione.getNumeroOspiti();
+
+        if (registrati > attesi) {
+            throw new ConflictException("Gli ospiti registrati sono " + registrati
+                    + " ma la prenotazione e' per " + attesi
+                    + ": vanno tolti quelli di troppo prima di registrare l'arrivo");
+        }
+
+        if (registrati < attesi) {
+            throw new ConflictException("Registrati " + registrati + " ospiti su " + attesi
+                    + ": prima dell'arrivo va preso il documento di ogni persona che soggiorna");
         }
     }
 

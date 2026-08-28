@@ -176,13 +176,44 @@ class PrenotazioneApiIT extends IntegrationTestBase {
      * questi test girano sull'orologio vero — nel contesto Spring non c'e'
      * nessun {@code OrologioPilotato}, che vive solo negli unitari.
      */
-    private long confermataDiOggi(long idTipologia) throws Exception {
+    private long prontaPerIlCheckIn(long idTipologia) throws Exception {
         String cliente = tokenCliente();
         long id = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
                 .dataCheckIn(LocalDate.now())
                 .dataCheckOut(LocalDate.now().plusDays(3)));
         conferma(cliente, id);
+        registraOspiti(id, 2);
         return id;
+    }
+
+    /**
+     * Registra il documento di {@code quanti} ospiti sulla prenotazione.
+     *
+     * <p>Dal 2026-08-28 e' un passo obbligatorio prima del check-in, non una
+     * comodita' della preparazione: il TULPS pretende il documento di ogni
+     * persona che soggiorna, e {@code PrenotazioneServiceImpl.checkIn} risponde
+     * 409 finche' i registrati non sono esattamente {@code numeroOspiti} — che
+     * per le prenotazioni di questa classe sono due.
+     *
+     * <p>Passa dall'endpoint e non da una INSERT: e' quello che fa una persona al
+     * banco, ed e' anche l'unico modo perche' questi test si accorgano se la
+     * POST degli ospiti smettesse di funzionare.
+     *
+     * <p>Il numero di documento porta l'id della prenotazione perche' l'indice
+     * unico del V7 e' per prenotazione: senza, due soggiorni della stessa classe
+     * di test non darebbero fastidio — l'indice non li confronta — ma un numero
+     * che cambia rende leggibile quale riga appartiene a chi quando un test
+     * fallisce e si va a guardare la tabella.
+     */
+    private void registraOspiti(long idPrenotazione, int quanti) throws Exception {
+        String staff = tokenStaff();
+        for (int i = 0; i < quanti; i++) {
+            mockMvc.perform(post(PRENOTAZIONI + "/" + idPrenotazione + "/ospiti")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteRequest().numeroDocumento("DOC" + idPrenotazione + "-" + i))))
+                    .andExpect(status().isCreated());
+        }
     }
 
     /** Una tipologia con {@code quante} camere, pronta per essere prenotata. */
@@ -803,13 +834,64 @@ class PrenotazioneApiIT extends IntegrationTestBase {
     class Arrivo {
 
         @Test
+        @DisplayName("senza il documento di tutti gli ospiti risponde 409 e non assegna niente")
+        void checkIn_senzaOspitiRegistrati_risponde409() throws Exception {
+            // given: tutto pronto tranne il registro — la prenotazione e' confermata, il
+            // giorno e' quello giusto, la camera c'e'. E' il solo passo che manca
+            String admin = tokenAdmin();
+            long idTipologia = creaTipologia(admin);
+            long idCamera = creaCamera(admin, idTipologia);
+
+            String cliente = tokenCliente();
+            long idPrenotazione = creaPrenotazione(cliente, dati.prenotazioneRequest(idTipologia)
+                    .dataCheckIn(LocalDate.now())
+                    .dataCheckOut(LocalDate.now().plusDays(3)));
+            conferma(cliente, idPrenotazione);
+
+            String staff = tokenStaff();
+
+            // when/then: 409. Il TULPS vuole il documento di ogni persona che soggiorna
+            // acquisito all'atto dell'arrivo, quindi la chiave non si da' prima
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("0 ospiti su 2")));
+
+            // e la stanza non e' stata toccata: un check-in rifiutato non deve lasciare
+            // dietro di se' una camera occupata da nessuno
+            assertThat(statoCamera(staff, idCamera)).isEqualTo("LIBERA");
+
+            // con uno solo dei due registrati non basta ancora: e' il caso che la regola
+            // esiste per prendere, perche' e' quello in cui sembra fatto
+            registraOspiti(idPrenotazione, 1);
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("1 ospiti su 2")));
+
+            // registrato anche il secondo, la stessa richiesta passa. E' la meta' che
+            // rende il test una prova e non un sospetto: senza, un 409 costante per
+            // qualunque altro motivo lo farebbe passare lo stesso
+            mockMvc.perform(post(PRENOTAZIONI + "/" + idPrenotazione + "/ospiti")
+                            .header("Authorization", "Bearer " + staff)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteRequest().numeroDocumento("SECONDO"))))
+                    .andExpect(status().isCreated());
+
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + staff))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.stato").value("CHECK_IN"));
+        }
+
+        @Test
         @DisplayName("dal personale assegna una camera, la porta a OCCUPATA e passa a CHECK_IN")
         void checkIn_dalPersonale_assegnaEOccupa() throws Exception {
             // given: una tipologia con una camera sola e una prenotazione che comincia oggi
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             long idCamera = creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
             String staff = tokenStaff();
 
             // when
@@ -871,7 +953,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             long idTipologia = creaTipologia(admin);
             creaCamera(admin, idTipologia);
             long voluta = creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
 
             // when
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
@@ -894,7 +976,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             creaCamera(admin, comprata);
             long altra = creaTipologia(admin);
             long cameraAltra = creaCamera(admin, altra);
-            long idPrenotazione = confermataDiOggi(comprata);
+            long idPrenotazione = prontaPerIlCheckIn(comprata);
 
             // when
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
@@ -917,8 +999,8 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             creaCamere(admin, idTipologia, 2);
-            long prima = confermataDiOggi(idTipologia);
-            long seconda = confermataDiOggi(idTipologia);
+            long prima = prontaPerIlCheckIn(idTipologia);
+            long seconda = prontaPerIlCheckIn(idTipologia);
             String staff = tokenStaff();
 
             // when
@@ -944,14 +1026,14 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             creaCamera(admin, idTipologia);
             String staff = tokenStaff();
 
-            long prima = confermataDiOggi(idTipologia);
+            long prima = prontaPerIlCheckIn(idTipologia);
             mockMvc.perform(put(PRENOTAZIONI + "/" + prima + "/check-in")
                             .header("Authorization", "Bearer " + staff)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"cameraId\": " + idCamera + "}"))
                     .andExpect(status().isOk());
 
-            long seconda = confermataDiOggi(idTipologia);
+            long seconda = prontaPerIlCheckIn(idTipologia);
 
             // when/then
             mockMvc.perform(put(PRENOTAZIONI + "/" + seconda + "/check-in")
@@ -976,7 +1058,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             creaCamere(admin, idTipologia, 2);
             String staff = tokenStaff();
 
-            long primo = confermataDiOggi(idTipologia);
+            long primo = prontaPerIlCheckIn(idTipologia);
             long abitata = idCameraAssegnata(staff, primo);
 
             mockMvc.perform(put(CAMERE + "/" + abitata + "/stato")
@@ -986,7 +1068,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
                                     com.felixhotel.backend.dto.StatoCamera.LIBERA))))
                     .andExpect(status().isOk());
 
-            long secondo = confermataDiOggi(idTipologia);
+            long secondo = prontaPerIlCheckIn(idTipologia);
 
             // when/then: chiedere proprio quella stanza da' 409, e non perche' lo stato
             // lo vieti — adesso dice LIBERA. A vietarlo e' la prenotazione in CHECK_IN su
@@ -1015,13 +1097,13 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             creaCamere(admin, idTipologia, 2);
             String staff = tokenStaff();
 
-            long primo = confermataDiOggi(idTipologia);
+            long primo = prontaPerIlCheckIn(idTipologia);
             long liberata = idCameraAssegnata(staff, primo);
             mockMvc.perform(put(PRENOTAZIONI + "/" + primo + "/check-out")
                             .header("Authorization", "Bearer " + staff))
                     .andExpect(status().isOk());
 
-            long secondo = confermataDiOggi(idTipologia);
+            long secondo = prontaPerIlCheckIn(idTipologia);
 
             // when/then: quella stessa stanza si puo' chiedere di nuovo. E' il motivo per
             // cui il controllo guarda CHECK_IN e non tutti gli stati che occupano:
@@ -1042,7 +1124,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
 
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
                             .header("Authorization", "Bearer " + tokenStaff())
@@ -1081,7 +1163,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             long idCamera = creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
 
             mockMvc.perform(put(CAMERE + "/" + idCamera + "/stato")
                             .header("Authorization", "Bearer " + admin)
@@ -1106,7 +1188,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             creaCamere(admin, idTipologia, 2);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
             String staff = tokenStaff();
 
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
@@ -1144,7 +1226,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             long idCamera = creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
             String staff = tokenStaff();
 
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
@@ -1171,7 +1253,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             long idCamera = creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
             String staff = tokenStaff();
 
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
@@ -1202,7 +1284,7 @@ class PrenotazioneApiIT extends IntegrationTestBase {
             String admin = tokenAdmin();
             long idTipologia = creaTipologia(admin);
             creaCamera(admin, idTipologia);
-            long idPrenotazione = confermataDiOggi(idTipologia);
+            long idPrenotazione = prontaPerIlCheckIn(idTipologia);
 
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-out")
                             .header("Authorization", "Bearer " + tokenStaff()))
@@ -1222,6 +1304,10 @@ class PrenotazioneApiIT extends IntegrationTestBase {
                     .dataCheckIn(LocalDate.now())
                     .dataCheckOut(LocalDate.now().plusDays(3)));
             conferma(cliente, idPrenotazione);
+            // La prenotazione non passa dalla fabbrica perche' qui serve tenere in mano
+            // il token del cliente che l'ha fatta, ma il registro degli ospiti va
+            // riempito lo stesso: senza, il check-in qui sotto sarebbe 409
+            registraOspiti(idPrenotazione, 2);
 
             mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
                             .header("Authorization", "Bearer " + tokenStaff()))

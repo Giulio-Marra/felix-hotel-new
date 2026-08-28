@@ -23,6 +23,7 @@ import com.felixhotel.backend.mapper.StaffMapper;
 import com.felixhotel.backend.mapper.TipologiaCameraMapper;
 import com.felixhotel.backend.mapper.UtenteMapper;
 import com.felixhotel.backend.repository.CameraRepository;
+import com.felixhotel.backend.repository.OspiteRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
@@ -120,6 +121,8 @@ class PrenotazioneServiceImplTest {
     @Mock
     private StaffRepository staffRepository;
     @Mock
+    private OspiteRepository ospiteRepository;
+    @Mock
     private ApiResponseMapper apiResponseMapper;
 
     private PrenotazioneServiceImpl prenotazioneService;
@@ -141,8 +144,8 @@ class PrenotazioneServiceImplTest {
         // il contesto che questi test riempiono a mano, e con un finto la regola che
         // pretende ruolo e tipo insieme non verrebbe esercitata da nessuno di loro.
         prenotazioneService = new PrenotazioneServiceImpl(prenotazioneRepository, tipologiaCameraRepository,
-                cameraRepository, utenteRepository, staffRepository, prenotazioneMapper, apiResponseMapper,
-                new ChiamanteCorrente(),
+                cameraRepository, utenteRepository, staffRepository, ospiteRepository, prenotazioneMapper,
+                apiResponseMapper, new ChiamanteCorrente(),
                 new OrologioPilotato(OGGI.atStartOfDay().toInstant(ZoneOffset.UTC)));
     }
 
@@ -1015,11 +1018,87 @@ class PrenotazioneServiceImplTest {
     @DisplayName("checkIn")
     class CheckIn {
 
+        /**
+         * Il registro degli ospiti e' completo, cioe' la condizione che il TULPS
+         * pretende prima di dare la chiave.
+         *
+         * <p>Serve a quasi tutti i test di questa classe e non e' rumore da
+         * preparazione: da questo branch il check-in ha <b>tre</b> cancelli prima
+         * di arrivare alla camera — stato, calendario, registro — e quelli che
+         * guardano il terzo devono poterlo oltrepassare per dire qualcosa sul
+         * quarto. Prima che la regola esistesse questi nove test passavano senza
+         * saperlo, ed e' stato il modo in cui la si e' vista mordere: aggiunta la
+         * regola e non ancora toccati i test, sono diventati rossi tutti e nove
+         * con il messaggio giusto.
+         */
+        private void ospitiTuttiRegistrati() {
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(2L);
+        }
+
+        @Test
+        @DisplayName("senza nessun ospite registrato risponde 409")
+        void checkIn_senzaOspitiRegistrati_sollevaConflict() {
+            // given: la prenotazione e' confermata e il giorno e' quello giusto, ma al
+            // banco non e' stato preso nessun documento
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(0L);
+
+            // when/then: 409, e soprattutto **prima** di toccare le camere. Il TULPS
+            // vuole il documento acquisito all'atto dell'arrivo: se la chiave si desse
+            // comunque, "prima" diventerebbe "quando ci si ricorda"
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("0 ospiti su 2");
+
+            verifyNoInteractions(cameraRepository);
+            verify(prenotazioneRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("con un ospite su due registrati risponde 409")
+        void checkIn_conRegistroIncompleto_sollevaConflict() {
+            // given: e' stato preso il documento di chi ha prenotato, non quello di chi
+            // viaggia con lui. E' il caso che la regola esiste per prendere: quello in
+            // cui sembra fatto
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(1L);
+
+            // when/then: la legge vuole il documento di ogni persona che soggiorna, non
+            // di una. E' il motivo per cui la condizione e' un'uguaglianza
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("1 ospiti su 2");
+        }
+
+        @Test
+        @DisplayName("con piu' ospiti registrati di quanti ne prevede la prenotazione risponde 409, e lo dice")
+        void checkIn_conRegistroInEccesso_sollevaConflict() {
+            // given: tre registrati su due posti. Dagli endpoint non e' raggiungibile —
+            // la POST rifiuta l'ospite oltre numeroOspiti — ma due registrazioni
+            // simultanee sull'ultimo posto ci arrivano, ed e' un limite scritto
+            autenticaStaff();
+            when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(3L);
+
+            // when/then: il messaggio dice di **togliere** quelli di troppo. Con un
+            // solo ramo "ne mancano N" chi sta al banco leggerebbe "ne mancano -1" e
+            // andrebbe a cercare una persona che non esiste
+            assertThatThrownBy(() -> prenotazioneService.checkIn(ID_PRENOTAZIONE, null))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("vanno tolti quelli di troppo");
+        }
+
         @Test
         @DisplayName("assegna la prima camera libera, la porta a OCCUPATA e passa a CHECK_IN")
         void checkIn_conCameraLibera_assegnaEOccupa() {
             // given: uno staff al banco, una prenotazione confermata che comincia oggi
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             assegnabili(camera(ID_CAMERA, "101"));
@@ -1048,6 +1127,7 @@ class PrenotazioneServiceImplTest {
         void checkIn_conArrivoInRitardo_passa() {
             // given: il soggiorno e' cominciato ieri e finisce fra due giorni
             autenticaStaff();
+            ospitiTuttiRegistrati();
             Prenotazione inRitardo = prenotazioneDiOggi(StatoPrenotazione.CONFERMATA);
             inRitardo.setDataCheckIn(OGGI.minusDays(1));
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(inRitardo));
@@ -1114,6 +1194,7 @@ class PrenotazioneServiceImplTest {
             // given: la prenotazione e' regolare, ma nessuna stanza di quella tipologia
             // e' materialmente utilizzabile oggi
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             assegnabili();
@@ -1133,6 +1214,7 @@ class PrenotazioneServiceImplTest {
         void checkIn_conCameraIndicata_assegnaQuella() {
             // given: chi sta al banco vuole la 203
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.of(camera(ID_CAMERA, "203")));
@@ -1157,6 +1239,7 @@ class PrenotazioneServiceImplTest {
         void checkIn_conCameraDiAltraTipologia_assegnaSenzaToccareImporto() {
             // given: la doppia comprata e una suite da dare al suo posto
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
 
@@ -1189,6 +1272,7 @@ class PrenotazioneServiceImplTest {
         void checkIn_conCameraInesistente_sollevaBadRequest() {
             // given
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.empty());
@@ -1205,6 +1289,7 @@ class PrenotazioneServiceImplTest {
         void checkIn_conCameraNonLibera_sollevaConflict() {
             // given: la stanza voluta e' in manutenzione
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             Camera guasta = camera(ID_CAMERA, "203");
@@ -1226,6 +1311,7 @@ class PrenotazioneServiceImplTest {
             // given: la stanza risulta LIBERA — qualcuno l'ha rimessa cosi' a mano
             // sbagliando — ma c'e' una prenotazione in CHECK_IN su quelle notti
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             when(cameraRepository.findById(ID_CAMERA)).thenReturn(Optional.of(camera(ID_CAMERA, "203")));
@@ -1247,6 +1333,7 @@ class PrenotazioneServiceImplTest {
         void checkIn_conCorpoVuoto_scegliIlService() {
             // given: il client manda {} invece di niente
             autenticaStaff();
+            ospitiTuttiRegistrati();
             when(prenotazioneRepository.findById(ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(prenotazioneDiOggi(StatoPrenotazione.CONFERMATA)));
             assegnabili(camera(ID_CAMERA, "101"));

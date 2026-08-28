@@ -6,6 +6,7 @@ import com.felixhotel.backend.dto.DotazioneRequest;
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.MediaCameraOrdineRequest;
 import com.felixhotel.backend.dto.MediaCameraRequest;
+import com.felixhotel.backend.dto.OspiteRequest;
 import com.felixhotel.backend.dto.PrenotazioneAnnullamentoRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
@@ -15,6 +16,7 @@ import com.felixhotel.backend.dto.StaffAttivazioneRequest;
 import com.felixhotel.backend.dto.StaffPasswordRequest;
 import com.felixhotel.backend.dto.StaffRequest;
 import com.felixhotel.backend.dto.StatoCamera;
+import com.felixhotel.backend.dto.TipoDocumento;
 import com.felixhotel.backend.dto.TipologiaCameraDotazioniRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
@@ -255,6 +257,28 @@ public class TestDataFactory {
                 .dataCheckIn(LocalDate.now().plusDays(7))
                 .dataCheckOut(LocalDate.now().plusDays(10))
                 .numeroOspiti(2);
+    }
+
+    /**
+     * Un ospite valido da registrare su una prenotazione.
+     *
+     * <p><b>Il numero di documento va quasi sempre sovrascritto</b> da chi
+     * chiama: l'indice unico del V7 e' su (prenotazione, tipo, numero), quindi
+     * due ospiti sulla stessa prenotazione con questo valore di partenza
+     * sarebbero un 409 — che e' giusto, ed e' il motivo per cui il valore qui e'
+     * uno e non una sequenza. Una fabbrica che generasse numeri diversi ad ogni
+     * chiamata nasconderebbe quel vincolo proprio ai test che devono vederlo.
+     *
+     * <p>{@code dataNascita} non c'e': e' l'unico campo facoltativo, e lasciarlo
+     * fuori tiene esercitato il caso normale — al banco la si prende quando
+     * capita.
+     */
+    public OspiteRequest ospiteRequest() {
+        return new OspiteRequest()
+                .nome("Mario")
+                .cognome("Rossi")
+                .tipoDocumento(TipoDocumento.CARTA_IDENTITA)
+                .numeroDocumento("CA12345AB");
     }
 
     /**

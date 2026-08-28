@@ -1,0 +1,37 @@
+-- Lo stesso documento due volte sulla stessa prenotazione non e' un ospite in
+-- piu': e' la stessa persona registrata due volte, quasi sempre un doppio invio
+-- del modulo al banco.
+--
+-- Qui pero' il doppione non e' solo ridondante come lo sarebbe altrove, ed e'
+-- questa la ragione per cui l'indice esiste. Dal 2026-08-28 il check-in pretende
+-- che gli ospiti registrati siano **esattamente** numero_ospiti: due righe con
+-- lo stesso documento fanno raggiungere quel conto lasciando fuori qualcuno che
+-- dorme li' davvero, quindi il registro risulta completo mentre non lo e'. Il
+-- controllo di legge passerebbe su un albergo che ha una persona non
+-- registrata — che e' precisamente cio' che quel controllo esiste per impedire.
+--
+-- Il confronto e' **case-sensitive**, come V5 e al contrario di V2, V3, V4 e V6.
+-- Quelli erano nomi e indirizzi scritti da una persona, dove le maiuscole non
+-- distinguono niente; un numero di documento e' una stringa stampata da
+-- un'autorita', e non e' un dato che qualcuno riscrive a modo suo. Va detto che
+-- la scelta ha un costo: "ca12345ab" e "CA12345AB" passano tutti e due, e sono
+-- lo stesso documento. E' accettato perche' l'alternativa — lower() — direbbe
+-- che le maiuscole non contano su un dato in cui, per altri emittenti, potrebbero
+-- contare. La normalizzazione, se un giorno servira', va fatta in ingresso e non
+-- nell'indice.
+--
+-- L'indice e' sulla tripla (prenotazione, tipo, numero) e non sulla coppia
+-- (prenotazione, numero): due documenti diversi possono portare lo stesso
+-- numero — una carta d'identita' e una patente non condividono lo spazio dei
+-- numeri — e vietarlo rifiuterebbe una registrazione legittima.
+--
+-- Nessun vincolo fra prenotazioni diverse, di proposito: la stessa persona
+-- soggiorna piu' volte, e ogni soggiorno e' una riga di registro sua. Cercare
+-- "quante volte e' stato qui" e' un'altra domanda, che questa tabella sa gia'
+-- rispondere senza che nessun vincolo la aiuti.
+--
+-- Nessun indice nuovo sulla chiave esterna: idx_ospite_prenotazione esiste gia'
+-- dal V1, ed e' quello che serve all'unica lettura di questa tabella ("gli
+-- ospiti di questa prenotazione").
+CREATE UNIQUE INDEX uq_ospite_prenotazione_documento
+    ON ospite (prenotazione_id, tipo_documento, numero_documento);

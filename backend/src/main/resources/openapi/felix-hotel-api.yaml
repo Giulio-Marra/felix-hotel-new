@@ -1575,6 +1575,15 @@ paths:
         della partenza. Prima e' **409** — non si mette OCCUPATA una camera per
         un soggiorno non ancora cominciato — e dal giorno di partenza in poi
         pure, perche' non si entra in un soggiorno gia' finito.
+        **409 finche' non e' registrato il documento di ogni ospite.** Il TULPS
+        obbliga ad acquisire il documento di *ogni persona che soggiorna*
+        all'atto dell'arrivo, non del solo intestatario: il conto degli ospiti
+        registrati (POST /api/prenotazioni/{id}/ospiti) deve essere **esattamente
+        `numeroOspiti`**. E' un'uguaglianza e non un "almeno uno" perche' e'
+        l'intero elenco che la legge vuole, e perche' quel conteggio e' gia'
+        limitato dall'alto: registrare un ospite oltre `numeroOspiti` e' a sua
+        volta un 409. La sequenza al banco e' quindi: documenti, POST per
+        ognuno, e solo allora questo check-in.
         **Effetto sulla camera**: passa a **OCCUPATA**. E' l'unico posto in cui
         l'applicazione cambia da sola lo stato operativo di una stanza; per
         tutto il resto c'e' PUT /api/camere/{id}/stato.
@@ -1713,6 +1722,259 @@ paths:
                   gestitaDa: null
                   motivoCancellazione: null
                   dataCancellazione: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prenotazioni/{id}/ospiti:
+
+    get:
+      tags:
+        - Ospiti
+      operationId: elencaOspitiPrenotazione
+      summary: Ospiti registrati su una prenotazione
+      description: >
+        Chi soggiorna davvero, con il documento di ognuno. Riservato a **STAFF**
+        e **ADMIN**: e' un adempimento di legge che si fa al banco con i
+        documenti in mano, non qualcosa che il cliente compili da solo — e il
+        contenuto sono dati personali di terzi, non del titolare della
+        prenotazione. Un cliente prende **403** anche sulla propria.
+        **Non e' paginato**, come la galleria fotografica e per la stessa
+        ragione: e' una lista di dimensione nota per costruzione. Il tetto qui
+        non e' una costante ma 'numeroOspiti' della prenotazione, che a sua volta
+        non puo' superare la capienza della tipologia.
+        L'ordine e' quello di registrazione, dal primo inserito all'ultimo:
+        nessuno dei dati di un ospite e' un criterio sensato per ordinare —
+        alfabetico per cognome cambierebbe l'elenco a ogni aggiunta — e chi
+        registra si aspetta di ritrovare la lista com'e' cresciuta sotto le sue
+        mani.
+        Risposta: busta ApiBaseResponse con un **array di OspiteResponse** in
+        'data', vuoto se non e' stato ancora registrato nessuno.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      responses:
+        '200':
+          description: Ospiti della prenotazione ('data' = array di OspiteResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Ospiti della prenotazione recuperati
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  - id: 12
+                    nome: Mario
+                    cognome: Rossi
+                    tipoDocumento: CARTA_IDENTITA
+                    numeroDocumento: CA12345AB
+                    dataNascita: 1985-04-17
+                  - id: 13
+                    nome: Anna
+                    cognome: Rossi
+                    tipoDocumento: PASSAPORTO
+                    numeroDocumento: YA1234567
+                    dataNascita: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Ospiti
+      operationId: aggiungiOspitePrenotazione
+      summary: Registra un ospite su una prenotazione
+      description: >
+        Registra una persona che soggiorna, col suo documento. Riservato a
+        **STAFF** e **ADMIN**.
+        **Perche' esiste**: il TULPS (l'articolo 109, quello della "schedina
+        alloggiati") obbliga a registrare il documento di **ogni persona che
+        dorme in albergo**, non del solo intestatario della prenotazione. Chi ha
+        prenotato lo conosciamo gia' — e' l'account — ma di chi viaggia con lui
+        non sapevamo niente, e i posti letto venduti li conta 'numeroOspiti'.
+        **Quando si puo' fare**: su una prenotazione **CONFERMATA** o gia' in
+        **CHECK_IN**, altrimenti **409**. Su IN_ATTESA no, perche' finche'
+        nessuno ha confermato non c'e' nessun soggiorno di cui registrare gli
+        ospiti; su ANNULLATA e CHECK_OUT no perche' vale la regola che il
+        progetto applica a tutto cio' che e' concluso — *quello che c'e' gia'
+        resta, di nuovo non si aggiunge niente*. Su un soggiorno finito e' anche
+        la cosa giusta per un registro di legge: non lo si riscrive dopo.
+        **409 se gli ospiti sono gia' 'numeroOspiti'**: non se ne registrano piu'
+        di quanti posti letto sono stati venduti.
+        **Chi arriva in soprannumero oggi non ha una strada breve**, e vale la
+        pena saperlo invece di scoprirlo al banco: 'numeroOspiti' si fissa alla
+        creazione e nessun endpoint lo cambia, quindi l'unica via e' annullare e
+        riprenotare — perdendo l'importo gia' calcolato, che e' una fotografia
+        presa in quel momento. E' un limite noto, non una dimenticanza.
+        **409 se lo stesso documento e' gia' registrato su questa prenotazione**:
+        la stessa persona due volte non e' un ospite in piu', ed e' un errore che
+        conta doppio — farebbe raggiungere 'numeroOspiti' lasciando fuori
+        qualcuno che dorme li' davvero.
+        Risposta: busta ApiBaseResponse con **OspiteResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OspiteRequest'
+      responses:
+        '201':
+          description: Ospite registrato ('data' = OspiteResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Ospite registrato
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  id: 12
+                  nome: Mario
+                  cognome: Rossi
+                  tipoDocumento: CARTA_IDENTITA
+                  numeroDocumento: CA12345AB
+                  dataNascita: 1985-04-17
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/prenotazioni/{id}/ospiti/{ospiteId}:
+
+    put:
+      tags:
+        - Ospiti
+      operationId: aggiornaOspitePrenotazione
+      summary: Corregge i dati di un ospite registrato
+      description: >
+        Riscrive i dati di un ospite gia' registrato. Riservato a **STAFF** e
+        **ADMIN**.
+        **Serve a correggere, non a sostituire una persona con un'altra**, ed e'
+        la ragione per cui questa rotta esiste invece di far cancellare e
+        riscrivere: un numero di documento digitato storto ci si accorge quasi
+        sempre subito, e obbligare a un DELETE seguito da un POST vorrebbe dire
+        che la correzione passa per un istante in cui l'ospite non e' registrato.
+        Su una prenotazione gia' in CHECK_IN quell'istante e' uno stato che il
+        registro non dovrebbe mai attraversare.
+        **Vale la stessa finestra della POST**: CONFERMATA o CHECK_IN, altrimenti
+        **409**. E lo stesso **409** sul documento gia' presente su un *altro*
+        ospite della stessa prenotazione — il proprio non conta, altrimenti
+        correggere il solo nome sarebbe impossibile.
+        E' una PUT: un campo facoltativo omesso viene **azzerato**, non lasciato
+        com'era.
+        Risposta: busta ApiBaseResponse con **OspiteResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+        - $ref: '#/components/parameters/IdOspite'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OspiteRequest'
+      responses:
+        '200':
+          description: Ospite aggiornato ('data' = OspiteResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Ospite aggiornato
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  id: 12
+                  nome: Mario
+                  cognome: Rossi
+                  tipoDocumento: CARTA_IDENTITA
+                  numeroDocumento: CA98765ZY
+                  dataNascita: 1985-04-17
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - Ospiti
+      operationId: eliminaOspitePrenotazione
+      summary: Toglie un ospite da una prenotazione
+      description: >
+        Cancella la registrazione di un ospite. Riservato a **STAFF** e
+        **ADMIN**.
+        L'ospite si indirizza **dentro la sua prenotazione** e non da una rotta
+        propria: cosi' un ospite che esiste ma appartiene a un'altra prenotazione
+        da' **404** come se non ci fosse, invece di essere cancellato a chi ha
+        sbagliato URL. E' la stessa scelta gia' fatta per le foto di una
+        tipologia.
+        **Vale la stessa finestra della POST**: CONFERMATA o CHECK_IN, altrimenti
+        **409**. Su una prenotazione in CHECK_IN togliere un ospite e' legittimo
+        — qualcuno che doveva venire non e' venuto — ma va saputo che riporta il
+        conto sotto 'numeroOspiti', e da quel momento la prenotazione non
+        soddisfa piu' la condizione che il check-in pretende. Non c'e' niente da
+        rifare, il check-in e' gia' avvenuto: conta per chi legge il registro
+        dopo.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+        - $ref: '#/components/parameters/IdOspite'
+      responses:
+        '200':
+          description: Ospite eliminato ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Ospite eliminato
+                timestamp: 2026-09-10T15:04:00Z
+                data: null
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -2200,6 +2462,19 @@ components:
       in: path
       required: true
       description: Identificativo della prenotazione
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    IdOspite:
+      name: ospiteId
+      in: path
+      required: true
+      description: >
+        Identificativo dell'ospite. Si accompagna sempre all'id della
+        prenotazione nel percorso: un ospite non ha una rotta propria, esiste
+        dentro il soggiorno per cui e' stato registrato.
       schema:
         type: integer
         format: int64
@@ -3175,6 +3450,129 @@ components:
           type: string
           format: date-time
           description: Quando la prenotazione e' stata aperta
+
+    TipoDocumento:
+      type: string
+      description: >
+        Che documento e' stato esibito al banco. L'elenco ricalca quello che la
+        Questura accetta sulla schedina alloggiati per un ospite maggiorenne, ed
+        e' volutamente corto: sono i quattro documenti che una reception vede
+        davvero.
+        **Il database non lo verifica**, al contrario di 'stato' e 'canale' su
+        prenotazione: la colonna 'ospite.tipo_documento' e' un VARCHAR(30) senza
+        CHECK fin dal V1. Il vincolo esiste solo qui e nell'enum Java che ne
+        nasce, il che vuol dire che una INSERT a mano puo' scriverci quel che
+        vuole — e che aggiungere un valore all'elenco non richiede una migration,
+        ma toglierne uno non ripulisce le righe gia' scritte.
+      enum:
+        - CARTA_IDENTITA
+        - PASSAPORTO
+        - PATENTE
+        - PERMESSO_SOGGIORNO
+      example: CARTA_IDENTITA
+
+    OspiteRequest:
+      type: object
+      description: >
+        Una persona che soggiorna, con il documento che ha esibito. I limiti
+        ricalcano le colonne del database, vedi V1__init_schema.sql.
+        **Lo stesso schema serve alla creazione e alla correzione**, al contrario
+        di quanto fa lo staff: qui non c'e' nessun campo che abbia senso una
+        volta sola: un ospite e' fatto tutto di dati che si possono aver digitati
+        storti, e nessuno di essi si "sceglie alla nascita" come una password.
+      required:
+        - nome
+        - cognome
+        - tipoDocumento
+        - numeroDocumento
+      properties:
+        nome:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: >
+            Come sta scritto sul documento, non come la persona si presenta:
+            questa riga finisce in un registro che qualcun altro puo' venire a
+            leggere.
+          example: Mario
+        cognome:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Rossi
+        tipoDocumento:
+          $ref: '#/components/schemas/TipoDocumento'
+        numeroDocumento:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: >
+            Il numero come sta scritto sul documento. **Distingue le maiuscole**,
+            come gli url delle foto e al contrario dei nomi di tipologie,
+            dotazioni e camere: non e' un nome che una persona scrive a modo suo,
+            e' una stringa stampata da un'autorita' che la considera esatta cosi'
+            com'e'.
+            Deve essere libero **dentro questa prenotazione**: la stessa persona
+            registrata due volte non e' un ospite in piu' (vedi la descrizione
+            della POST per il perche' quel doppione fa danno invece di essere
+            solo ridondante).
+          example: CA12345AB
+        dataNascita:
+          type: string
+          format: date
+          description: >
+            Facoltativa, ed e' l'unico campo che lo sia. Serve a distinguere due
+            omonimi e a sapere se si ha davanti un minore, ma non e' una
+            condizione per registrare qualcuno: il documento c'e' o non c'e', e
+            se c'e' l'obbligo di legge e' soddisfatto.
+            **Una data nel futuro e' un 400**, che e' l'unico controllo possibile
+            senza inventare una regola: quanti anni debba avere un ospite non lo
+            decide questo contratto.
+          example: 1985-04-17
+
+    OspiteResponse:
+      type: object
+      description: >
+        Un ospite come viene restituito al client: i suoi dati e basta.
+        **La prenotazione non c'e'**, come la tipologia non compare nelle foto:
+        sta gia' nell'URL di chi ha chiesto, e ripeterla vorrebbe dire mandare
+        indietro un dato che il chiamante ha appena scritto.
+        **Il numero di documento c'e' per intero**, non mascherato. Non e' una
+        svista: questa rotta la raggiungono solo STAFF e ADMIN, cioe' chi il
+        documento l'ha appena avuto in mano, e un numero mascherato renderebbe
+        impossibile l'unica cosa per cui si rileggerebbe la lista — controllare
+        di averlo digitato bene. Se un domani questi dati dovessero comparire
+        altrove, e' qui che va guardato per primo.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 12
+        nome:
+          type: string
+          example: Mario
+        cognome:
+          type: string
+          example: Rossi
+        tipoDocumento:
+          $ref: '#/components/schemas/TipoDocumento'
+        numeroDocumento:
+          type: string
+          example: CA12345AB
+        dataNascita:
+          type: string
+          format: date
+          description: >
+            Null se non e' stata presa. **Senza 'nullable: true'**, che sarebbe
+            venuto spontaneo scrivere qui e non c'e' in nessun altro schema di
+            questo contratto: il generatore lo traduce in un JsonNullable, cioe'
+            un tipo che distingue "assente" da "null" e si serializza in modo
+            diverso da tutti gli altri campi facoltativi del progetto — 'note' e
+            'camera' su PrenotazioneResponse, per dirne due. Quella distinzione
+            qui non serve a nessuno, e pagarla vorrebbe dire un campo che si
+            legge diversamente dagli altri per una differenza che il client non
+            usa.
+          example: 1985-04-17
 
     DisponibilitaTipologia:
       type: object
