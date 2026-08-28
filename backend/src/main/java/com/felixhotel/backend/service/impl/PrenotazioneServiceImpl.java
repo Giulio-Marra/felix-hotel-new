@@ -25,6 +25,7 @@ import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
+import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.PrenotazioneService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,8 +34,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,9 +70,6 @@ import java.time.temporal.ChronoUnit;
  */
 @Service
 public class PrenotazioneServiceImpl implements PrenotazioneService {
-
-    private static final String RUOLO_ADMIN = "ADMIN";
-    private static final String RUOLO_STAFF = "STAFF";
 
     /**
      * Il massimo che entra in {@code importo_totale}, che e' NUMERIC(10,2).
@@ -112,6 +108,12 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     private final ApiResponseMapper apiResponseMapper;
 
     /**
+     * Chi sta chiamando e se e' del personale: due domande che decidono cosa
+     * questo Service fa, e che dal 2026-08-28 non si risponde piu' da se'.
+     */
+    private final ChiamanteCorrente chiamanteCorrente;
+
+    /**
      * Da cosa dipende "oggi", che qui e' una regola di dominio e non un
      * dettaglio: una prenotazione non puo' cominciare nel passato.
      */
@@ -129,13 +131,15 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    UtenteRepository utenteRepository,
                                    StaffRepository staffRepository,
                                    PrenotazioneMapper prenotazioneMapper,
-                                   ApiResponseMapper apiResponseMapper) {
+                                   ApiResponseMapper apiResponseMapper,
+                                   ChiamanteCorrente chiamanteCorrente) {
         // Il fuso e' quello di sistema e non UTC, al contrario dei contatori del
         // ritardo progressivo: quelli misurano durate, a cui il fuso non serve, mentre
         // "oggi" per un albergo e' il giorno che si legge sul calendario alla
         // reception. Con UTC, alle due di notte in Italia sarebbe ancora ieri.
         this(prenotazioneRepository, tipologiaCameraRepository, cameraRepository, utenteRepository,
-                staffRepository, prenotazioneMapper, apiResponseMapper, Clock.systemDefaultZone());
+                staffRepository, prenotazioneMapper, apiResponseMapper, chiamanteCorrente,
+                Clock.systemDefaultZone());
     }
 
     /**
@@ -151,6 +155,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    StaffRepository staffRepository,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
+                                   ChiamanteCorrente chiamanteCorrente,
                                    Clock clock) {
         this.prenotazioneRepository = prenotazioneRepository;
         this.tipologiaCameraRepository = tipologiaCameraRepository;
@@ -159,6 +164,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         this.staffRepository = staffRepository;
         this.prenotazioneMapper = prenotazioneMapper;
         this.apiResponseMapper = apiResponseMapper;
+        this.chiamanteCorrente = chiamanteCorrente;
         this.clock = clock;
     }
 
@@ -174,12 +180,12 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Transactional(readOnly = true)
     public ApiBaseResponsePaginated elenca(int page, int size,
                                            com.felixhotel.backend.dto.StatoPrenotazione stato) {
-        AppUserPrincipal chiamante = chiamante();
+        AppUserPrincipal chiamante = chiamanteCorrente.autenticato();
 
         // Null vuol dire "tutte" ed e' un privilegio, non l'assenza di un filtro: lo
         // ottiene solo chi e' del personale. Per un cliente l'id e' sempre il proprio,
         // e non perche' l'abbia chiesto.
-        Long utenteId = personale(chiamante) ? null : idClienteChiamante(chiamante);
+        Long utenteId = chiamanteCorrente.personale(chiamante) ? null : idClienteChiamante(chiamante);
 
         Page<Prenotazione> pagina = prenotazioneRepository.cerca(
                 utenteId,
@@ -220,8 +226,8 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Override
     @Transactional
     public ApiBaseResponse crea(PrenotazioneRequest request) {
-        AppUserPrincipal chiamante = chiamante();
-        boolean daPersonale = personale(chiamante);
+        AppUserPrincipal chiamante = chiamanteCorrente.autenticato();
+        boolean daPersonale = chiamanteCorrente.personale(chiamante);
 
         verificaDate(request.getDataCheckIn(), request.getDataCheckOut());
 
@@ -538,57 +544,6 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     }
 
     /**
-     * Chi sta chiamando, preso dal {@code SecurityContextHolder} e non da
-     * {@code @AuthenticationPrincipal}: la firma dei metodi la impone
-     * l'interfaccia generata dallo spec, che non ha un parametro per il principal
-     * (regola 14).
-     *
-     * <p>Nessuno di questi endpoint e' in {@code permitAll}, quindi qui ci si
-     * arriva solo autenticati; il controllo resta perche' un anonimo avrebbe come
-     * principal la stringa "anonymousUser", che senza questo {@code instanceof}
-     * diventerebbe una ClassCastException — cioe' un 500 al posto di un 401.
-     */
-    private AppUserPrincipal chiamante() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null || !(authentication.getPrincipal() instanceof AppUserPrincipal principal)) {
-            throw new UnauthorizedException("Nessun account autenticato");
-        }
-
-        return principal;
-    }
-
-    /**
-     * Se chi chiama appartiene al personale, cioe' se puo' vedere e toccare le
-     * prenotazioni altrui.
-     *
-     * <p><b>Le due fonti devono dire la stessa cosa</b>: il ruolo (una colonna
-     * che si puo' cambiare) e il tipo dell'account (la tabella da cui e' stato
-     * caricato). Fino al 2026-08-27 qui si guardava il solo ruolo, mentre
-     * {@link #staffChiamante} guardava il solo tipo, e le due risposte potevano
-     * divergere: una riga di {@code utente} con ruolo ADMIN — che nessun
-     * endpoint produce, ma una {@code UPDATE} a mano si' — leggeva <b>tutte</b>
-     * le prenotazioni e non poteva intestarne nessuna. Uno stato che nessuno
-     * aveva disegnato.
-     *
-     * <p><b>Perche' comandano tutte e due e non una sola.</b> La divergenza si
-     * poteva chiudere anche eleggendo una fonte sola, e non e' stato fatto
-     * perche' le due domande restano diverse — il ruolo dice cosa un account
-     * puo' fare, il tipo dice dove vive — e qui servono entrambe le risposte:
-     * per leggere le prenotazioni altrui bisogna avere il privilegio <i>e</i>
-     * essere una persona che lavora qui. Richiederle insieme fa fallire in
-     * sicurezza: un account ibrido non guadagna i privilegi del personale, resta
-     * il cliente che la sua tabella dice che e'.
-     */
-    private boolean personale(AppUserPrincipal chiamante) {
-        if (chiamante.getTipo() != TipoAccount.PERSONALE) {
-            return false;
-        }
-
-        return RUOLO_ADMIN.equals(chiamante.getRuoloNome()) || RUOLO_STAFF.equals(chiamante.getRuoloNome());
-    }
-
-    /**
      * Lettura per id che applica anche il permesso, perche' le due cose non sono
      * separabili: "non esiste" e "non e' tua" devono dare la stessa risposta.
      *
@@ -601,8 +556,9 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         Prenotazione prenotazione = prenotazioneRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Prenotazione non trovata"));
 
-        AppUserPrincipal chiamante = chiamante();
-        if (!personale(chiamante) && !prenotazione.getUtente().getId().equals(idClienteChiamante(chiamante))) {
+        AppUserPrincipal chiamante = chiamanteCorrente.autenticato();
+        if (!chiamanteCorrente.personale(chiamante)
+                && !prenotazione.getUtente().getId().equals(idClienteChiamante(chiamante))) {
             throw new NotFoundException("Prenotazione non trovata");
         }
 
@@ -735,14 +691,14 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * gestore della prenotazione.
      *
      * <p><b>Non ricontrolla il tipo dell'account</b>, e da qui in poi non ha
-     * piu' motivo di farlo: ci si arriva solo dopo un {@code personale()} vero,
-     * che dal 2026-08-27 pretende gia' un account di tipo PERSONALE. Fino a
-     * quel giorno il controllo stava qui e serviva davvero, perche' quello era
-     * l'unico punto in cui la divergenza fra ruolo e tipo veniva vista;
-     * spostarlo a monte l'ha chiusa per tutti i chiamanti invece che per questo
-     * solo — e ripeterlo adesso vorrebbe dire tenere in piedi un ramo che
-     * nessuna richiesta puo' percorrere, cioe' una promessa che nessun test puo'
-     * mantenere.
+     * piu' motivo di farlo: ci si arriva solo dopo un
+     * {@link ChiamanteCorrente#personale} vero, che dal 2026-08-27 pretende
+     * gia' un account di tipo PERSONALE. Fino a quel giorno il controllo stava
+     * qui e serviva davvero, perche' quello era l'unico punto in cui la
+     * divergenza fra ruolo e tipo veniva vista; spostarlo a monte l'ha chiusa
+     * per tutti i chiamanti invece che per questo solo — e ripeterlo adesso
+     * vorrebbe dire tenere in piedi un ramo che nessuna richiesta puo'
+     * percorrere, cioe' una promessa che nessun test puo' mantenere.
      *
      * <p>Non trovare la riga resta invece un caso possibile, ed e' un 401 come
      * per il cliente: il token e' valido per un account che non c'e' piu'.

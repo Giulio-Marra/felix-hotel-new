@@ -28,6 +28,7 @@ import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
+import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.impl.PrenotazioneServiceImpl;
 import com.felixhotel.backend.support.OrologioPilotato;
@@ -136,8 +137,12 @@ class PrenotazioneServiceImplTest {
                 new UtenteMapper(), tipologiaCameraMapper, new StaffMapper(),
                 new CameraMapper(tipologiaCameraMapper));
 
+        // ChiamanteCorrente vero e non finto, per lo stesso motivo dei mapper: legge
+        // il contesto che questi test riempiono a mano, e con un finto la regola che
+        // pretende ruolo e tipo insieme non verrebbe esercitata da nessuno di loro.
         prenotazioneService = new PrenotazioneServiceImpl(prenotazioneRepository, tipologiaCameraRepository,
                 cameraRepository, utenteRepository, staffRepository, prenotazioneMapper, apiResponseMapper,
+                new ChiamanteCorrente(),
                 new OrologioPilotato(OGGI.atStartOfDay().toInstant(ZoneOffset.UTC)));
     }
 
@@ -159,11 +164,16 @@ class PrenotazioneServiceImplTest {
     /**
      * Mette nel contesto un amministratore.
      *
-     * <p>Non e' un doppione di {@link #autenticaStaff()}: {@code personale()}
-     * riconosce due ruoli con un {@code ||}, e finche' nessun test arriva qui
-     * con ADMIN la meta' ADMIN di quella condizione non si e' mai vista agire —
-     * cioe' la frase dello spec <i>"STAFF e ADMIN vedono tutte"</i> aveva una
-     * meta' senza prove.
+     * <p>Non e' un doppione di {@link #autenticaStaff()}, ma il motivo e'
+     * cambiato il 2026-08-28 e vale la pena riscriverlo invece di lasciarlo
+     * dire una cosa non piu' vera. Diceva che senza un test con ADMIN la meta'
+     * ADMIN del {@code ||} dentro {@code personale()} non si sarebbe mai vista
+     * agire: adesso quella condizione ha i suoi test in
+     * {@code ChiamanteCorrenteTest}, che la guardano da vicino. Quello che
+     * questi due casi continuano a provare e' un'altra cosa — che la frase
+     * dello spec <i>"STAFF e ADMIN vedono tutte"</i> vale per <b>le
+     * prenotazioni</b>, cioe' che l'elenco chiede davvero quella risposta a
+     * quella classe invece di ricavarsela da se'.
      */
     private void autenticaAdmin() {
         autentica(TipoAccount.PERSONALE, 1L, EMAIL_ADMIN, "ADMIN");

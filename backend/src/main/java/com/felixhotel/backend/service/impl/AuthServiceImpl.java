@@ -16,6 +16,7 @@ import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
+import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.JwtService;
 import com.felixhotel.backend.service.AuthService;
 import com.felixhotel.backend.service.LoginAttemptService;
@@ -26,7 +27,6 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +61,9 @@ public class AuthServiceImpl implements AuthService {
     private final UtenteMapper utenteMapper;
     private final AuthMapper authMapper;
     private final ApiResponseMapper apiResponseMapper;
+
+    /** Chi sta chiamando: qui serve solo a /api/auth/me, che non fa altro che raccontarlo. */
+    private final ChiamanteCorrente chiamanteCorrente;
 
     /**
      * Registra un nuovo cliente (Utente) con ruolo USER. La registrazione
@@ -195,19 +198,15 @@ public class AuthServiceImpl implements AuthService {
      * argomenti), e aggiungere un parametro nel Controller non sarebbe un
      * override — Spring mapperebbe il default method dell'interfaccia,
      * che risponde 501.
+     *
+     * <p>La lettura del contesto e il 401 sull'anonimo stanno in
+     * {@link ChiamanteCorrente}, che e' l'unico posto del progetto a saperlo
+     * fare: qui erano scritti una seconda volta, identici a quelli delle
+     * prenotazioni, commento compreso.
      */
     @Override
     public ApiBaseResponse me() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        // L'endpoint non e' in permitAll, quindi qui ci si arriva solo autenticati; il controllo
-        // resta perche' un utente anonimo avrebbe come principal la stringa "anonymousUser",
-        // che senza questo instanceof diventerebbe una ClassCastException (500 invece di 401).
-        if (authentication == null || !(authentication.getPrincipal() instanceof AppUserPrincipal principal)) {
-            throw new UnauthorizedException("Nessun account autenticato");
-        }
-
         return apiResponseMapper.toResponse(HttpStatus.OK, "Dati account recuperati",
-                authMapper.toAccountSummary(principal));
+                authMapper.toAccountSummary(chiamanteCorrente.autenticato()));
     }
 }

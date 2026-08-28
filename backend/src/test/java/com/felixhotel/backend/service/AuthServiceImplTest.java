@@ -11,6 +11,7 @@ import com.felixhotel.backend.mapper.UtenteMapper;
 import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.JwtService;
 import com.felixhotel.backend.service.impl.AuthServiceImpl;
 import com.felixhotel.backend.support.TestDataFactory;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -79,6 +81,16 @@ class AuthServiceImplTest {
     private LoginAttemptService loginAttemptService;
     @Mock
     private RegistrationAttemptService registrationAttemptService;
+
+    /**
+     * Vero e non finto, al contrario di tutti gli altri collaboratori: legge il
+     * SecurityContext, che e' proprio quel che il test qui sotto manipola. Con un
+     * finto {@code me()} riceverebbe il principal gia' pronto e la domanda che
+     * quel test pone — cosa succede quando nel contesto non c'e' nessuno — non
+     * avrebbe piu' nessun codice a cui rivolgersi.
+     */
+    @Spy
+    private ChiamanteCorrente chiamanteCorrente = new ChiamanteCorrente();
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -243,6 +255,11 @@ class AuthServiceImplTest {
             // when/then: 401. In esercizio non ci si arriva (l'endpoint e' protetto), ma
             // il controllo evita che un principal anonimo diventi una ClassCastException,
             // cioe' un 500 al posto di un 401.
+            //
+            // Che il contesto vuoto dia 401 lo prova gia' ChiamanteCorrenteTest, e questo
+            // non e' il suo doppione: quello guarda la regola, questo guarda che 'me()'
+            // ci passi davvero attraverso. Se un domani tornasse a leggere il principal
+            // da se' dimenticando il controllo, la' resterebbe verde e qui no.
             assertThatThrownBy(() -> authService.me())
                     .isInstanceOf(com.felixhotel.backend.exception.UnauthorizedException.class);
         }
