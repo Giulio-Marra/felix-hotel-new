@@ -103,7 +103,16 @@ public class SecurityConfig {
                                 // Nessun path delle *prenotazioni* entra qui: quelle restano
                                 // dietro l'autenticazione, e da questa rotta non se ne intravede
                                 // nessuna — solo un conteggio.
-                                "/api/disponibilita"
+                                "/api/disponibilita",
+                                // Nome, indirizzo, recapiti e orari della struttura: le righe in
+                                // fondo a ogni pagina di un sito d'albergo. Qui il path aperto e'
+                                // quello lungo e la risorsa vera sta su /api/impostazioni, che
+                                // resta autenticata: il verso e' voluto. Dei due sottoinsiemi,
+                                // l'eccezione dichiarata e' il piu' piccolo — l'identita' fiscale,
+                                // il CIN e il codice per Alloggiati Web vivono sull'altra rotta e
+                                // non hanno modo di finire qui, perche' il DTO pubblico quei campi
+                                // non li ha proprio (vedi ImpostazioniHotelMapper).
+                                "/api/impostazioni/pubbliche"
                         ).permitAll()
                         .requestMatchers(
                                 // Solo questi due endpoint di auth sono pubblici, elencati uno per uno:

@@ -227,6 +227,21 @@
 							<globalProperties>
 								<supportingFiles>ApiUtil.java</supportingFiles>
 							</globalProperties>
+							<!--
+								"format: time" non ha una mappatura predefinita nel generatore Java e
+								uscirebbe come String, al contrario di "format: date" che diventa gia'
+								LocalDate. La differenza non e' estetica: con una String, un orario
+								scritto storto ("25:99") attraverserebbe la validazione del bordo e si
+								romperebbe nel Service, cioe' arriverebbe al client come 500 invece che
+								come 400 — esattamente il difetto che la regola 21 esiste per evitare.
+								Mappandolo qui, a rifiutarlo e' Jackson prima ancora del Controller.
+							-->
+							<typeMappings>
+								<typeMapping>time=LocalTime</typeMapping>
+							</typeMappings>
+							<importMappings>
+								<importMapping>LocalTime=java.time.LocalTime</importMapping>
+							</importMappings>
 							<configOptions>
 								<useSpringBoot3>true</useSpringBoot3>
 								<useBeanValidation>true</useBeanValidation>

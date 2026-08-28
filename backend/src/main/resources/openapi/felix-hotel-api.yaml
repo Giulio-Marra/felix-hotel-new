@@ -2407,6 +2407,155 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
+  /api/impostazioni:
+
+    get:
+      tags:
+        - Impostazioni
+      operationId: dettaglioImpostazioni
+      summary: Impostazioni complete della struttura
+      description: >
+        Restituisce **tutti** i dati della struttura, compresi quelli fiscali e
+        i codici degli adempimenti (CIN, comune ISTAT, codice per Alloggiati
+        Web). Riservato agli **ADMIN**: e' la vista da cui si riempie il modulo
+        di modifica, e la PUT sostituisce l'intera risorsa — chi non puo'
+        leggerla tutta non puo' riscriverla senza cancellare cio' che non vede.
+        Il pubblico legge invece /api/impostazioni/pubbliche, che porta i soli
+        recapiti e gli orari.
+        Risposta: busta ApiBaseResponse con **ImpostazioniHotelResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Impostazioni della struttura ('data' = ImpostazioniHotelResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Impostazioni recuperate
+                timestamp: 2026-08-28T10:15:30Z
+                data:
+                  nome: Felix Hotel
+                  indirizzo: Via Roma 1, 47921 Rimini (RN)
+                  telefono: "+39 0541 123456"
+                  email: info@felixhotel.it
+                  orarioCheckInDefault: "14:00:00"
+                  orarioCheckOutDefault: "10:00:00"
+                  ragioneSociale: Felix Hotel S.r.l.
+                  partitaIva: "01234567890"
+                  codiceFiscale: "01234567890"
+                  cin: IT099014B4XYZW1234
+                  comune: Rimini
+                  codiceIstatComune: "099014"
+                  codiceStrutturaAlloggiati: "RN012345"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags:
+        - Impostazioni
+      operationId: aggiornaImpostazioni
+      summary: Aggiorna le impostazioni della struttura
+      description: >
+        Sostituisce **tutti** i campi delle impostazioni: e' una PUT, non una
+        PATCH, quindi un campo omesso viene azzerato e non lasciato com'era.
+        Riservato agli **ADMIN**.
+        **Non esiste una POST**: la struttura e' una sola e la sua riga nasce
+        con la migration V8, gia' compilata con dei segnaposto. Non c'e' quindi
+        nessuno stato "impostazioni non ancora create" da gestire — la GET
+        risponde sempre 200.
+        Risposta: busta ApiBaseResponse con **ImpostazioniHotelResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImpostazioniHotelRequest'
+      responses:
+        '200':
+          description: Impostazioni aggiornate ('data' = ImpostazioniHotelResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Impostazioni aggiornate
+                timestamp: 2026-08-28T10:15:30Z
+                data:
+                  nome: Felix Hotel
+                  indirizzo: Via Roma 1, 47921 Rimini (RN)
+                  telefono: "+39 0541 123456"
+                  email: info@felixhotel.it
+                  orarioCheckInDefault: "15:00:00"
+                  orarioCheckOutDefault: "10:00:00"
+                  ragioneSociale: Felix Hotel S.r.l.
+                  partitaIva: "01234567890"
+                  codiceFiscale: "01234567890"
+                  cin: IT099014B4XYZW1234
+                  comune: Rimini
+                  codiceIstatComune: "099014"
+                  codiceStrutturaAlloggiati: "RN012345"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/impostazioni/pubbliche:
+
+    get:
+      tags:
+        - Impostazioni
+      operationId: dettaglioImpostazioniPubbliche
+      summary: Recapiti e orari della struttura
+      description: >
+        Restituisce i dati che una struttura pubblica di sua volonta': nome,
+        indirizzo, recapiti e orari di check-in e check-out. **Pubblico**, come
+        il catalogo e la ricerca di disponibilita': sono le informazioni che
+        stanno in fondo a ogni pagina di un sito d'albergo, e chiederle solo a
+        chi si e' registrato non proteggerebbe niente.
+        **Non porta i dati fiscali ne' i codici degli adempimenti** — partita
+        IVA, CIN, codice ISTAT del comune e codice per Alloggiati Web stanno
+        solo in /api/impostazioni, che vuole un ADMIN. E' il motivo per cui gli
+        schemi di risposta sono due e non uno: quello pubblico non li ha
+        proprio, quindi non c'e' nessun filtro che qualcuno possa dimenticare.
+        Risposta: busta ApiBaseResponse con
+        **ImpostazioniHotelPubblicheResponse** in 'data'.
+      responses:
+        '200':
+          description: Recapiti della struttura ('data' = ImpostazioniHotelPubblicheResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Impostazioni recuperate
+                timestamp: 2026-08-28T10:15:30Z
+                data:
+                  nome: Felix Hotel
+                  indirizzo: Via Roma 1, 47921 Rimini (RN)
+                  telefono: "+39 0541 123456"
+                  email: info@felixhotel.it
+                  orarioCheckInDefault: "14:00:00"
+                  orarioCheckOutDefault: "10:00:00"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -3883,6 +4032,206 @@ components:
         descrizione:
           type: string
           example: Connessione senza fili gratuita in tutta la struttura
+
+    ImpostazioniHotelRequest:
+      type: object
+      description: >
+        Dati della struttura in scrittura. I limiti ricalcano le colonne del
+        database (V1__init_schema.sql per i primi sei campi,
+        V8__identita_struttura.sql per quelli aggiunti dalla fase 2): senza, un
+        valore fuori misura arriverebbe fino a Postgres e tornerebbe al client
+        come 500 invece che come 400.
+        **Obbligatori solo i tre campi che il V1 dichiara NOT NULL**: nome e i
+        due orari. Tutto il resto e' facoltativo — un albergo che sta
+        configurando il gestionale ha il proprio nome prima di avere sottomano
+        il codice ISTAT del comune, e obbligarlo a cercarlo per salvare il
+        numero di telefono renderebbe la schermata inutilizzabile.
+        **Sui codici non c'e' nessuna validazione di formato oltre alla
+        lunghezza**, ed e' una scelta dichiarata: la partita IVA di una societa'
+        estera, un codice fiscale di persona fisica e la numerazione di
+        Alloggiati Web non hanno la stessa forma, e un pattern scritto su quella
+        italiana rifiuterebbe valori legittimi. Chi li inserisce li legge da un
+        documento; la verifica vera la fa il servizio che li riceve.
+      required:
+        - nome
+        - orarioCheckInDefault
+        - orarioCheckOutDefault
+      properties:
+        nome:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Nome commerciale della struttura, quello che il sito mostra.
+          example: Felix Hotel
+        indirizzo:
+          type: string
+          maxLength: 300
+          example: Via Roma 1, 47921 Rimini (RN)
+        telefono:
+          type: string
+          maxLength: 30
+          example: "+39 0541 123456"
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          description: >
+            Indirizzo di contatto pubblico della struttura. **Non e' una
+            credenziale**: non ha niente a che vedere con le email degli account
+            e non deve essere unica.
+          example: info@felixhotel.it
+        orarioCheckInDefault:
+          type: string
+          format: time
+          description: >
+            Ora a partire dalla quale la struttura consegna le camere.
+            **E' un'informazione, non un vincolo**: nessun endpoint la applica —
+            PUT /api/prenotazioni/{id}/check-in registra l'arrivo in qualunque
+            momento della giornata. Serve a chi legge il sito e a chi sta al
+            banco.
+            **In ingresso i secondi sono facoltativi** ("14:00" e "14:00:00"
+            valgono uguale), mentre **in risposta ci sono sempre**: e' come
+            Jackson serializza un LocalTime, ed e' scritto qui perche' gli
+            esempi delle due parti sembrano altrimenti incoerenti.
+          example: "14:00"
+        orarioCheckOutDefault:
+          type: string
+          format: time
+          description: Ora entro la quale la camera va liberata. Informativa come la precedente.
+          example: "10:00"
+        ragioneSociale:
+          type: string
+          maxLength: 200
+          description: >
+            Denominazione legale di chi gestisce la struttura, che spesso non
+            coincide col nome commerciale. Serve alle fatture.
+          example: Felix Hotel S.r.l.
+        partitaIva:
+          type: string
+          maxLength: 20
+          description: Partita IVA di chi emette le fatture. Nessun controllo di formato, vedi sopra.
+          example: "01234567890"
+        codiceFiscale:
+          type: string
+          maxLength: 16
+          description: >
+            Codice fiscale del titolare o della societa'. Per una societa'
+            coincide di norma con la partita IVA, ma non sempre — sono due campi
+            perche' sono due dati.
+          example: "01234567890"
+        cin:
+          type: string
+          maxLength: 30
+          description: >
+            Codice Identificativo Nazionale della struttura ricettiva. Va
+            esposto negli annunci e nelle comunicazioni.
+          example: IT099014B4XYZW1234
+        comune:
+          type: string
+          maxLength: 100
+          description: Comune in cui la struttura si trova, per esteso.
+          example: Rimini
+        codiceIstatComune:
+          type: string
+          maxLength: 6
+          description: >
+            Codice ISTAT del comune, sei cifre. E' la chiave con cui si
+            identifica il comune nelle rilevazioni statistiche e nel calcolo
+            della tassa di soggiorno, che cambia da comune a comune.
+          example: "099014"
+        codiceStrutturaAlloggiati:
+          type: string
+          maxLength: 20
+          description: >
+            Identificativo assegnato dalla Questura per l'invio delle schedine
+            ad Alloggiati Web. Senza, le schedine non si possono trasmettere.
+          example: "RN012345"
+
+    ImpostazioniHotelResponse:
+      type: object
+      description: >
+        Impostazioni complete della struttura, come le vede un ADMIN.
+        **Non porta l'id**, al contrario di ogni altra risposta del progetto: la
+        riga e' una sola e non c'e' nessuna rotta che la indirizzi per id, quindi
+        pubblicarlo direbbe che esiste una collezione da cui sceglierla.
+      properties:
+        nome:
+          type: string
+          example: Felix Hotel
+        indirizzo:
+          type: string
+          example: Via Roma 1, 47921 Rimini (RN)
+        telefono:
+          type: string
+          example: "+39 0541 123456"
+        email:
+          type: string
+          format: email
+          example: info@felixhotel.it
+        orarioCheckInDefault:
+          type: string
+          format: time
+          example: "14:00:00"
+        orarioCheckOutDefault:
+          type: string
+          format: time
+          example: "10:00:00"
+        ragioneSociale:
+          type: string
+          example: Felix Hotel S.r.l.
+        partitaIva:
+          type: string
+          example: "01234567890"
+        codiceFiscale:
+          type: string
+          example: "01234567890"
+        cin:
+          type: string
+          example: IT099014B4XYZW1234
+        comune:
+          type: string
+          example: Rimini
+        codiceIstatComune:
+          type: string
+          example: "099014"
+        codiceStrutturaAlloggiati:
+          type: string
+          example: "RN012345"
+
+    ImpostazioniHotelPubblicheResponse:
+      type: object
+      description: >
+        Il sottoinsieme delle impostazioni che chiunque puo' leggere: nome,
+        indirizzo, recapiti e orari.
+        **E' uno schema separato e non lo stesso con dei campi vuoti.** La
+        differenza conta: qui i campi fiscali non esistono, quindi non c'e'
+        nessun punto del codice in cui qualcuno possa dimenticarsi di
+        cancellarli. Un DTO solo con i campi riservati messi a null avrebbe
+        funzionato allo stesso modo finche' nessuno aggiunge un campo — e il
+        giorno che qualcuno lo aggiunge, quel campo esce pubblico senza che
+        nessuno l'abbia deciso.
+      properties:
+        nome:
+          type: string
+          example: Felix Hotel
+        indirizzo:
+          type: string
+          example: Via Roma 1, 47921 Rimini (RN)
+        telefono:
+          type: string
+          example: "+39 0541 123456"
+        email:
+          type: string
+          format: email
+          example: info@felixhotel.it
+        orarioCheckInDefault:
+          type: string
+          format: time
+          example: "14:00:00"
+        orarioCheckOutDefault:
+          type: string
+          format: time
+          example: "10:00:00"
 
     ApiBaseResponse:
       type: object

@@ -3,6 +3,7 @@ package com.felixhotel.backend.support;
 import com.felixhotel.backend.dto.CameraRequest;
 import com.felixhotel.backend.dto.CameraStatoRequest;
 import com.felixhotel.backend.dto.DotazioneRequest;
+import com.felixhotel.backend.dto.ImpostazioniHotelRequest;
 import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.MediaCameraOrdineRequest;
 import com.felixhotel.backend.dto.MediaCameraRequest;
@@ -22,6 +23,7 @@ import com.felixhotel.backend.dto.TipologiaCameraRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -137,6 +139,17 @@ public class TestDataFactory {
      * noto, che con un prefisso solo non sarebbe esprimibile.
      */
     public String nomeDotazioneUnivoco(String prefisso) {
+        return nomeUnivoco(prefisso);
+    }
+
+    /**
+     * Un nome che nessun'altra chiamata di questa esecuzione produrra'. E' il
+     * meccanismo dietro {@link #nomeDotazioneUnivoco(String)} e dietro il nome
+     * della struttura, che non ha nessun vincolo di unicita' da rispettare ma ha
+     * lo stesso bisogno: distinguere quello che il test ha appena scritto da
+     * quello che c'era prima.
+     */
+    public String nomeUnivoco(String prefisso) {
         return prefisso + " " + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
     }
 
@@ -342,5 +355,31 @@ public class TestDataFactory {
     /** Corpo del cambio password di un account del personale. */
     public StaffPasswordRequest staffPasswordRequest(String password) {
         return new StaffPasswordRequest().password(password);
+    }
+
+    /**
+     * Impostazioni della struttura valide in ogni campo, facoltativi compresi.
+     *
+     * <p><b>Il nome e' univoco anche se nessun vincolo lo pretende</b>, al
+     * contrario delle altre richieste dove serve a non violare un indice. Qui
+     * la riga e' una sola e ogni test la sovrascrive, quindi senza un valore
+     * diverso ad ogni chiamata un test che verifica di aver salvato passerebbe
+     * anche trovando quello che c'era prima.
+     */
+    public ImpostazioniHotelRequest impostazioniHotelRequest() {
+        return new ImpostazioniHotelRequest()
+                .nome(nomeUnivoco("Felix Hotel"))
+                .indirizzo("Via Roma 1, 47921 Rimini (RN)")
+                .telefono("+39 0541 123456")
+                .email("info@felixhotel.it")
+                .orarioCheckInDefault(LocalTime.of(14, 0))
+                .orarioCheckOutDefault(LocalTime.of(10, 0))
+                .ragioneSociale("Felix Hotel S.r.l.")
+                .partitaIva("01234567890")
+                .codiceFiscale("01234567890")
+                .cin("IT099014B4XYZW1234")
+                .comune("Rimini")
+                .codiceIstatComune("099014")
+                .codiceStrutturaAlloggiati("RN012345");
     }
 }
