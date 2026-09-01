@@ -1,11 +1,14 @@
 package com.felixhotel.backend.api;
 
 import com.felixhotel.backend.dto.CanalePrenotazione;
+import com.felixhotel.backend.dto.PeriodoTariffarioRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
+import com.felixhotel.backend.dto.PrezzoGiorno;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.entity.Prenotazione;
 import com.felixhotel.backend.entity.StatoPrenotazione;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.service.impl.DurataSoggiorno;
 import com.felixhotel.backend.support.CreatoreStaff;
 import com.felixhotel.backend.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +17,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -1400,6 +1407,231 @@ class PrenotazioneApiIT extends IntegrationTestBase {
                             .content(json(dati.annullamentoRequest("Disdetta telefonica"))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.stato").value("ANNULLATA"));
+        }
+    }
+
+    /**
+     * Crea un periodo tariffario sulla tipologia, dalla prima all'ultima notte
+     * comprese.
+     *
+     * <p>Passa dall'endpoint vero e non dal repository: e' il modo in cui un
+     * albergatore configura davvero il calendario, e cosi' questi test provano
+     * anche che i due pezzi si parlino.
+     */
+    private void creaTariffa(String tokenAdmin, long idTipologia,
+                             PeriodoTariffarioRequest richiesta) throws Exception {
+        mockMvc.perform(post(TIPOLOGIE + "/" + idTipologia + "/tariffe")
+                        .header("Authorization", "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(richiesta)))
+                .andExpect(status().isCreated());
+    }
+
+    /**
+     * Il primo giorno della settimana indicato, abbastanza in la' da non
+     * scontrarsi con le date degli altri test.
+     *
+     * <p><b>Serve a rendere deterministici i test sui prezzi per giorno della
+     * settimana.</b> Contare i giorni a mano da "fra due settimane" darebbe un
+     * test che passa il martedi' e fallisce il sabato, cioe' il tipo di rosso
+     * che si insegue per mezz'ora prima di capire che dipende da quando gira la
+     * suite.
+     */
+    private LocalDate prossimo(DayOfWeek giorno, int settimaneAvanti) {
+        return LocalDate.now().plusWeeks(settimaneAvanti)
+                .with(TemporalAdjusters.next(giorno));
+    }
+
+    @Nested
+    @DisplayName("POST /api/prenotazioni — l'importo secondo le tariffe")
+    class ImportoDaTariffe {
+
+        @Test
+        @DisplayName("senza nessun periodo configurato l'importo resta il listino per le notti")
+        void crea_senzaTariffe_usaIlListino() throws Exception {
+            // given: una tipologia a 120 di listino e nessun periodo tariffario
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate arrivo = prossimo(DayOfWeek.MONDAY, 20);
+
+            // when/then: tre notti a 120. E' la garanzia che un albergo che non
+            // configura niente continui a vendere esattamente come prima delle tariffe
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(arrivo)
+                                    .dataCheckOut(arrivo.plusDays(3)))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.importoTotale").value(360.00));
+        }
+
+        @Test
+        @DisplayName("un periodo che copre tutto il soggiorno sostituisce il listino")
+        void crea_conPeriodoCheCopreTutto_usaIlPrezzoDelPeriodo() throws Exception {
+            // given: tre notti dentro un periodo a 180
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate arrivo = prossimo(DayOfWeek.MONDAY, 21);
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(arrivo, arrivo.plusDays(10)));
+
+            // when/then: 180 x 3, non 120 x 3
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(arrivo)
+                                    .dataCheckOut(arrivo.plusDays(3)))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.importoTotale").value(540.00));
+        }
+
+        @Test
+        @DisplayName("un soggiorno che esce dal periodo paga le notti fuori al prezzo di listino")
+        void crea_aCavalloDelPeriodo_sommaNottiAPrezziDiversi() throws Exception {
+            // given: il periodo copre lunedi' e martedi' e finisce li'; il soggiorno
+            // dura tre notti — lunedi', martedi', mercoledi'
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate lunedi = prossimo(DayOfWeek.MONDAY, 22);
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(lunedi, lunedi.plusDays(1)));
+
+            // when/then: 180 + 180 + 120 = 480. E' il test che prova due cose insieme:
+            // che 'dataFine' sia l'ultima notte COMPRESA — se fosse esclusiva il conto
+            // farebbe 420 — e che le notti scoperte cadano sul listino invece di
+            // rendere il soggiorno non prenotabile
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(lunedi)
+                                    .dataCheckOut(lunedi.plusDays(3)))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.importoTotale").value(480.00));
+        }
+
+        @Test
+        @DisplayName("il prezzo di un giorno della settimana scavalca quello del periodo, solo per quella notte")
+        void crea_conPrezzoDiSabato_scavalcaSoloQuellaNotte() throws Exception {
+            // given: un periodo a 180 in cui il sabato costa 210, e un soggiorno
+            // venerdi' -> lunedi', cioe' le notti di venerdi', sabato e domenica
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate venerdi = prossimo(DayOfWeek.FRIDAY, 23);
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(venerdi, venerdi.plusDays(10))
+                    .prezziGiorno(List.of(new PrezzoGiorno()
+                            .giorno(PrezzoGiorno.GiornoEnum.SATURDAY)
+                            .prezzo(new BigDecimal("210.00")))));
+
+            // when/then: 180 + 210 + 180 = 570. Il prezzo del giorno SOSTITUISCE quello
+            // base e non ci si somma: se si sommasse il totale farebbe 750
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(venerdi)
+                                    .dataCheckOut(venerdi.plusDays(3)))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.importoTotale").value(570.00));
+        }
+
+        @Test
+        @DisplayName("un soggiorno piu' corto del minimo del periodo di arrivo e' 400")
+        void crea_sottoIlSoggiornoMinimo_risponde400() throws Exception {
+            // given: in quel periodo si vende da tre notti in su
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate arrivo = prossimo(DayOfWeek.MONDAY, 24);
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(arrivo, arrivo.plusDays(10))
+                    .soggiornoMinimo(3));
+
+            // when/then: due notti non bastano. 400 e non 409, come per la capienza
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(arrivo)
+                                    .dataCheckOut(arrivo.plusDays(2)))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+        }
+
+        @Test
+        @DisplayName("vale il minimo del periodo in cui si arriva, non di quello in cui si sconfina")
+        void crea_conMinimoDelPeriodoSuccessivo_nonLoApplica() throws Exception {
+            // given: si arriva in un periodo senza vincoli e si finisce dentro uno che
+            // ne pretende cinque
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate arrivo = prossimo(DayOfWeek.MONDAY, 25);
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(arrivo, arrivo.plusDays(1))
+                    .nome("Bassa stagione").soggiornoMinimo(1));
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(
+                            arrivo.plusDays(2), arrivo.plusDays(20))
+                    .nome("Ponte").soggiornoMinimo(5));
+
+            // when/then: due notti passano. E' l'arrivo che si vende, e rifiutare per
+            // una regola del periodo in cui l'ospite entra a meta' vorrebbe dire non
+            // vendere nemmeno la parte che era libera
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(arrivo)
+                                    .dataCheckOut(arrivo.plusDays(3)))))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("un soggiorno oltre le 90 notti e' 400, e la ricerca dice la stessa cosa")
+        void crea_oltreIlTettoDiNotti_risponde400ComeLaRicerca() throws Exception {
+            // given: una notte piu' del massimo
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate arrivo = LocalDate.now().plusDays(7);
+            LocalDate partenza = arrivo.plusDays(DurataSoggiorno.MASSIMO_NOTTI + 1);
+
+            // when/then: rifiutato dalla creazione...
+            mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + tokenCliente())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(tipologia)
+                                    .dataCheckIn(arrivo)
+                                    .dataCheckOut(partenza))))
+                    .andExpect(status().isBadRequest());
+
+            // ...e dalla ricerca con lo stesso codice. Prima del 2026-09-01 la ricerca
+            // mostrava il preventivo di un soggiorno che la creazione poi rifiutava, ed
+            // e' uno dei tre motivi per cui il tetto e' stato deciso
+            mockMvc.perform(get("/api/disponibilita")
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut", partenza.toString()))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("cambiare il listino dopo non tocca l'importo gia' fotografato")
+        void crea_poiCambiaLaTariffa_lImportoRestaQuello() throws Exception {
+            // given: una prenotazione creata quando non c'era nessun periodo
+            String admin = tokenAdmin();
+            long tipologia = tipologiaPrenotabile(admin, 1);
+            LocalDate arrivo = prossimo(DayOfWeek.MONDAY, 26);
+            String cliente = tokenCliente();
+            long prenotazione = creaPrenotazione(cliente, dati.prenotazioneRequest(tipologia)
+                    .dataCheckIn(arrivo)
+                    .dataCheckOut(arrivo.plusDays(3)));
+
+            // when: l'albergatore alza i prezzi su quelle stesse date
+            creaTariffa(admin, tipologia, dati.periodoTariffarioRequest(arrivo, arrivo.plusDays(10))
+                    .prezzoNotte(new BigDecimal("500.00")));
+
+            // then: la prenotazione vale ancora quel che valeva. E' il senso della
+            // fotografia, ed e' anche il motivo per cui modificare o cancellare un
+            // periodo non e' un'operazione pericolosa
+            mockMvc.perform(get(PRENOTAZIONI + "/" + prenotazione)
+                            .header("Authorization", "Bearer " + cliente))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.importoTotale").value(360.00));
         }
     }
 }

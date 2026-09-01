@@ -61,11 +61,22 @@ public class TipologiaCamera extends BaseAuditableEntity {
      * moltiplicato per il numero di notti l'errore diventa visibile in fattura.
      * Precisione e scala ricalcano la colonna NUMERIC(10,2).
      *
-     * <p>E' un prezzo fisso, segnaposto per scelta: il sistema di tariffe
-     * stagionali e' deliberatamente rimandato (vedi ANALISI_FUNZIONALE). Le
-     * prenotazioni non ne dipendono nel tempo — si portano dietro il proprio
-     * {@code importoTotale} calcolato alla creazione — quindi cambiare questo
-     * valore non riscrive la storia di quelle gia' fatte.
+     * <p><b>E' il prezzo di listino, non l'unico prezzo</b>, e dal 2026-09-01
+     * non e' piu' un segnaposto. I {@link PeriodoTariffario} lo scavalcano nelle
+     * date che dichiarano, e dentro un periodo i singoli giorni della settimana
+     * possono scavalcare a loro volta: questo vale per le notti che <b>nessun
+     * periodo copre</b>. Non e' rimasto per compatibilita' — e' il livello che
+     * garantisce che ogni notte abbia un prezzo, cosi' che un albergo col
+     * calendario configurato a meta' venda lo stesso invece di smettere di
+     * vendere il primo gennaio.
+     *
+     * <p>Il prezzo di una notte si guarda quindi in due posti, e l'ordine in cui
+     * si provano sta scritto una volta sola: nel {@code coalesce} della query di
+     * {@code PeriodoTariffarioRepository.preventivi}.
+     *
+     * <p>Le prenotazioni non ne dipendono nel tempo — si portano dietro il
+     * proprio {@code importoTotale} fotografato alla creazione — quindi cambiare
+     * questo valore non riscrive la storia di quelle gia' fatte.
      */
     @Column(name = "prezzo_notte", nullable = false, precision = 10, scale = 2)
     private BigDecimal prezzoNotte;

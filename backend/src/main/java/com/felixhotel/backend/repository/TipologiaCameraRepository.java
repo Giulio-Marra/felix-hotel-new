@@ -1,14 +1,11 @@
 package com.felixhotel.backend.repository;
 
 import com.felixhotel.backend.entity.TipologiaCamera;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.math.BigDecimal;
 import java.util.Optional;
 
 /**
@@ -65,43 +62,6 @@ public interface TipologiaCameraRepository extends JpaRepository<TipologiaCamera
      */
     @Query("select t from TipologiaCamera t where t.id = :id")
     Optional<TipologiaCamera> trovaSenzaCollezioni(@Param("id") Long id);
-
-    /**
-     * Elenco paginato con i filtri della ricerca di disponibilita': capienza
-     * minima e fascia di prezzo, tutti facoltativi.
-     *
-     * <p><b>Filtra le tipologie, non la disponibilita'.</b> Questi tre criteri
-     * si rispondono guardando la sola riga della tipologia, quindi stanno in
-     * database e impaginano correttamente. Quante camere restino libere e' un
-     * calcolo su un intervallo di date, e va fatto <b>dopo</b>, sulle tipologie
-     * di questa pagina: e' il motivo per cui la ricerca restituisce anche le
-     * tipologie esaurite invece di toglierle: scartarle dopo aver impaginato
-     * darebbe pagine di dimensione variabile, che e' impaginare in memoria con
-     * un altro nome.
-     *
-     * <p>La forma e' quella gia' usata per le camere — un {@code is null or} per
-     * ogni filtro facoltativo, in una query sola invece che in otto metodi
-     * derivati combinatori.
-     *
-     * <p><b>Niente {@code @EntityGraph} sulle dotazioni</b>, come per l'elenco
-     * del catalogo e per la stessa ragione: un join su una collezione
-     * moltiplicherebbe le righe e costringerebbe Hibernate a impaginare in
-     * memoria. Le carica il {@code @BatchSize} dichiarato sulla collezione.
-     *
-     * @param capienzaMinima  se null, non restringe per capienza
-     * @param prezzoMinimo    se null, non pone un minimo
-     * @param prezzoMassimo   se null, non pone un massimo
-     */
-    @Query("""
-            select t from TipologiaCamera t
-            where (:capienzaMinima is null or t.capienzaMax >= :capienzaMinima)
-              and (:prezzoMinimo is null or t.prezzoNotte >= :prezzoMinimo)
-              and (:prezzoMassimo is null or t.prezzoNotte <= :prezzoMassimo)
-            """)
-    Page<TipologiaCamera> cercaPerCapienzaEPrezzo(@Param("capienzaMinima") Integer capienzaMinima,
-                                                  @Param("prezzoMinimo") BigDecimal prezzoMinimo,
-                                                  @Param("prezzoMassimo") BigDecimal prezzoMassimo,
-                                                  Pageable pageable);
 
     /** Usato in creazione: il nome non deve appartenere a nessun'altra tipologia. */
     boolean existsByNomeIgnoreCase(String nome);

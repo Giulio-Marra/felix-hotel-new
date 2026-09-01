@@ -8,6 +8,7 @@ import com.felixhotel.backend.dto.LoginRequest;
 import com.felixhotel.backend.dto.MediaCameraOrdineRequest;
 import com.felixhotel.backend.dto.MediaCameraRequest;
 import com.felixhotel.backend.dto.OspiteRequest;
+import com.felixhotel.backend.dto.PeriodoTariffarioRequest;
 import com.felixhotel.backend.dto.PrenotazioneAnnullamentoRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
@@ -87,6 +88,24 @@ public class TestDataFactory {
      */
     public String nomeTipologiaUnivoco() {
         return "Doppia " + System.currentTimeMillis() + "-" + CONTATORE.incrementAndGet();
+    }
+
+    /**
+     * Periodo tariffario valido in ogni campo, sulle date date. Come per le
+     * altre richieste, i test partono da questo e cambiano il solo campo che
+     * vogliono verificare ({@code periodoTariffarioRequest(a, b).soggiornoMinimo(3)}).
+     *
+     * <p>Il nome non e' univoco e non deve esserlo: al contrario di tipologie,
+     * dotazioni e camere, due periodi possono chiamarsi uguale — a distinguerli
+     * sono le date, che invece non possono accavallarsi.
+     */
+    public PeriodoTariffarioRequest periodoTariffarioRequest(LocalDate dataInizio, LocalDate dataFine) {
+        return new PeriodoTariffarioRequest()
+                .nome("Alta stagione")
+                .dataInizio(dataInizio)
+                .dataFine(dataFine)
+                .prezzoNotte(new BigDecimal("180.00"))
+                .soggiornoMinimo(1);
     }
 
     /**

@@ -671,6 +671,274 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/tipologie-camera/{id}/tariffe:
+
+    get:
+      tags:
+        - Tariffe
+      operationId: elencaTariffeTipologiaCamera
+      summary: Periodi tariffari di una tipologia di camera
+      description: >
+        Il calendario dei prezzi di una tipologia: in che date costa quanto, e
+        quante notti bisogna fermarsi come minimo. Riservato a **STAFF** e
+        **ADMIN**.
+        **Perche' lo STAFF legge e non scrive**: chi sta al banco deve poter dire
+        al telefono quanto costa una settimana di agosto, ed e' il lavoro di ogni
+        turno — la stessa ragione per cui lo STAFF legge l'inventario delle
+        camere. Decidere i prezzi no: quella e' una scelta commerciale, e resta
+        agli ADMIN come la pubblicazione delle foto.
+        **Non e' pubblico**, al contrario del catalogo: il cliente la domanda sui
+        prezzi la fa a GET /api/disponibilita, che gli risponde per le date che
+        gli interessano. Il listino intero e' un documento commerciale, e non c'e'
+        nessuna ragione di stamparlo in vetrina.
+        **E' paginato**, al contrario della galleria e del registro ospiti: quelli
+        sono elenchi di dimensione nota per costruzione, i periodi invece si
+        accumulano di anno in anno e niente li limita.
+        L'ordine e' **per data di inizio**, dal piu' vecchio al piu' recente: e'
+        un calendario, e chi lo guarda vuole vedere l'anno scorrere. Le date non
+        possono accavallarsi, quindi questo ordine non ha bisogno di un secondo
+        criterio.
+        **Le notti che nessun periodo copre non compaiono qui e non sono un
+        buco**: costano il 'prezzoNotte' di listino della tipologia. Un albergo
+        senza nessun periodo configurato vende comunque, a quel prezzo.
+        Risposta: busta ApiBaseResponsePaginated con un **array di
+        PeriodoTariffarioResponse** in 'data' e i metadati di pagina in 'page'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdTipologiaCamera'
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+      responses:
+        '200':
+          description: Pagina di periodi tariffari ('data' = array di PeriodoTariffarioResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+              example:
+                status: 200
+                message: Periodi tariffari recuperati
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  - id: 4
+                    nome: Alta stagione
+                    dataInizio: 2027-07-01
+                    dataFine: 2027-08-31
+                    prezzoNotte: 180.00
+                    soggiornoMinimo: 3
+                    prezziGiorno:
+                      - giorno: FRIDAY
+                        prezzo: 210.00
+                      - giorno: SATURDAY
+                        prezzo: 210.00
+                page:
+                  pageNumber: 0
+                  pageSize: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Tariffe
+      operationId: creaTariffaTipologiaCamera
+      summary: Aggiunge un periodo tariffario a una tipologia
+      description: >
+        Dichiara che in un certo intervallo di date questa tipologia costa un
+        certo prezzo. Riservato agli **ADMIN**.
+        **Gli estremi sono compresi tutti e due, e si contano in notti**: un
+        periodo dal 1 al 31 agosto e' la notte del 1 agosto e quella del 31, con
+        tutte quelle in mezzo. Un periodo di un giorno solo — 'dataInizio' uguale
+        a 'dataFine' — e' legittimo: e' la singola notte di Capodanno.
+        **409 se si sovrappone a un altro periodo della stessa tipologia**, e il
+        messaggio dice con quale. E' la regola che tiene in piedi tutto il resto:
+        *un giorno, un prezzo*. Senza, "quanto costa il 15 agosto" avrebbe due
+        risposte e nessun criterio per sceglierne una. Periodi di **tipologie
+        diverse** possono naturalmente coincidere — anzi, e' il caso normale:
+        l'alta stagione e' la stessa per tutte le camere.
+        **'prezziGiorno' sono scavalcamenti, non un listino**: si scrivono solo i
+        giorni che costano diversamente dal 'prezzoNotte' del periodo, e l'array
+        vuoto e' il caso normale. Non c'e' nessun obbligo di riempirli tutti e
+        sette.
+        **Il prezzo di un giorno sostituisce quello base, non ci si somma**:
+        scrivere 30 su SATURDAY vuol dire che il sabato costa trenta euro, non
+        trenta euro in piu'.
+        **Non tocca le prenotazioni gia' fatte**: il loro 'importoTotale' e' una
+        fotografia presa alla creazione, e cambiare il listino non riscrive la
+        storia di chi ha gia' comprato.
+        Risposta: busta ApiBaseResponse con **PeriodoTariffarioResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdTipologiaCamera'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodoTariffarioRequest'
+      responses:
+        '201':
+          description: Periodo tariffario creato ('data' = PeriodoTariffarioResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Periodo tariffario creato
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  id: 4
+                  nome: Alta stagione
+                  dataInizio: 2027-07-01
+                  dataFine: 2027-08-31
+                  prezzoNotte: 180.00
+                  soggiornoMinimo: 3
+                  prezziGiorno:
+                    - giorno: FRIDAY
+                      prezzo: 210.00
+                    - giorno: SATURDAY
+                      prezzo: 210.00
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/tipologie-camera/{id}/tariffe/{tariffaId}:
+
+    put:
+      tags:
+        - Tariffe
+      operationId: aggiornaTariffaTipologiaCamera
+      summary: Modifica un periodo tariffario
+      description: >
+        Riscrive il periodo per intero — date, prezzo, soggiorno minimo e prezzi
+        per giorno della settimana. Riservato agli **ADMIN**.
+        **'prezziGiorno' viene sostituito e non integrato**, come gia' fa la PUT
+        delle dotazioni su una tipologia: l'array che si manda diventa l'insieme
+        completo, e un giorno che non c'e' torna a costare il prezzo base del
+        periodo. Ometterlo o mandarlo vuoto li toglie tutti. E' la forma che
+        rende l'operazione ripetibile: si manda com'e' adesso e com'e' dopo, non
+        una differenza da calcolare.
+        **409 se le date nuove si sovrappongono a un altro periodo** della stessa
+        tipologia. Riconfermare al periodo le proprie date non e' una
+        sovrapposizione: se stesso non si conta.
+        **Il periodo si indirizza dentro la sua tipologia** e non da una rotta
+        propria: un periodo che esiste ma appartiene a un'altra tipologia da'
+        **404** come se non ci fosse, invece di essere modificato a chi ha
+        sbagliato URL. Stessa scelta gia' fatta per le foto.
+        **Non tocca le prenotazioni gia' fatte**, per la stessa ragione della
+        POST: l'importo e' una fotografia.
+        Risposta: busta ApiBaseResponse con **PeriodoTariffarioResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdTipologiaCamera'
+        - $ref: '#/components/parameters/IdPeriodoTariffario'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodoTariffarioRequest'
+      responses:
+        '200':
+          description: Periodo tariffario aggiornato ('data' = PeriodoTariffarioResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Periodo tariffario aggiornato
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  id: 4
+                  nome: Alta stagione
+                  dataInizio: 2027-07-01
+                  dataFine: 2027-09-15
+                  prezzoNotte: 175.00
+                  soggiornoMinimo: 2
+                  prezziGiorno: []
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - Tariffe
+      operationId: eliminaTariffaTipologiaCamera
+      summary: Elimina un periodo tariffario
+      description: >
+        Toglie il periodo dal calendario dei prezzi. Riservato agli **ADMIN**.
+        **Le sue date tornano al prezzo di listino** della tipologia, non
+        diventano non prenotabili: e' la ragione per cui 'prezzoNotte' e' rimasto
+        su TipologiaCameraResponse quando sono nate le tariffe, e per cui
+        cancellare un periodo non e' un'operazione pericolosa.
+        **I prezzi per giorno della settimana se ne vanno con lui**: sono righe
+        del periodo e non hanno vita propria.
+        **Non tocca le prenotazioni gia' fatte**: il loro importo e' una
+        fotografia, e resta quello anche se il periodo che lo aveva prodotto non
+        esiste piu'.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdTipologiaCamera'
+        - $ref: '#/components/parameters/IdPeriodoTariffario'
+      responses:
+        '200':
+          description: Periodo tariffario eliminato ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Periodo tariffario eliminato
+                timestamp: 2026-09-01T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/dotazioni:
 
     get:
@@ -1285,9 +1553,17 @@ paths:
         registra chi del personale l'ha presa.
         Si prenota una **tipologia**, non una stanza: quale camera fisica
         tocchera' si decide al check-in.
+        **L'importo lo calcola il backend e non si manda**: e' la somma delle
+        notti secondo i periodi tariffari della tipologia
+        (GET /api/tipologie-camera/{id}/tariffe), e diventa una fotografia che
+        non cambia piu'. Per sapere in anticipo quanto verra' si chiede
+        GET /api/disponibilita sulle stesse date.
         Cosa fa fallire la richiesta, oltre ai vincoli dello schema: una
         tipologia inesistente (**400**), un numero di ospiti oltre la capienza
-        della tipologia (**400**), un check-in gia' passato (**400**) e
+        della tipologia (**400**), un check-in gia' passato (**400**), un
+        soggiorno **piu' lungo di 90 notti** (**400**), un soggiorno **piu' corto
+        del minimo** che il periodo tariffario dell'arrivo impone (**400**, e il
+        minimo lo si legge da 'soggiornoMinimo' in GET /api/disponibilita) e
         **nessuna camera libera** per quel periodo (**409**).
         Risposta: busta ApiBaseResponse con **PrenotazioneResponse** in 'data'.
       security:
@@ -2011,6 +2287,21 @@ paths:
         sul numero di prenotazioni che lo toccano: chi prenota vuole una stanza
         per tutte le notti che ha chiesto. Tre soggiorni brevi messi in fila
         occupano una camera sola.
+        **Il prezzo lo decidono i periodi tariffari**, dal 2026-09-01:
+        'importoTotale' e' la somma delle notti una per una, e due notti dello
+        stesso soggiorno possono costare diversamente — periodi diversi, o giorni
+        della settimana diversi. E' anche il motivo per cui i filtri
+        'prezzoMinimo' e 'prezzoMassimo' guardano il prezzo **medio delle notti
+        cercate** e non il listino della tipologia.
+        **'soggiornoMinimo' dice quante notti quella tipologia pretende** con
+        quell'arrivo. Le righe che non lo rispettano **non vengono tolte**, come
+        non vengono tolte le esaurite: la creazione le rifiuterebbe con un 400, e
+        vederle con il loro minimo scritto accanto e' cio' che permette a chi
+        cerca di allungare di una notte invece di credere che non ci sia posto.
+        **Un periodo piu' lungo di 90 notti e' 400**, come per la creazione e con
+        lo stesso numero: cosi' i due endpoint non dicono cose diverse sulla
+        stessa richiesta, che e' esattamente cio' che succedeva prima che il tetto
+        esistesse.
         Risposta: busta ApiBaseResponsePaginated con un **array di
         DisponibilitaTipologia** in 'data' e i metadati di pagina in 'page'.
       parameters:
@@ -2606,6 +2897,19 @@ components:
         format: int64
         minimum: 1
 
+    IdPeriodoTariffario:
+      name: tariffaId
+      in: path
+      required: true
+      description: >
+        Identificativo del periodo tariffario. Si accompagna sempre all'id della
+        tipologia nel percorso: un periodo non ha una rotta propria, esiste
+        dentro il calendario dei prezzi della tipologia a cui appartiene.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
     IdPrenotazione:
       name: id
       in: path
@@ -2699,8 +3003,14 @@ components:
       description: >
         Se valorizzato, esclude le tipologie che costano **meno** di tanto per
         notte. Il confronto e' sul prezzo di una notte e non sul totale del
-        soggiorno: e' il numero con cui si ragiona scegliendo una camera, e
-        l'unico che non cambia se si spostano le date.
+        soggiorno: e' il numero con cui si ragiona scegliendo una camera.
+        **E' il prezzo medio delle notti cercate, non il listino della
+        tipologia**, e dal 2026-09-01 questa e' la differenza che conta: con le
+        tariffe per periodo la stessa camera costa cose diverse a Ferragosto e in
+        novembre, quindi filtrare sul listino vorrebbe dire offrire a chi cerca
+        sotto i cento euro una stanza che in quelle date ne costa duecento.
+        Medio, perche' dentro un soggiorno le notti possono costare diversamente
+        l'una dall'altra — periodi diversi, o giorni della settimana diversi.
       schema:
         type: number
         minimum: 0
@@ -2713,7 +3023,9 @@ components:
       required: false
       description: >
         Se valorizzato, esclude le tipologie che costano **piu'** di tanto per
-        notte. Si combina col minimo; un massimo inferiore al minimo non e' un
+        notte. Come il minimo, guarda il **prezzo medio delle notti cercate** e
+        non il listino della tipologia.
+        Si combina col minimo; un massimo inferiore al minimo non e' un
         errore, e' una pagina vuota — come per gli altri filtri, una domanda ben
         posta a cui la risposta e' "niente".
       schema:
@@ -3087,10 +3399,16 @@ components:
             come per il consenso privacy in registrazione. Rifiutare e'
             deliberato: la colonna e' NUMERIC(10,2) e accettare il valore
             vorrebbe dire arrotondarlo senza dirlo a chi l'ha scritto.
-            Provvisorio per disegno: e' un prezzo fisso, segnaposto finche' non
-            esistera' un vero sistema di tariffe stagionali (vedi
-            ANALISI_FUNZIONALE). Il massimo corrisponde a quanto entra nella
-            colonna.
+            **E' il prezzo di listino**, cioe' quello che vale per le notti che
+            nessun periodo tariffario copre. Dal 2026-09-01 non e' piu' l'unico
+            prezzo che esista: i periodi
+            (GET /api/tipologie-camera/{id}/tariffe) lo scavalcano nelle date che
+            dichiarano, e dentro un periodo i singoli giorni della settimana
+            possono scavalcare a loro volta. Non e' rimasto per compatibilita' —
+            e' il livello che garantisce che ogni notte abbia un prezzo, cosi'
+            che un albergo con il calendario configurato a meta' venda lo stesso
+            invece di smettere di vendere il primo gennaio.
+            Il massimo corrisponde a quanto entra nella colonna.
           example: 120.00
 
     TipologiaCameraResponse:
@@ -3122,6 +3440,12 @@ components:
           example: 2
         prezzoNotte:
           type: number
+          description: >
+            Prezzo di listino per notte, in euro. **Non e' sempre il prezzo che
+            si paga**: nelle date coperte da un periodo tariffario vale quello
+            del periodo. Il numero che conta per un soggiorno preciso e'
+            l''importoTotale'' che restituisce GET /api/disponibilita per quelle
+            date.
           example: 120.00
         dotazioni:
           type: array
@@ -3570,11 +3894,15 @@ components:
         importoTotale:
           type: number
           description: >
-            Totale del soggiorno in euro: prezzo per notte della tipologia
-            moltiplicato per il numero di notti. E' **una fotografia presa alla
-            creazione** e non un calcolo rifatto ad ogni lettura — se domani il
-            listino cambia, questa prenotazione continua a valere quel che
-            valeva quando e' stata fatta.
+            Totale del soggiorno in euro: **la somma delle notti, una per una**.
+            Dal 2026-09-01 non e' piu' una moltiplicazione — ogni notte vale il
+            prezzo del periodo tariffario che la copre, del giorno della settimana
+            se quel periodo ne dichiara uno, o il listino della tipologia se
+            nessun periodo la copre.
+            **La fotografia resta, cambia solo chi la scatta**: e' presa alla
+            creazione e non e' un calcolo rifatto ad ogni lettura, quindi se
+            domani il listino cambia questa prenotazione continua a valere quel
+            che valeva quando e' stata fatta.
           example: 360.00
         note:
           type: string
@@ -3746,13 +4074,33 @@ components:
         importoTotale:
           type: number
           description: >
-            Quanto costerebbe il soggiorno: prezzo per notte per il numero di
-            notti. E' **il preventivo di oggi**, non un impegno — il totale che
-            vale e' quello fotografato alla creazione della prenotazione, e se il
-            listino cambia in mezzo i due numeri possono differire.
+            Quanto costerebbe il soggiorno: **la somma delle notti, una per una**.
+            Dal 2026-09-01 non e' piu' una moltiplicazione: ogni notte vale il
+            prezzo del suo giorno della settimana se il periodo che la copre ne
+            dichiara uno, altrimenti il prezzo base di quel periodo, altrimenti il
+            listino della tipologia. Due notti dello stesso soggiorno possono
+            quindi costare diversamente, ed e' il motivo per cui qui c'e' un
+            totale e non un prezzo unitario da moltiplicare.
+            E' **il preventivo di oggi**, non un impegno — il totale che vale e'
+            quello fotografato alla creazione della prenotazione, e se il listino
+            cambia in mezzo i due numeri possono differire.
             Compare anche sulle tipologie esaurite: e' il prezzo di quella
             camera per quel periodo, e non dipende da quante ne restano.
           example: 360.00
+        soggiornoMinimo:
+          type: integer
+          description: >
+            Quante notti bisogna fermarsi come minimo per poter prenotare questa
+            tipologia con questo arrivo. **Uno vuol dire nessun vincolo.**
+            Lo decide il periodo tariffario che copre la **notte di arrivo**, non
+            il piu' severo fra quelli che il soggiorno attraversa.
+            Compare qui perche' un soggiorno piu' corto viene rifiutato dalla
+            creazione con un 400, e senza questo numero il client non avrebbe
+            modo di saperlo prima di provare. **La ricerca non toglie le righe
+            che non lo rispettano**, per la stessa ragione per cui non toglie le
+            esaurite: sapere che la Suite esiste ma vuole tre notti e'
+            un'informazione, non vederla affatto non lo e'.
+          example: 1
 
     UtenteSintesi:
       type: object
@@ -4305,3 +4653,193 @@ components:
           type: integer
           description: Numero totale di pagine
           example: 7
+
+    PrezzoGiorno:
+      type: object
+      description: >
+        Il prezzo di un giorno preciso della settimana dentro un periodo
+        tariffario: "in alta stagione il sabato costa 210 invece di 180".
+        **Si chiama PrezzoGiorno e non PrezzoGiornoSettimana**, che sarebbe stato
+        il nome naturale, solo per non generare una classe omonima dell'entita'
+        che ha lo stesso ruolo: il progetto ne ha gia' una coppia cosi'
+        (StatoCamera) ed e' un fastidio ricorrente in ogni file che le usa
+        entrambe. Costa una parola in meno qui e nessun import qualificato altrove.
+        **E' uno scavalcamento, non un listino completo**: i giorni che non
+        compaiono costano il 'prezzoNotte' del periodo, e il caso normale sono
+        una o due righe. Non serve elencarli tutti e sette.
+        **Perche' non due campi 'prezzoFeriale' e 'prezzoWeekend'**, che sarebbero
+        stati molto piu' brevi: quella forma pretende che "quali giorni sono
+        weekend" sia scritto nel programma, e due alberghi lo vogliono diverso —
+        un rifugio di montagna ha il picco venerdi' e sabato, un hotel di citta'
+        che vive di trasferte ce l'ha dal lunedi' al giovedi'.
+      required:
+        - giorno
+        - prezzo
+      properties:
+        giorno:
+          type: string
+          description: >
+            Il giorno della settimana, con i nomi di java.time.DayOfWeek. Lo
+            stesso giorno non puo' comparire due volte nello stesso periodo:
+            sarebbero due prezzi per lo stesso sabato, senza nessun criterio per
+            sceglierne uno.
+          enum:
+            - MONDAY
+            - TUESDAY
+            - WEDNESDAY
+            - THURSDAY
+            - FRIDAY
+            - SATURDAY
+            - SUNDAY
+          example: SATURDAY
+        prezzo:
+          type: number
+          description: >
+            Quanto costa una notte di quel giorno, in euro.
+            **Sostituisce il prezzo base del periodo, non ci si somma**: scrivere
+            30 vuol dire che quel giorno costa trenta euro, non trenta euro in
+            piu' — la differenza vale la pena leggerla prima di configurare un
+            weekend.
+            Al massimo **due decimali**: la colonna e' NUMERIC(10,2) e un terzo
+            decimale verrebbe troncato in silenzio, quindi viene rifiutato (il
+            vincolo vive nel Service, OpenAPI non sa esprimerlo).
+          minimum: 0
+          maximum: 99999999.99
+          example: 210.00
+
+    PeriodoTariffarioRequest:
+      type: object
+      description: >
+        Un intervallo di date in cui una tipologia costa un certo prezzo a notte.
+        **Gli estremi sono compresi tutti e due e si contano in notti**: dal 1 al
+        31 agosto sono la notte del 1 e quella del 31, con tutte quelle in mezzo.
+        Un periodo di un giorno solo e' legittimo — e' la notte di Capodanno.
+        **Due periodi della stessa tipologia non possono sovrapporsi**: e' 409, e
+        il messaggio dice con quale. Fra tipologie diverse invece coincidere e' il
+        caso normale, perche' l'alta stagione e' la stessa per tutte le camere.
+      required:
+        - nome
+        - dataInizio
+        - dataFine
+        - prezzoNotte
+      properties:
+        nome:
+          type: string
+          description: >
+            Come lo chiama l'albergatore: "Alta stagione", "Ponte del 2 giugno".
+            **Non e' una chiave e non e' unico**, nemmeno dentro la stessa
+            tipologia: "Alta stagione" puo' legittimamente essere due periodi
+            staccati dello stesso anno, e a distinguerli sono le date — che non
+            possono accavallarsi.
+          minLength: 1
+          maxLength: 100
+          example: Alta stagione
+        dataInizio:
+          type: string
+          format: date
+          description: Prima notte compresa nel periodo.
+          example: 2027-07-01
+        dataFine:
+          type: string
+          format: date
+          description: >
+            Ultima notte compresa nel periodo. Puo' coincidere con 'dataInizio'
+            (una notte sola) ma non essere precedente: e' 400.
+          example: 2027-08-31
+        prezzoNotte:
+          type: number
+          description: >
+            Prezzo base di una notte del periodo, in euro. I singoli giorni della
+            settimana possono scavalcarlo con 'prezziGiorno'.
+            Al massimo **due decimali**, come per il listino della tipologia e per
+            la stessa ragione: la colonna e' NUMERIC(10,2) e un terzo decimale
+            verrebbe troncato in silenzio.
+          minimum: 0
+          maximum: 99999999.99
+          example: 180.00
+        soggiornoMinimo:
+          type: integer
+          description: >
+            Quante notti bisogna fermarsi come minimo per prenotare in questo
+            periodo. **Uno vuol dire nessun vincolo**, ed e' il valore di default
+            se il campo si omette: e' il caso normale fuori stagione. In alta
+            stagione un albergo vende il ponte intero e non la singola notte, ed
+            e' questo il numero che lo dice.
+            **Quando un soggiorno attraversa piu' periodi vale il minimo del
+            periodo in cui si arriva**, non il piu' severo fra quelli toccati: e'
+            l'arrivo che si vende, e rifiutare per una regola del periodo in cui
+            l'ospite entra a meta' vorrebbe dire non vendere nemmeno la parte
+            libera.
+          minimum: 1
+          maximum: 90
+          default: 1
+          example: 3
+        prezziGiorno:
+          type: array
+          description: >
+            Prezzi che scavalcano 'prezzoNotte' per un giorno preciso della
+            settimana. **Omesso o vuoto vuol dire che tutte le notti del periodo
+            costano uguale**, ed e' il caso normale.
+            Sulla PUT questo array **sostituisce** l'insieme intero, non ci si
+            aggiunge: un giorno che non compare torna a costare il prezzo base.
+            E' la stessa forma della PUT sulle dotazioni di una tipologia, e per
+            la stessa ragione — cosi' l'operazione si puo' ripetere senza dover
+            calcolare una differenza.
+            Al massimo sette elementi, uno per giorno, e lo stesso giorno non puo'
+            comparire due volte.
+          maxItems: 7
+          items:
+            $ref: '#/components/schemas/PrezzoGiorno'
+          example:
+            - giorno: FRIDAY
+              prezzo: 210.00
+            - giorno: SATURDAY
+              prezzo: 210.00
+
+    PeriodoTariffarioResponse:
+      type: object
+      description: >
+        Un periodo tariffario come viene restituito. Non contiene la tipologia a
+        cui appartiene: sta gia' nell'URL con cui lo si e' chiesto, e ripeterla
+        vorrebbe dire spedire ad ogni riga dell'elenco un oggetto che chi chiama
+        ha gia' in mano.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 4
+        nome:
+          type: string
+          example: Alta stagione
+        dataInizio:
+          type: string
+          format: date
+          example: 2027-07-01
+        dataFine:
+          type: string
+          format: date
+          description: Ultima notte compresa, non il giorno di partenza.
+          example: 2027-08-31
+        prezzoNotte:
+          type: number
+          description: Prezzo base di una notte del periodo, in euro.
+          example: 180.00
+        soggiornoMinimo:
+          type: integer
+          description: Notti minime per prenotare. Uno vuol dire nessun vincolo.
+          example: 3
+        prezziGiorno:
+          type: array
+          description: >
+            I giorni che costano diversamente dal prezzo base, **da lunedi' a
+            domenica**. Vuoto quando tutte le notti del periodo costano uguale.
+            L'ordine e' quello della settimana e non quello in cui sono stati
+            inseriti: lo mette il codice, perche' i nomi in ordine alfabetico —
+            FRIDAY, MONDAY, SATURDAY... — non sono una settimana.
+          items:
+            $ref: '#/components/schemas/PrezzoGiorno'
+          example:
+            - giorno: FRIDAY
+              prezzo: 210.00
+            - giorno: SATURDAY
+              prezzo: 210.00

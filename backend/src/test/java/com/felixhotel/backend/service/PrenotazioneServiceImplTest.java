@@ -24,13 +24,16 @@ import com.felixhotel.backend.mapper.TipologiaCameraMapper;
 import com.felixhotel.backend.mapper.UtenteMapper;
 import com.felixhotel.backend.repository.CameraRepository;
 import com.felixhotel.backend.repository.OspiteRepository;
+import com.felixhotel.backend.repository.PeriodoTariffarioRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.repository.PreventivoTipologia;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
+import com.felixhotel.backend.service.impl.DurataSoggiorno;
 import com.felixhotel.backend.service.impl.PrenotazioneServiceImpl;
 import com.felixhotel.backend.support.OrologioPilotato;
 import com.felixhotel.backend.support.TestDataFactory;
@@ -68,6 +71,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -123,6 +127,8 @@ class PrenotazioneServiceImplTest {
     @Mock
     private OspiteRepository ospiteRepository;
     @Mock
+    private PeriodoTariffarioRepository periodoTariffarioRepository;
+    @Mock
     private ApiResponseMapper apiResponseMapper;
 
     private PrenotazioneServiceImpl prenotazioneService;
@@ -144,9 +150,17 @@ class PrenotazioneServiceImplTest {
         // il contesto che questi test riempiono a mano, e con un finto la regola che
         // pretende ruolo e tipo insieme non verrebbe esercitata da nessuno di loro.
         prenotazioneService = new PrenotazioneServiceImpl(prenotazioneRepository, tipologiaCameraRepository,
-                cameraRepository, utenteRepository, staffRepository, ospiteRepository, prenotazioneMapper,
-                apiResponseMapper, new ChiamanteCorrente(),
+                cameraRepository, utenteRepository, staffRepository, ospiteRepository,
+                periodoTariffarioRepository, prenotazioneMapper, apiResponseMapper, new ChiamanteCorrente(),
                 new OrologioPilotato(OGGI.atStartOfDay().toInstant(ZoneOffset.UTC)));
+
+        // Il preventivo di default: tre notti a 120, nessun soggiorno minimo. E'
+        // lenient perche' la maggior parte dei test di creazione non ci arriva nemmeno
+        // — si fermano prima su intestatario, canale o capienza — e senza questo ognuno
+        // di loro dovrebbe dichiarare un mondo delle tariffe che non gli interessa.
+        // Chi lo mette in discussione lo riscrive con preventivo(...).
+        lenient().when(periodoTariffarioRepository.preventivoDi(eq(ID_TIPOLOGIA), any(LocalDate.class),
+                any(LocalDate.class))).thenReturn(preventivo("360.00", 1));
     }
 
     @AfterEach
@@ -309,6 +323,40 @@ class PrenotazioneServiceImplTest {
      * distinzione non si vede: a vederla e' l'integrazione, che quel massimo lo
      * fa calcolare davvero al database.
      */
+    /**
+     * Cosa risponde la query delle tariffe: quanto costa il soggiorno e quante
+     * notti pretende come minimo.
+     *
+     * <p>Qui il numero e' finto, ed e' giusto che lo sia: la somma delle notti
+     * la fa il database, e a provarla e' {@code PrenotazioneApiIT}. Quel che si
+     * prova qui e' cosa il Service ne fa — lo fotografa, e rifiuta il soggiorno
+     * piu' corto del minimo.
+     */
+    private PreventivoTipologia preventivo(String importo, int soggiornoMinimo) {
+        return new PreventivoTipologia() {
+            @Override
+            public Long getTipologiaCameraId() {
+                return ID_TIPOLOGIA;
+            }
+
+            @Override
+            public BigDecimal getImportoTotale() {
+                return new BigDecimal(importo);
+            }
+
+            @Override
+            public int getSoggiornoMinimo() {
+                return soggiornoMinimo;
+            }
+        };
+    }
+
+    /** Sostituisce il preventivo di default con uno preciso. */
+    private void preventivoDice(String importo, int soggiornoMinimo) {
+        when(periodoTariffarioRepository.preventivoDi(eq(ID_TIPOLOGIA), any(LocalDate.class),
+                any(LocalDate.class))).thenReturn(preventivo(importo, soggiornoMinimo));
+    }
+
     private void disponibilita(long camere, long occupate) {
         when(cameraRepository.countByTipologiaCameraId(ID_TIPOLOGIA)).thenReturn(camere);
         when(prenotazioneRepository.occupazioneMassimaDi(eq(ID_TIPOLOGIA), any(LocalDate.class),
@@ -342,7 +390,7 @@ class PrenotazioneServiceImplTest {
     class Crea {
 
         @Test
-        @DisplayName("da un cliente intesta a lui, mette ONLINE e calcola il totale sulle notti")
+        @DisplayName("da un cliente intesta a lui, mette ONLINE e fotografa il totale del preventivo")
         void crea_daCliente_intestaAChiChiamaECalcolaTotale() {
             // given: un cliente autenticato, una camera libera su una sola esistente
             autenticaCliente();
@@ -356,9 +404,10 @@ class PrenotazioneServiceImplTest {
             prenotazioneService.crea(richiestaValida());
 
             // then: intestata a chi ha il token, ONLINE per costruzione, nessun gestore.
-            // Il totale e' 120 x 3 notti: tre e non quattro, perche' chi arriva il 7 e
-            // parte il 10 dorme tre notti — ed e' la stessa aritmetica che lascia il
-            // giorno di partenza libero per chi arriva quel giorno
+            // Il totale e' quello che la query delle tariffe ha sommato: dal 2026-09-01
+            // questa classe non lo calcola piu', lo fotografa. A provare che la somma sia
+            // giusta — notte per notte, con i periodi e i giorni della settimana — e'
+            // PrenotazioneApiIT, dove a farla e' il database vero
             ArgumentCaptor<Prenotazione> salvata = ArgumentCaptor.forClass(Prenotazione.class);
             verify(prenotazioneRepository).save(salvata.capture());
 
@@ -644,20 +693,83 @@ class PrenotazioneServiceImplTest {
         @Test
         @DisplayName("con un totale che non entra nella colonna risponde 400 invece di far esplodere Postgres")
         void crea_conImportoFuoriScala_sollevaBadRequest() {
-            // given: prezzo massimo per un soggiorno lunghissimo
+            // given: un preventivo che supera quanto entra in NUMERIC(10,2). Dal
+            // 2026-09-01 non lo si ottiene piu' alzando il prezzo della tipologia — il
+            // totale lo calcolano le tariffe — quindi il caso si costruisce dicendo al
+            // finto quanto ha sommato
             autenticaCliente();
-            TipologiaCamera cara = tipologia();
-            cara.setPrezzoNotte(new BigDecimal("99999999.99"));
             when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
-            when(tipologiaCameraRepository.trovaSenzaCollezioni(ID_TIPOLOGIA)).thenReturn(Optional.of(cara));
+            tipologiaEsiste();
+            preventivoDice("100000000.00", 1);
             disponibilita(1, 0);
 
-            // when/then: il totale non lo manda il client, nasce da una moltiplicazione,
-            // quindi nessuna validazione dello schema puo' fermarlo prima di noi
+            // when/then: il totale non lo manda il client, nasce da una somma, quindi
+            // nessuna validazione dello schema puo' fermarlo prima di noi
             assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()))
                     .isInstanceOf(BadRequestException.class);
 
             verify(prenotazioneRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("un soggiorno piu' corto del minimo del periodo risponde 400 e non tocca il database")
+        void crea_sottoIlSoggiornoMinimo_sollevaBadRequest() {
+            // given: in quel periodo si vende da tre notti in su, e la richiesta ne
+            // chiede tre... ma il minimo e' quattro
+            autenticaCliente();
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
+            tipologiaEsiste();
+            preventivoDice("480.00", 4);
+
+            // when/then: 400 e non 409, come per la capienza — non c'e' nessuno stato
+            // con cui la richiesta confligga, e' fuori da cio' che si puo' chiedere
+            assertThatThrownBy(() -> prenotazioneService.crea(richiestaValida()))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("4");
+
+            // then: il controllo viene prima della disponibilita', perche' una richiesta
+            // fuori dalle regole di vendita va detta tale anche quando per giunta non
+            // c'e' posto
+            verify(cameraRepository, never()).countByTipologiaCameraId(any());
+            verify(prenotazioneRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("il soggiorno minimo esatto passa: e' un minimo, non una soglia da superare")
+        void crea_conIlSoggiornoMinimoEsatto_creaLaPrenotazione() {
+            // given: tre notti richieste, tre notti di minimo
+            autenticaCliente();
+            when(utenteRepository.findById(ID_CLIENTE)).thenReturn(Optional.of(cliente()));
+            tipologiaEsiste();
+            preventivoDice("540.00", 3);
+            disponibilita(1, 0);
+            when(prenotazioneRepository.save(any(Prenotazione.class)))
+                    .thenReturn(prenotazioneEsistente(StatoPrenotazione.IN_ATTESA));
+
+            // when
+            prenotazioneService.crea(richiestaValida());
+
+            // then: creata, e col totale che il preventivo ha calcolato
+            ArgumentCaptor<Prenotazione> salvata = ArgumentCaptor.forClass(Prenotazione.class);
+            verify(prenotazioneRepository).save(salvata.capture());
+            assertThat(salvata.getValue().getImportoTotale()).isEqualByComparingTo("540.00");
+        }
+
+        @Test
+        @DisplayName("un soggiorno oltre il tetto di notti risponde 400 senza chiedere niente alle tariffe")
+        void crea_oltreIlTettoDiNotti_sollevaBadRequest() {
+            // given: una notte piu' del massimo
+            autenticaCliente();
+            PrenotazioneRequest richiesta = richiestaValida();
+            richiesta.setDataCheckOut(richiesta.getDataCheckIn().plusDays(DurataSoggiorno.MASSIMO_NOTTI + 1));
+
+            // when/then: lo stesso rifiuto che darebbe la ricerca, con lo stesso numero
+            assertThatThrownBy(() -> prenotazioneService.crea(richiesta))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining(String.valueOf(DurataSoggiorno.MASSIMO_NOTTI));
+
+            // then: il controllo sta fra quelli sulle date, quindi prima di ogni lettura
+            verifyNoInteractions(periodoTariffarioRepository, cameraRepository);
         }
 
         @Test

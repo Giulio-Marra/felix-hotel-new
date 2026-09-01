@@ -1,8 +1,10 @@
 package com.felixhotel.backend.api;
 
+import com.felixhotel.backend.dto.PeriodoTariffarioRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.TipologiaCameraRequest;
+import com.felixhotel.backend.service.impl.DurataSoggiorno;
 import com.felixhotel.backend.support.CreatoreStaff;
 import com.felixhotel.backend.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
@@ -128,6 +130,22 @@ class DisponibilitaApiIT extends IntegrationTestBase {
         mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/conferma")
                         .header("Authorization", "Bearer " + cliente))
                 .andExpect(status().isOk());
+    }
+
+    /**
+     * Crea un periodo tariffario sulla tipologia, passando dall'endpoint vero.
+     *
+     * <p>Serve ai test che devono distinguere il prezzo di listino da quello che
+     * si paga davvero in quelle date: dal 2026-09-01 sono due numeri diversi, e
+     * i filtri guardano il secondo.
+     */
+    private void creaTariffa(String tokenAdmin, long idTipologia,
+                             PeriodoTariffarioRequest richiesta) throws Exception {
+        mockMvc.perform(post(TIPOLOGIE + "/" + idTipologia + "/tariffe")
+                        .header("Authorization", "Bearer " + tokenAdmin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(richiesta)))
+                .andExpect(status().isCreated());
     }
 
     private LocalDate fraSettimane(int settimane) {
@@ -312,6 +330,107 @@ class DisponibilitaApiIT extends IntegrationTestBase {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.length()").value(1))
                     .andExpect(jsonPath("$.data[0].camereDisponibili").value(0));
+        }
+
+
+        @Test
+        @DisplayName("il filtro di prezzo guarda quanto costano DAVVERO quelle notti, non il listino")
+        void ricerca_conPeriodoTariffario_filtraSulPrezzoEffettivo() throws Exception {
+            // given: una tipologia il cui listino e' un valore univoco, e un periodo
+            // che su quelle date ne impone un altro, anch'esso univoco
+            String admin = tokenAdmin();
+            TipologiaDiProva tipologia = tipologiaIsolata(admin, 1, 2);
+            BigDecimal listino = tipologia.prezzo();
+            BigDecimal diPeriodo = dati.prezzoUnivoco();
+            LocalDate arrivo = fraSettimane(20);
+            creaTariffa(admin, tipologia.id(), dati.periodoTariffarioRequest(arrivo, arrivo.plusDays(10))
+                    .prezzoNotte(diPeriodo));
+
+            // when: si filtra sul prezzo di LISTINO
+            mockMvc.perform(get(DISPONIBILITA)
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut", arrivo.plusDays(2).toString())
+                            .param("prezzoMinimo", listino.toPlainString())
+                            .param("prezzoMassimo", listino.toPlainString()))
+                    // then: non compare. Prima del 2026-09-01 sarebbe comparsa, ed e' il
+                    // difetto: chi cerca sotto i cento euro per Ferragosto non deve
+                    // vedersi offrire una stanza che a Ferragosto ne costa duecento
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isEmpty());
+
+            // when: si filtra sul prezzo del PERIODO
+            mockMvc.perform(get(DISPONIBILITA)
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut", arrivo.plusDays(2).toString())
+                            .param("prezzoMinimo", diPeriodo.toPlainString())
+                            .param("prezzoMassimo", diPeriodo.toPlainString()))
+                    // then: eccola, col totale di due notti a quel prezzo
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.length()").value(1))
+                    .andExpect(jsonPath("$.data[0].importoTotale")
+                            .value(diPeriodo.multiply(BigDecimal.valueOf(2)).doubleValue()));
+        }
+
+        @Test
+        @DisplayName("il soggiorno minimo compare nella risposta, e la riga non viene tolta")
+        void ricerca_conSoggiornoMinimo_mostraLaRigaColMinimo() throws Exception {
+            // given: un periodo che vende da tre notti in su
+            String admin = tokenAdmin();
+            TipologiaDiProva tipologia = tipologiaIsolata(admin, 1, 2);
+            BigDecimal diPeriodo = dati.prezzoUnivoco();
+            LocalDate arrivo = fraSettimane(21);
+            creaTariffa(admin, tipologia.id(), dati.periodoTariffarioRequest(arrivo, arrivo.plusDays(10))
+                    .prezzoNotte(diPeriodo)
+                    .soggiornoMinimo(3));
+
+            // when: si cerca per UNA notte sola, cioe' meno del minimo
+            mockMvc.perform(get(DISPONIBILITA)
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut", arrivo.plusDays(1).toString())
+                            .param("prezzoMinimo", diPeriodo.toPlainString())
+                            .param("prezzoMassimo", diPeriodo.toPlainString()))
+                    // then: la riga c'e' lo stesso, col minimo scritto accanto. Toglierla
+                    // sarebbe peggio che mostrarla: cosi' chi cerca capisce che basta
+                    // allungare di due notti, invece di credere che non ci sia posto
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.length()").value(1))
+                    .andExpect(jsonPath("$.data[0].soggiornoMinimo").value(3))
+                    .andExpect(jsonPath("$.data[0].camereDisponibili").value(1));
+        }
+
+        @Test
+        @DisplayName("senza nessun periodo il soggiorno minimo e' 1, cioe' nessun vincolo")
+        void ricerca_senzaTariffe_soggiornoMinimoUno() throws Exception {
+            // given: una tipologia senza nessun periodo configurato
+            String admin = tokenAdmin();
+            BigDecimal prezzo = tipologiaIsolata(admin, 1, 2).prezzo();
+            LocalDate arrivo = fraSettimane(22);
+
+            // when/then: il coalesce della query porta a 1 la notte di arrivo che nessun
+            // periodo copre — nessun vincolo, che e' il caso normale fuori stagione
+            mockMvc.perform(get(DISPONIBILITA)
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut", arrivo.plusDays(1).toString())
+                            .param("prezzoMinimo", prezzo.toPlainString())
+                            .param("prezzoMassimo", prezzo.toPlainString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].soggiornoMinimo").value(1));
+        }
+
+        @Test
+        @DisplayName("un periodo piu' lungo di 90 notti e' 400, come per la creazione")
+        void ricerca_oltreIlTettoDiNotti_risponde400() throws Exception {
+            // given
+            LocalDate arrivo = fraSettimane(23);
+
+            // when/then: senza questo tetto la ricerca mostrerebbe il preventivo di un
+            // soggiorno che la creazione poi rifiuta
+            mockMvc.perform(get(DISPONIBILITA)
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut",
+                                    arrivo.plusDays(DurataSoggiorno.MASSIMO_NOTTI + 1).toString()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
         }
     }
 }

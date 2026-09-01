@@ -21,7 +21,9 @@ import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.PrenotazioneMapper;
 import com.felixhotel.backend.repository.CameraRepository;
 import com.felixhotel.backend.repository.OspiteRepository;
+import com.felixhotel.backend.repository.PeriodoTariffarioRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.repository.PreventivoTipologia;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
@@ -77,7 +79,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      *
      * <p>Serve perche' il totale non lo scrive il client ma lo calcoliamo noi:
      * su tutti gli altri campi il tetto sta nello spec e lo fa rispettare la
-     * validazione, qui il valore nasce da una moltiplicazione e nessuno lo ha
+     * validazione, qui il valore nasce da una somma sulle notti e nessuno lo ha
      * validato prima di noi.
      */
     private static final BigDecimal IMPORTO_MASSIMO = new BigDecimal("99999999.99");
@@ -111,6 +113,17 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * gia' state registrate col loro documento.
      */
     private final OspiteRepository ospiteRepository;
+
+    /**
+     * Quanto costa un soggiorno e quante notti pretende come minimo. E' l'unico
+     * posto del progetto in cui il prezzo si calcola, e ci si passa anche da qui:
+     * dal 2026-09-01 {@code importoTotale} non e' piu' una moltiplicazione ma la
+     * somma delle notti, e la formula sta scritta una volta sola perche' la
+     * ricerca di disponibilita' mostri lo stesso numero che questa creazione
+     * fotografa.
+     */
+    private final PeriodoTariffarioRepository periodoTariffarioRepository;
+
     private final PrenotazioneMapper prenotazioneMapper;
     private final ApiResponseMapper apiResponseMapper;
 
@@ -138,6 +151,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    UtenteRepository utenteRepository,
                                    StaffRepository staffRepository,
                                    OspiteRepository ospiteRepository,
+                                   PeriodoTariffarioRepository periodoTariffarioRepository,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente) {
@@ -146,8 +160,8 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         // "oggi" per un albergo e' il giorno che si legge sul calendario alla
         // reception. Con UTC, alle due di notte in Italia sarebbe ancora ieri.
         this(prenotazioneRepository, tipologiaCameraRepository, cameraRepository, utenteRepository,
-                staffRepository, ospiteRepository, prenotazioneMapper, apiResponseMapper, chiamanteCorrente,
-                Clock.systemDefaultZone());
+                staffRepository, ospiteRepository, periodoTariffarioRepository, prenotazioneMapper,
+                apiResponseMapper, chiamanteCorrente, Clock.systemDefaultZone());
     }
 
     /**
@@ -162,6 +176,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    UtenteRepository utenteRepository,
                                    StaffRepository staffRepository,
                                    OspiteRepository ospiteRepository,
+                                   PeriodoTariffarioRepository periodoTariffarioRepository,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente,
@@ -172,6 +187,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         this.utenteRepository = utenteRepository;
         this.staffRepository = staffRepository;
         this.ospiteRepository = ospiteRepository;
+        this.periodoTariffarioRepository = periodoTariffarioRepository;
         this.prenotazioneMapper = prenotazioneMapper;
         this.apiResponseMapper = apiResponseMapper;
         this.chiamanteCorrente = chiamanteCorrente;
@@ -252,6 +268,15 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         CanalePrenotazione canaleScelto = canale(request, daPersonale);
         Staff gestore = daPersonale ? staffChiamante(chiamante) : null;
 
+        // Il preventivo prima della disponibilita': dice quanto costa e quante notti
+        // quel periodo pretende, e un soggiorno troppo corto va rifiutato per quello che
+        // e' — una richiesta fuori dalle regole di vendita — anche quando per giunta non
+        // c'e' posto. Stesso criterio con cui l'intestatario e il canale si risolvono
+        // prima: gli errori della richiesta vengono prima di quelli del mondo.
+        PreventivoTipologia preventivo = periodoTariffarioRepository.preventivoDi(
+                tipologia.getId(), request.getDataCheckIn(), request.getDataCheckOut());
+        verificaSoggiornoMinimo(preventivo, request.getDataCheckIn(), request.getDataCheckOut());
+
         verificaDisponibilita(tipologia, request.getDataCheckIn(), request.getDataCheckOut(), null);
 
         Prenotazione prenotazione = new Prenotazione();
@@ -266,8 +291,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         // Lo stato non si imposta: una Prenotazione nasce IN_ATTESA per
         // inizializzatore di campo, e ripeterlo qui lascerebbe due posti da
         // cambiare il giorno che il carrello non fosse piu' il punto di partenza.
-        prenotazione.setImportoTotale(
-                calcolaImporto(tipologia, request.getDataCheckIn(), request.getDataCheckOut()));
+        prenotazione.setImportoTotale(importoFotografato(preventivo));
 
         Prenotazione salvata = prenotazioneRepository.save(prenotazione);
 
@@ -786,6 +810,15 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * <p>La seconda — non si comincia nel passato — dipende da che giorno e'
      * oggi, quindi non e' esprimibile in nessuno schema. Il confronto e' con
      * l'oggi della reception, vedi il {@link Clock} di questa classe.
+     *
+     * <p>La terza, dal 2026-09-01, e' <b>il tetto alla durata</b>, e sta in
+     * {@link DurataSoggiorno} invece che qui perche' e' l'unica delle tre che
+     * vale <b>anche per la ricerca</b>: le altre due no — chi cerca puo'
+     * guardare il passato. Tenerla scritta in un posto solo e' cio' che impedisce
+     * ai due endpoint di dire cose diverse sulla stessa richiesta, che e' proprio
+     * il difetto per cui il tetto e' stato deciso. Va dopo il controllo
+     * sull'ordine delle date: su un intervallo alla rovescia il conto delle notti
+     * sarebbe negativo, cioe' passerebbe.
      */
     private void verificaDate(LocalDate dataCheckIn, LocalDate dataCheckOut) {
         if (!dataCheckOut.isAfter(dataCheckIn)) {
@@ -795,6 +828,8 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         if (dataCheckIn.isBefore(LocalDate.now(clock))) {
             throw new BadRequestException("Non si puo' prenotare un arrivo gia' passato");
         }
+
+        DurataSoggiorno.verifica(dataCheckIn, dataCheckOut);
     }
 
     /**
@@ -849,21 +884,55 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     }
 
     /**
-     * Totale del soggiorno: prezzo per notte per il numero di notti.
+     * Un soggiorno piu' corto del minimo che il periodo tariffario impone non si
+     * vende.
      *
-     * <p>Le notti sono i giorni fra arrivo e partenza, non i giorni compresi: chi
-     * arriva il 10 e parte il 13 dorme tre notti. E' la stessa aritmetica che
-     * rende il giorno di partenza libero per chi arriva quel giorno.
+     * <p><b>Conta il minimo del periodo in cui si arriva</b>, non il piu' severo
+     * fra quelli che il soggiorno attraversa: e' l'arrivo che si vende, e
+     * rifiutare per una regola del periodo in cui l'ospite entra a meta'
+     * vorrebbe dire non vendere nemmeno la parte che era libera. La scelta e'
+     * espressa nella query — vedi
+     * {@code PeriodoTariffarioRepository.preventivi} — perche' e' li' che si sa
+     * quale notte e' la prima.
+     *
+     * <p><b>400 e non 409</b>, come per la capienza: non c'e' nessuno stato con
+     * cui la richiesta confligga, e' fuori da cio' che si puo' chiedere e lo
+     * sarebbe stata anche ieri. Il numero minimo chi chiama lo puo' leggere in
+     * anticipo da {@code GET /api/disponibilita}, che lo restituisce accanto al
+     * preventivo proprio perche' non lo si scopra solo provando.
+     */
+    private void verificaSoggiornoMinimo(PreventivoTipologia preventivo, LocalDate dataCheckIn,
+                                         LocalDate dataCheckOut) {
+        long notti = ChronoUnit.DAYS.between(dataCheckIn, dataCheckOut);
+
+        if (notti < preventivo.getSoggiornoMinimo()) {
+            throw new BadRequestException("In questo periodo il soggiorno minimo e' di "
+                    + preventivo.getSoggiornoMinimo() + " notti");
+        }
+    }
+
+    /**
+     * Il totale che finisce sulla prenotazione: quello del preventivo, se ci sta
+     * in colonna.
+     *
+     * <p><b>La fotografia resta, e' cambiato chi la scatta.</b> Fino al
+     * 2026-09-01 il totale era una moltiplicazione fatta qui; adesso e' la somma
+     * delle notti calcolata dalla query delle tariffe, dove ogni notte puo'
+     * costare diversamente dalle altre. Quel che non cambia e' che il numero
+     * venga congelato adesso: se domani il listino cambia, questa prenotazione
+     * continua a valere quel che valeva.
      *
      * <p><b>Il tetto va controllato qui e non nello spec</b> perche' questo
-     * numero non lo manda il client: nasce da una moltiplicazione, e un totale
-     * che non entra in NUMERIC(10,2) verrebbe rifiutato da Postgres — cioe'
-     * arriverebbe a chi chiama come un 500, dando la colpa a noi di un soggiorno
-     * che aveva chiesto lui.
+     * numero non lo manda il client: nasce da una somma, e un totale che non
+     * entra in NUMERIC(10,2) verrebbe rifiutato da Postgres — cioe' arriverebbe
+     * a chi chiama come un 500, dando la colpa a noi di un soggiorno che aveva
+     * chiesto lui. E' un caso oggi molto piu' difficile da raggiungere di prima,
+     * perche' un soggiorno non puo' superare le
+     * {@code DurataSoggiorno.MASSIMO_NOTTI} notti, ma non impossibile: novanta
+     * notti a un milione l'una ci arrivano.
      */
-    private BigDecimal calcolaImporto(TipologiaCamera tipologia, LocalDate dataCheckIn, LocalDate dataCheckOut) {
-        long notti = ChronoUnit.DAYS.between(dataCheckIn, dataCheckOut);
-        BigDecimal importo = tipologia.getPrezzoNotte().multiply(BigDecimal.valueOf(notti));
+    private BigDecimal importoFotografato(PreventivoTipologia preventivo) {
+        BigDecimal importo = preventivo.getImportoTotale();
 
         if (importo.compareTo(IMPORTO_MASSIMO) > 0) {
             throw new BadRequestException(

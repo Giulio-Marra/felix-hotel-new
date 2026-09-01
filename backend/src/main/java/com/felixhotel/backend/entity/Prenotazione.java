@@ -146,8 +146,16 @@ public class Prenotazione extends BaseAuditableEntity {
     private Staff gestitaDaStaff;
 
     /**
-     * Totale del soggiorno: prezzo per notte della tipologia moltiplicato per le
-     * notti.
+     * Totale del soggiorno: la somma delle notti, una per una.
+     *
+     * <p><b>Non e' piu' una moltiplicazione dal 2026-09-01</b>, ed e' la sola
+     * cosa che le tariffe per periodo hanno cambiato qui: ogni notte vale il
+     * prezzo del suo giorno della settimana se il periodo che la copre ne
+     * dichiara uno, altrimenti il prezzo base di quel periodo, altrimenti il
+     * listino della tipologia. Due notti dello stesso soggiorno possono percio'
+     * costare diversamente. La somma la fa la query di
+     * {@code PeriodoTariffarioRepository.preventivi}, che e' l'unico posto del
+     * progetto in cui il prezzo si calcola.
      *
      * <p><b>E' una fotografia presa alla creazione, non un calcolo rifatto ad
      * ogni lettura.</b> Se domani il listino cambia, questa prenotazione

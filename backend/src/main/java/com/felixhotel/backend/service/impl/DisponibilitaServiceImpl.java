@@ -10,39 +10,50 @@ import com.felixhotel.backend.mapper.DisponibilitaMapper;
 import com.felixhotel.backend.repository.CameraRepository;
 import com.felixhotel.backend.repository.ConteggioCamere;
 import com.felixhotel.backend.repository.OccupazioneTipologia;
+import com.felixhotel.backend.repository.PeriodoTariffarioRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.repository.PreventivoTipologia;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.service.DisponibilitaService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
  * Implementazione della ricerca di disponibilita'.
  *
- * <p><b>Tre query e non una per riga.</b> Il lavoro e' diviso in tre passi
- * perche' le tre domande hanno tre nature diverse: quali tipologie interessano
- * (una riga di tabella, impaginabile in database), quante camere hanno
- * (un conteggio raggruppato), quante ne sono occupate nel periodo (un calcolo su
- * un intervallo di date). Nessuno dei tre dipende dalla <i>riga</i>: dipendono
- * dalla pagina. E' la differenza fra tre query e una N+1.
+ * <p><b>Quattro query e non una per riga.</b> Il lavoro e' diviso perche' le
+ * domande hanno nature diverse: quanto costa il soggiorno e quali tipologie
+ * passano i filtri (un calcolo su un intervallo di date, che pero' e' anche cio'
+ * che decide le righe, quindi impagina), che tipologie siano davvero (le loro
+ * righe di catalogo, con le dotazioni), quante camere hanno (un conteggio
+ * raggruppato), quante ne sono occupate nel periodo (un altro calcolo su un
+ * intervallo). Nessuna delle quattro dipende dalla <i>riga</i>: dipendono dalla
+ * pagina. E' la differenza fra quattro query e una N+1.
  *
- * <p><b>L'ordine dei passi non e' invertibile.</b> Le tipologie si impaginano
- * per prime, e solo dopo si calcola la disponibilita' di quelle che sono
- * finite nella pagina. Il contrario — calcolare tutto e poi impaginare —
- * vorrebbe dire impaginare in memoria, che e' cio' che il progetto ha gia'
- * rifiutato quando ha tolto l'{@code @EntityGraph} dall'elenco del catalogo.
+ * <p><b>A impaginare e' il preventivo, e dal 2026-09-01 non poteva piu' essere
+ * altrimenti.</b> Prima le tipologie si impaginavano da sole, perche' il filtro
+ * di prezzo guardava una colonna della loro riga. Con le tariffe per periodo il
+ * prezzo dipende dalle date cercate — la stessa camera costa cose diverse a
+ * Ferragosto e in novembre — quindi un filtro sul listino avrebbe offerto a chi
+ * cerca sotto i cento euro una stanza che in quelle date ne costa duecento. E un
+ * filtro che puo' escludere righe deve agire prima della paginazione: toglierle
+ * dopo darebbe pagine di dimensione variabile, che e' impaginare in memoria con
+ * un altro nome. Da qui l'inversione: prima il prezzo, che decide chi entra e in
+ * che pagina, poi le entita' di quella pagina.
+ *
+ * <p><b>L'ordine dei passi resta non invertibile</b>, per la stessa ragione di
+ * sempre: si impagina in database e si calcola dopo, mai il contrario.
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +62,15 @@ public class DisponibilitaServiceImpl implements DisponibilitaService {
     private final TipologiaCameraRepository tipologiaCameraRepository;
     private final CameraRepository cameraRepository;
     private final PrenotazioneRepository prenotazioneRepository;
+
+    /**
+     * Quanto costa il soggiorno di ogni tipologia, e quante notti ognuna
+     * pretende come minimo. E' anche cio' che decide quali tipologie entrano
+     * nella pagina, perche' i filtri di prezzo si applicano al preventivo e non
+     * al listino.
+     */
+    private final PeriodoTariffarioRepository periodoTariffarioRepository;
+
     private final DisponibilitaMapper disponibilitaMapper;
     private final ApiResponseMapper apiResponseMapper;
 
@@ -61,36 +81,39 @@ public class DisponibilitaServiceImpl implements DisponibilitaService {
                                           BigDecimal prezzoMassimo, int page, int size) {
         verificaPeriodo(dataCheckIn, dataCheckOut);
 
-        // Ordine alfabetico come il catalogo, e per lo stesso motivo: il nome e'
-        // l'unica cosa con cui chi guarda si orienta. E' anche unico — c'e' un indice
-        // su lower(nome) dal V2 — quindi qui basta un criterio solo, al contrario
-        // dell'elenco delle prenotazioni, dove la data di arrivo non lo e'.
-        Page<TipologiaCamera> pagina = tipologiaCameraRepository.cercaPerCapienzaEPrezzo(
-                numeroOspiti, prezzoMinimo, prezzoMassimo,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "nome")));
-
-        long notti = ChronoUnit.DAYS.between(dataCheckIn, dataCheckOut);
+        // L'ordinamento sta scritto dentro la query — e' un group by, e chi chiama non
+        // ha nessun criterio da scegliere. E' alfabetico come il catalogo, e come li' un
+        // criterio solo basta perche' il nome e' unico (indice del V2).
+        Page<PreventivoTipologia> preventivi = periodoTariffarioRepository.preventivi(
+                null, numeroOspiti, prezzoMinimo, prezzoMassimo, dataCheckIn, dataCheckOut,
+                PageRequest.of(page, size));
 
         return apiResponseMapper.toPaginatedResponse(HttpStatus.OK, "Disponibilita' calcolata",
-                disponibilita(pagina.getContent(), dataCheckIn, dataCheckOut, notti), pagina);
+                disponibilita(preventivi.getContent(), dataCheckIn, dataCheckOut), preventivi);
     }
 
     /**
      * Le righe di risultato per le tipologie di una pagina.
      *
      * <p>La pagina vuota <b>non arriva alle query</b>, e non e' un'ottimizzazione:
-     * la query dell'occupazione filtra con un {@code in (:ids)}, e un
-     * {@code in ()} non e' SQL valido. Il caso e' normale — l'ultima pagina di un
-     * elenco, o filtri che non trovano niente — quindi va gestito, non evitato.
+     * due di loro filtrano con un {@code in (:ids)}, e un {@code in ()} non e' SQL
+     * valido. Il caso e' normale — l'ultima pagina di un elenco, o filtri che non
+     * trovano niente — quindi va gestito, non evitato.
      */
-    private List<DisponibilitaTipologia> disponibilita(List<TipologiaCamera> tipologie,
-                                                       LocalDate dataCheckIn, LocalDate dataCheckOut,
-                                                       long notti) {
-        if (tipologie.isEmpty()) {
+    private List<DisponibilitaTipologia> disponibilita(List<PreventivoTipologia> preventivi,
+                                                       LocalDate dataCheckIn, LocalDate dataCheckOut) {
+        if (preventivi.isEmpty()) {
             return List.of();
         }
 
-        List<Long> ids = tipologie.stream().map(TipologiaCamera::getId).toList();
+        List<Long> ids = preventivi.stream().map(PreventivoTipologia::getTipologiaCameraId).toList();
+
+        // Le entita' della pagina, indicizzate per id: la query dei preventivi ha gia'
+        // deciso quali sono e in che ordine, quindi qui si tratta solo di ritrovarle.
+        // findAllById non garantisce l'ordine, e affidarsi al suo sarebbe affidarsi a
+        // qualcosa che nessuno ha promesso.
+        Map<Long, TipologiaCamera> tipologie = tipologiaCameraRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(TipologiaCamera::getId, Function.identity()));
 
         Map<Long, Long> camerePerTipologia = cameraRepository.contaPerTipologia(ids).stream()
                 .collect(Collectors.toMap(ConteggioCamere::getTipologiaCameraId, ConteggioCamere::getTotale));
@@ -100,9 +123,18 @@ public class DisponibilitaServiceImpl implements DisponibilitaService {
                 .collect(Collectors.toMap(OccupazioneTipologia::getTipologiaCameraId,
                         OccupazioneTipologia::getOccupate));
 
-        return tipologie.stream()
-                .map(tipologia -> disponibilitaMapper.toDisponibilita(
-                        tipologia, libere(tipologia, camerePerTipologia, occupatePerTipologia), notti))
+        // Il filtro sul null non e' difensivo per abitudine: fra la query dei preventivi
+        // e questa lettura c'e' una finestra, e in READ COMMITTED una DELETE altrui in
+        // mezzo lascerebbe un id senza la sua riga. Sarebbe un NullPointerException nel
+        // mapper, cioe' un 500 su una GET pubblica per colpa di qualcosa che chi cerca
+        // non ha fatto. Saltare la riga da' una pagina piu' corta di 'totalElements' —
+        // che pero' e' esattamente cio' che e' successo: quella tipologia non c'e' piu'.
+        return preventivi.stream()
+                .filter(preventivo -> tipologie.containsKey(preventivo.getTipologiaCameraId()))
+                .map(preventivo -> disponibilitaMapper.toDisponibilita(
+                        tipologie.get(preventivo.getTipologiaCameraId()),
+                        libere(preventivo.getTipologiaCameraId(), camerePerTipologia, occupatePerTipologia),
+                        preventivo))
                 .toList();
     }
 
@@ -122,18 +154,18 @@ public class DisponibilitaServiceImpl implements DisponibilitaService {
      * comunque non negativa, ma solo finche' i due numeri arrivano dalla stessa
      * transazione. Costa niente e toglie di mezzo la domanda.
      */
-    private long libere(TipologiaCamera tipologia, Map<Long, Long> camere, Map<Long, Long> occupate) {
-        long esistenti = camere.getOrDefault(tipologia.getId(), 0L);
-        long impegnate = occupate.getOrDefault(tipologia.getId(), 0L);
+    private long libere(Long tipologiaCameraId, Map<Long, Long> camere, Map<Long, Long> occupate) {
+        long esistenti = camere.getOrDefault(tipologiaCameraId, 0L);
+        long impegnate = occupate.getOrDefault(tipologiaCameraId, 0L);
 
         return Math.max(0, esistenti - impegnate);
     }
 
     /**
-     * L'unica regola sulle date che vale anche qui.
+     * Le regole sulle date che valgono anche qui.
      *
      * <p><b>Non riusa {@code PrenotazioneServiceImpl.verificaDate} di proposito</b>:
-     * quella ne fa due, e la seconda — non si comincia nel passato — qui sarebbe
+     * quella ne fa tre, e la seconda — non si comincia nel passato — qui sarebbe
      * sbagliata. Chi cerca sta guardando, non prenotando, e rifiutare una ricerca
      * su date passate vorrebbe dire impedire a chi lavora al banco di controllare
      * com'era andata la settimana scorsa. E' la stessa scelta gia' fatta il
@@ -141,10 +173,19 @@ public class DisponibilitaServiceImpl implements DisponibilitaService {
      * due casi che condividono la forma ma non le regole restano due, e a
      * unificarli si ottiene un metodo con un parametro booleano che nessuno sa
      * piu' leggere.
+     *
+     * <p><b>Il tetto sulla durata invece si condivide</b>, ed e' l'unica delle
+     * tre che lo faccia: sta in {@link DurataSoggiorno}, scritto una volta per
+     * tutti e due. Prima del 2026-09-01 questo controllo qui non c'era affatto, e
+     * la conseguenza era che la ricerca mostrava il preventivo di un soggiorno
+     * che la creazione avrebbe poi rifiutato — due endpoint che dicevano cose
+     * diverse sulla stessa richiesta.
      */
     private void verificaPeriodo(LocalDate dataCheckIn, LocalDate dataCheckOut) {
         if (!dataCheckOut.isAfter(dataCheckIn)) {
             throw new BadRequestException("La data di partenza deve essere successiva a quella di arrivo");
         }
+
+        DurataSoggiorno.verifica(dataCheckIn, dataCheckOut);
     }
 }

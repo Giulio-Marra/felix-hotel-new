@@ -1,5 +1,6 @@
 package com.felixhotel.backend.openapi;
 
+import com.felixhotel.backend.service.impl.DurataSoggiorno;
 import com.felixhotel.backend.service.impl.MediaCameraServiceImpl;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -231,6 +232,48 @@ class ContrattoOpenApiTest {
             assertThat(dichiarato)
                     .as("maxItems di MediaCameraOrdineRequest.mediaIds")
                     .isEqualTo(MediaCameraServiceImpl.MASSIMO_FOTO_PER_TIPOLOGIA);
+        }
+
+        @Test
+        @DisplayName("il tetto di 'soggiornoMinimo' e' il massimo di notti di un soggiorno")
+        void soggiornoMinimo_maximum_coincideConLaCostante() {
+            // when: si legge il tetto che il contratto impone al soggiorno minimo di un
+            // periodo tariffario
+            Object dichiarato = dentro("components", "schemas", "PeriodoTariffarioRequest",
+                    "properties", "soggiornoMinimo", "maximum");
+
+            // then: deve essere il numero massimo di notti che un soggiorno puo' durare.
+            // Sono lo stesso limite visto dai due lati: un soggiorno minimo piu' alto del
+            // massimo consentito renderebbe quel periodo **invendibile**, perche' nessuna
+            // richiesta potrebbe soddisfarlo — e il 400 arriverebbe al cliente per una
+            // configurazione che l'albergatore aveva salvato senza obiezioni
+            assertThat(dichiarato)
+                    .as("maximum di PeriodoTariffarioRequest.soggiornoMinimo")
+                    .isEqualTo(DurataSoggiorno.MASSIMO_NOTTI);
+        }
+
+        @Test
+        @DisplayName("le due rotte che applicano il tetto sulla durata lo scrivono nella descrizione")
+        void tettoDurata_scrittoNelleDescrizioni() {
+            // given: il tetto non e' esprimibile in nessuno schema — dipende dalla
+            // differenza fra due campi — quindi vive nel Service e si dichiara a parole
+            // (regola 21). A parole vuol dire in una descrizione, e una descrizione
+            // nessun generatore la controlla
+            String numero = String.valueOf(DurataSoggiorno.MASSIMO_NOTTI);
+
+            String creazione = (String) dentro("paths", "/api/prenotazioni", "post", "description");
+            String ricerca = (String) dentro("paths", "/api/disponibilita", "get", "description");
+
+            // then: tutte e due lo nominano. E' l'unico modo perche' il giorno che il
+            // tetto cambia non restino due descrizioni che promettono il numero vecchio
+            // — cioe' esattamente la promessa senza codice che la regola 17 vieta,
+            // presa dal lato opposto: qui il codice c'e' ed e' la prosa a mentire
+            assertThat(creazione)
+                    .as("descrizione di POST /api/prenotazioni")
+                    .contains(numero);
+            assertThat(ricerca)
+                    .as("descrizione di GET /api/disponibilita")
+                    .contains(numero);
         }
     }
 
