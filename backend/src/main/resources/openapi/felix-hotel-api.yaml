@@ -3162,6 +3162,146 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/codifiche/{tipo}:
+
+    get:
+      tags:
+        - Codifiche ministeriali
+      operationId: elencaCodifiche
+      summary: Le voci di una tabella di codifica ministeriale
+      description: >
+        Un elenco di codici pubblicati dal Ministero: i comuni italiani, gli stati
+        esteri, i tipi di documento e i tipi di alloggiato che il servizio
+        Alloggiati Web pretende. Riservato a **STAFF** e **ADMIN**.
+        **A cosa serve**: a riempire le tendine di chi compila una schedina — "in
+        che comune e' nato questo ospite" — quindi la legge chi sta al banco, non
+        il pubblico. Non e' un elenco che interessi a un cliente.
+        **Il filtro cerca dentro la descrizione, non solo all'inizio**: chi si
+        ricorda un pezzo del nome deve trovarlo, quindi 'reggio' restituisce sia
+        Reggio Emilia sia Reggio Calabria. Ignora le maiuscole, al contrario del
+        codice, perche' qui a digitare e' una persona.
+        **E' paginato, e qui il tetto su 'size' conta piu' che altrove**: la
+        famiglia dei comuni ha circa ottomila voci.
+        **Una tabella vuota non e' un difetto.** All'installazione queste tabelle
+        nascono senza righe, e non e' un lavoro lasciato a meta': i valori veri li
+        pubblica il Ministero sul portale Alloggiati, e inventarli avrebbe voluto
+        dire scrivere dati falsi proprio dove il dato deve essere esatto. Li carica
+        l'ADMIN con la PUT su questa stessa rotta.
+        Risposta: busta ApiBaseResponsePaginated con un **array di VoceCodifica**
+        in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TipoCodifica'
+        - name: filtro
+          in: query
+          required: false
+          description: >
+            Testo cercato dentro la descrizione, senza distinguere le maiuscole.
+            Omesso restituisce tutta la famiglia, una pagina per volta.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 150
+          example: reggio
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+      responses:
+        '200':
+          description: Pagina di voci ('data' = array di VoceCodifica)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+              example:
+                status: 200
+                message: Codifiche recuperate
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  - codice: "035033"
+                    descrizione: REGGIO NELL'EMILIA
+                    provincia: RE
+                page:
+                  pageNumber: 0
+                  pageSize: 20
+                  totalElements: 1
+                  totalPages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      tags:
+        - Codifiche ministeriali
+      operationId: importaCodifiche
+      summary: Sostituisci una tabella di codifica con la versione pubblicata dal Ministero
+      description: >
+        Rimpiazza **l'intero elenco** di una famiglia con quello mandato nel corpo.
+        Riservato agli **ADMIN**.
+        **Sostituisce, non fonde**, ed e' la decisione centrale di questa rotta: un
+        aggiornamento del Ministero puo' anche **togliere** una voce — i comuni si
+        fondono — e un merge lascerebbe in tabella un codice soppresso che nessuno
+        si accorge di avere. Sostituire e' anche l'unica operazione che da' lo
+        stesso risultato comunque la si ripeta.
+        **Si aggiorna in blocco e non si digita riga per riga**, e non e' una
+        scorciatoia: sono dati che devono solo essere *esatti*, e la liberta' di
+        scriverli a mano sarebbe solo un modo di sbagliarli. Un codice "corretto"
+        perche' sembrava sbagliato non da' nessun errore qui: da' schedine
+        rifiutate dalla Questura, scoperte al controllo. Vedi la regola 24 in
+        CLAUDE.md, quarta riga.
+        **Il file lo pubblica il Ministero, la conversione la fa il chiamante**:
+        questa rotta prende un array JSON, non un CSV. Il progetto non ha nessun
+        endpoint che riceva file (nemmeno le foto: quelle sono indirizzi), e
+        introdurre il multipart per una rotta sola sarebbe una decisione grossa
+        presa per un motivo piccolo.
+        **Attenzione alla dimensione**: la famiglia dei comuni sono circa ottomila
+        voci, cioe' un corpo di qualche centinaio di kilobyte. E' sotto i limiti
+        predefiniti di Spring, ma e' la richiesta piu' grande che questo backend
+        riceva.
+        **Un array vuoto svuota la famiglia**, e non e' un errore: e' il modo di
+        annullare un import sbagliato.
+        Risposta: busta ApiBaseResponse con 'data' a null. Il messaggio dice quante
+        voci sono state scritte e quante ne sono state sostituite.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TipoCodifica'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/VoceCodifica'
+      responses:
+        '200':
+          description: Codifica sostituita ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: 'Codifica COMUNE sostituita: 7904 voci al posto delle 7896 precedenti'
+                timestamp: 2026-09-01T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -3224,6 +3364,21 @@ components:
         type: integer
         format: int64
         minimum: 1
+
+    TipoCodifica:
+      name: tipo
+      in: path
+      required: true
+      description: >
+        Quale delle quattro tabelle di codifica. **E' un elenco che scrive
+        l'applicazione**, non il Ministero: sono i nomi delle famiglie, non i dati
+        che stanno dentro. Un valore fuori elenco e' un **400**, e lo decide la
+        validazione del bordo: lo schema e' referenziato e non scritto qui dentro,
+        cosi' il generatore produce un enum invece di una stringa — con una stringa
+        il valore sbagliato arriverebbe fino al Service per rompersi li', cioe' un
+        500 al posto di un 400 (regola 21).
+      schema:
+        $ref: '#/components/schemas/TipoCodifica'
 
     IdAliquotaTassaSoggiorno:
       name: aliquotaId
@@ -5112,6 +5267,72 @@ components:
           minimum: 0
           maximum: 99999999.99
           example: 210.00
+
+    TipoCodifica:
+      type: string
+      description: >
+        Quale delle quattro tabelle di codifica ministeriale.
+        **Questo elenco lo scrive l'applicazione, non il Ministero** — sono i nomi
+        delle famiglie, non i dati che stanno dentro — ed e' la ragione per cui in
+        database c'e' un CHECK che lo ricalca, al contrario di 'TipoDocumento':
+        li' l'elenco lo cambia la Questura, e un CHECK trasformerebbe una riga di
+        enum in una migration.
+        **TIPO_DOCUMENTO non e' 'TipoDocumento'**: quello ha quattro valori e dice
+        che documento e' stato esibito al banco, questa famiglia ne ha una trentina
+        ed e' cio' che la Questura si aspetta di ricevere. La corrispondenza fra i
+        due e' logica nostra, non un dato importabile.
+      enum:
+        - COMUNE
+        - STATO
+        - TIPO_DOCUMENTO
+        - TIPO_ALLOGGIATO
+      example: COMUNE
+
+    VoceCodifica:
+      type: object
+      description: >
+        Una voce di una tabella di codifica: un codice con la sua descrizione.
+        **Lo stesso schema serve in lettura e in scrittura**, ed e' l'unico del
+        progetto che lo faccia davvero senza una Request e una Response separate.
+        La ragione e' che qui non c'e' niente da nascondere ne' niente di derivato:
+        questi dati non li produce l'applicazione, li ripete. Un id non compare
+        nemmeno in risposta, perche' la chiave vera e' il codice e nessuno indirizza
+        mai una voce singola.
+        **La famiglia non e' un campo**: sta nel percorso, e ripeterla in ogni riga
+        di un array da ottomila elementi sarebbe spedire ottomila volte una cosa
+        che il chiamante ha appena scritto nell'URL.
+      required:
+        - codice
+        - descrizione
+      properties:
+        codice:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: >
+            Il codice come lo pubblica il Ministero. **Testo e non numero**, anche
+            dove sembra un numero: sono stringhe con gli zeri davanti, e un intero
+            se li mangerebbe restituendo un codice che il servizio non riconosce.
+            **Distingue le maiuscole** e deve essere libero dentro la sua famiglia;
+            fra famiglie diverse invece coincidere e' normale.
+          example: "035033"
+        descrizione:
+          type: string
+          minLength: 1
+          maxLength: 150
+          description: Come si chiama, nella forma in cui il Ministero lo scrive.
+          example: REGGIO NELL'EMILIA
+        provincia:
+          type: string
+          minLength: 2
+          maxLength: 2
+          description: >
+            La sigla della provincia. **Ha senso solo per i comuni** e si omette per
+            le altre famiglie; serve a disambiguare gli omonimi, che in Italia sono
+            tanti. Non e' rifiutata sulle altre famiglie, ma non viene usata da
+            nessuno: rifiutarla vorrebbe dire far fallire un import per una colonna
+            di troppo in un file che non abbiamo scritto noi.
+          example: RE
 
     AliquotaTassaSoggiornoRequest:
       type: object
