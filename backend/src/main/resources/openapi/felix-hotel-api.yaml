@@ -2104,7 +2104,16 @@ paths:
         **409 se lo stesso documento e' gia' registrato su questa prenotazione**:
         la stessa persona due volte non e' un ospite in piu', ed e' un errore che
         conta doppio — farebbe raggiungere 'numeroOspiti' lasciando fuori
-        qualcuno che dorme li' davvero.
+        qualcuno che dorme li' davvero. Due minorenni registrati **senza**
+        documento non fanno scattare questo 409, ed e' corretto: dove non c'e' un
+        documento non c'e' niente da confrontare.
+        **I minorenni si registrano senza documento**: 'tipoDocumento' e
+        'numeroDocumento' sono obbligatori solo per chi e' maggiorenne il giorno
+        dell'arrivo, altrimenti e' **400**. La data che decide e' 'dataCheckIn'
+        della prenotazione, perche' e' all'atto dell'arrivo che il TULPS vuole il
+        documento. **L'obbligo di legge non si allenta**: un minorenne un
+        documento proprio non ce l'ha, e farglielo inventare al banco riempirebbe
+        il registro di numeri falsi.
         Risposta: busta ApiBaseResponse con **OspiteResponse** in 'data'.
       security:
         - bearerAuth: []
@@ -2168,8 +2177,11 @@ paths:
         **409**. E lo stesso **409** sul documento gia' presente su un *altro*
         ospite della stessa prenotazione — il proprio non conta, altrimenti
         correggere il solo nome sarebbe impossibile.
+        **Vale anche la stessa regola sui minorenni**: il documento e' obbligatorio
+        solo per chi e' maggiorenne alla data di arrivo, altrimenti **400**.
         E' una PUT: un campo facoltativo omesso viene **azzerato**, non lasciato
-        com'era.
+        com'era — quindi correggere un ospite maggiorenne dimenticandosi il
+        documento non lo lascia com'era, lo rifiuta.
         Risposta: busta ApiBaseResponse con **OspiteResponse** in 'data'.
       security:
         - bearerAuth: []
@@ -3952,16 +3964,21 @@ components:
       type: object
       description: >
         Una persona che soggiorna, con il documento che ha esibito. I limiti
-        ricalcano le colonne del database, vedi V1__init_schema.sql.
+        ricalcano le colonne del database, vedi V1__init_schema.sql e
+        V10__ospite_minori.sql.
         **Lo stesso schema serve alla creazione e alla correzione**, al contrario
         di quanto fa lo staff: qui non c'e' nessun campo che abbia senso una
         volta sola: un ospite e' fatto tutto di dati che si possono aver digitati
         storti, e nessuno di essi si "sceglie alla nascita" come una password.
+        **Il documento e' obbligatorio per chi e' maggiorenne il giorno
+        dell'arrivo, e non lo e' per un minorenne**: questo schema non sa dirlo,
+        perche' la regola dipende dalla data di check-in della prenotazione, che
+        sta nell'URL e non nel corpo. Chi la applica e' il server, e chi non la
+        rispetta prende un **400** — vedi la descrizione di 'tipoDocumento'.
       required:
         - nome
         - cognome
-        - tipoDocumento
-        - numeroDocumento
+        - dataNascita
       properties:
         nome:
           type: string
@@ -3978,12 +3995,28 @@ components:
           maxLength: 100
           example: Rossi
         tipoDocumento:
-          $ref: '#/components/schemas/TipoDocumento'
+          allOf:
+            - $ref: '#/components/schemas/TipoDocumento'
+          description: >
+            **Obbligatorio se l'ospite e' maggiorenne alla data di arrivo della
+            prenotazione, altrimenti si omette.** Un minorenne non ha un
+            documento di riconoscimento proprio e negli alberghi si registra
+            sotto chi lo accompagna: pretenderne uno vorrebbe dire farselo
+            inventare al banco, e un dato inventato in un registro di legge e'
+            peggio di un dato mancante — nessuno puo' piu' distinguerlo da uno
+            vero.
+            **Va insieme a 'numeroDocumento'**: o ci sono tutti e due o non c'e'
+            nessuno dei due, altrimenti e' **400**. Un tipo senza numero e' mezzo
+            dato, e chi lo rilegge non sa se il numero manchi perche' non esiste
+            o perche' qualcuno si e' fermato a meta' del modulo.
+            **Un minorenne che il documento ce l'ha lo puo' dare**: la regola dice
+            che non e' obbligatorio, non che sia vietato.
         numeroDocumento:
           type: string
           minLength: 1
           maxLength: 50
           description: >
+            **Obbligatorio insieme a 'tipoDocumento' e alle stesse condizioni.**
             Il numero come sta scritto sul documento. **Distingue le maiuscole**,
             come gli url delle foto e al contrario dei nomi di tipologie,
             dotazioni e camere: non e' un nome che una persona scrive a modo suo,
@@ -3998,13 +4031,18 @@ components:
           type: string
           format: date
           description: >
-            Facoltativa, ed e' l'unico campo che lo sia. Serve a distinguere due
-            omonimi e a sapere se si ha davanti un minore, ma non e' una
-            condizione per registrare qualcuno: il documento c'e' o non c'e', e
-            se c'e' l'obbligo di legge e' soddisfatto.
-            **Una data nel futuro e' un 400**, che e' l'unico controllo possibile
-            senza inventare una regola: quanti anni debba avere un ospite non lo
-            decide questo contratto.
+            **Obbligatoria**, e fino al V10 era invece l'unico campo facoltativo
+            dello schema. L'inversione ha una ragione sola: e' questo campo a
+            dire se il documento ci debba essere. Finche' poteva mancare,
+            l'assenza del documento non si poteva ne' accettare ne' rifiutare
+            senza indovinare — "e' un bambino" e "il modulo e' incompleto"
+            avevano lo stesso aspetto.
+            Serve anche a distinguere due omonimi, e ci si appoggera' l'esenzione
+            per eta' della tassa di soggiorno.
+            **Una data nel futuro e' un 400.** Nessun altro controllo: quanti
+            anni debba avere un ospite non lo decide questo contratto, e una data
+            molto indietro nel tempo rende semmai il documento obbligatorio, cioe'
+            sbaglia dalla parte severa.
           example: 1985-04-17
 
     OspiteResponse:
@@ -4032,15 +4070,20 @@ components:
           type: string
           example: Rossi
         tipoDocumento:
-          $ref: '#/components/schemas/TipoDocumento'
+          allOf:
+            - $ref: '#/components/schemas/TipoDocumento'
+          description: >
+            Null se l'ospite e' un minorenne registrato senza documento proprio.
+            Insieme a 'numeroDocumento': o ci sono tutti e due o nessuno dei due.
         numeroDocumento:
           type: string
+          description: Null insieme a 'tipoDocumento', per lo stesso motivo.
           example: CA12345AB
         dataNascita:
           type: string
           format: date
           description: >
-            Null se non e' stata presa. **Senza 'nullable: true'**, che sarebbe
+            Sempre valorizzata dal V10. **Senza 'nullable: true'**, che sarebbe
             venuto spontaneo scrivere qui e non c'e' in nessun altro schema di
             questo contratto: il generatore lo traduce in un JsonNullable, cioe'
             un tipo che distingue "assente" da "null" e si serializza in modo

@@ -76,6 +76,18 @@ class OspiteServiceImplTest {
     /** Un mercoledi' qualunque: e' l'"oggi" di tutti i test di questa classe. */
     private static final LocalDate OGGI = LocalDate.of(2026, 9, 2);
 
+    /**
+     * Il giorno di arrivo della prenotazione delle prove, otto giorni avanti.
+     *
+     * <p><b>Diverso da OGGI di proposito</b>: dal V10 il documento e' obbligatorio
+     * per chi e' maggiorenne <i>alla data di arrivo</i>, e con le due date uguali un
+     * test non potrebbe distinguere quella regola da una che guardasse l'oggi.
+     */
+    private static final LocalDate ARRIVO = OGGI.plusDays(8);
+
+    /** Nato ben prima: maggiorenne a qualunque data un test possa scegliere. */
+    private static final LocalDate NASCITA_ADULTO = LocalDate.of(1985, 4, 17);
+
     @Mock
     private OspiteRepository ospiteRepository;
     @Mock
@@ -448,24 +460,44 @@ class OspiteServiceImplTest {
         }
 
         @Test
-        @DisplayName("la data di nascita omessa viene azzerata, non lasciata com'era")
-        void aggiorna_senzaDataNascita_laAzzera() {
-            // given: l'ospite ne ha una
+        @DisplayName("il documento omesso su un minorenne viene azzerato, non lasciato com'era")
+        void aggiorna_senzaDocumentoSuMinorenne_loAzzera() {
+            // given: un bambino registrato con un documento che si e' scoperto non essere suo
             autenticaStaff();
             prenotazione(StatoPrenotazione.CONFERMATA);
-            Ospite esistente = ospite(ID_OSPITE, "Mario", NUMERO_DOCUMENTO);
-            esistente.setDataNascita(LocalDate.of(1985, 4, 17));
+            Ospite esistente = ospite(ID_OSPITE, "Luca", NUMERO_DOCUMENTO);
+            esistente.setDataNascita(ARRIVO.minusYears(10));
             when(ospiteRepository.findByIdAndPrenotazioneId(ID_OSPITE, ID_PRENOTAZIONE))
                     .thenReturn(Optional.of(esistente));
             when(ospiteRepository.saveAndFlush(any(Ospite.class)))
                     .thenAnswer(invocazione -> invocazione.getArgument(0));
 
-            // when: la richiesta non la porta
-            ospiteService.aggiorna(ID_PRENOTAZIONE, ID_OSPITE, richiesta());
+            // when: la correzione non lo porta piu'
+            ospiteService.aggiorna(ID_PRENOTAZIONE, ID_OSPITE, richiestaSenzaDocumento(10));
 
             // then: e' quel che una PUT promette, ed e' scritto nel contratto. Vale la
             // pena provarlo perche' e' il genere di cosa che si scambia per un difetto
-            assertThat(esistente.getDataNascita()).isNull();
+            assertThat(esistente.getTipoDocumento()).isNull();
+            assertThat(esistente.getNumeroDocumento()).isNull();
+        }
+
+        @Test
+        @DisplayName("il documento omesso su un maggiorenne non azzera niente: e' 400")
+        void aggiorna_senzaDocumentoSuMaggiorenne_sollevaBadRequest() {
+            // given: un adulto gia' registrato, col suo documento
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            Ospite esistente = ospite(ID_OSPITE, "Mario", NUMERO_DOCUMENTO);
+            when(ospiteRepository.findByIdAndPrenotazioneId(ID_OSPITE, ID_PRENOTAZIONE))
+                    .thenReturn(Optional.of(esistente));
+
+            // when / then: qui la promessa della PUT si ferma contro l'obbligo di legge,
+            // e va nel verso giusto — il documento non si perde per una PUT distratta
+            assertThatThrownBy(() -> ospiteService.aggiorna(
+                    ID_PRENOTAZIONE, ID_OSPITE, richiestaSenzaDocumento(30)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("maggiorenne");
+            assertThat(esistente.getNumeroDocumento()).isEqualTo(NUMERO_DOCUMENTO);
         }
 
         @Test
@@ -480,6 +512,141 @@ class OspiteServiceImplTest {
 
             assertThatThrownBy(() -> ospiteService.aggiorna(ID_PRENOTAZIONE, ID_OSPITE, richiesta()))
                     .isInstanceOf(NotFoundException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("documento e minorenni")
+    class Documento {
+
+        @Test
+        @DisplayName("un minorenne si registra senza documento, e le due colonne restano vuote")
+        void aggiungi_conMinorenneSenzaDocumento_registra() {
+            // given
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(1L);
+            when(ospiteRepository.saveAndFlush(any(Ospite.class)))
+                    .thenAnswer(invocazione -> invocazione.getArgument(0));
+
+            // when: un bambino di dieci anni
+            ospiteService.aggiungi(ID_PRENOTAZIONE, richiestaSenzaDocumento(10));
+
+            // then: e' il caso che prima del V10 non si sapeva rappresentare
+            ArgumentCaptor<Ospite> salvato = ArgumentCaptor.forClass(Ospite.class);
+            verify(ospiteRepository).saveAndFlush(salvato.capture());
+            assertThat(salvato.getValue().getTipoDocumento()).isNull();
+            assertThat(salvato.getValue().getNumeroDocumento()).isNull();
+            assertThat(salvato.getValue().getDataNascita()).isEqualTo(ARRIVO.minusYears(10));
+        }
+
+        @Test
+        @DisplayName("senza documento non si cerca nessun duplicato: due bambini non collidono")
+        void aggiungi_conMinorenneSenzaDocumento_nonCercaDuplicati() {
+            // given: uno dei due posti gia' occupato dal primo bambino
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(1L);
+            when(ospiteRepository.saveAndFlush(any(Ospite.class)))
+                    .thenAnswer(invocazione -> invocazione.getArgument(0));
+
+            // when
+            ospiteService.aggiungi(ID_PRENOTAZIONE, richiestaSenzaDocumento(4));
+
+            // then: dove non c'e' un documento non c'e' niente da confrontare, ed e' il
+            // motivo per cui la seconda registrazione senza documento non e' un 409
+            verify(ospiteRepository, never())
+                    .existsByPrenotazioneIdAndTipoDocumentoAndNumeroDocumento(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("un maggiorenne senza documento e' 400: l'obbligo di legge non si allenta")
+        void aggiungi_conMaggiorenneSenzaDocumento_sollevaBadRequest() {
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+
+            assertThatThrownBy(() -> ospiteService.aggiungi(
+                    ID_PRENOTAZIONE, richiestaSenzaDocumento(30)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("obbligatorio");
+        }
+
+        @Test
+        @DisplayName("chi compie diciotto anni il giorno dell'arrivo il documento lo deve dare")
+        void aggiungi_conDiciottesimoIlGiornoDellArrivo_sollevaBadRequest() {
+            // given / when / then: e' il bordo esatto, e cade dalla parte dell'obbligo —
+            // il giorno del compleanno si e' gia' maggiorenni
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+
+            assertThatThrownBy(() -> ospiteService.aggiungi(
+                    ID_PRENOTAZIONE, richiestaSenzaDocumento(18)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("maggiorenne");
+        }
+
+        @Test
+        @DisplayName("chi li compie il giorno dopo l'arrivo e' ancora minorenne, e passa")
+        void aggiungi_conDiciottesimoIlGiornoDopo_registra() {
+            // given
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(0L);
+            when(ospiteRepository.saveAndFlush(any(Ospite.class)))
+                    .thenAnswer(invocazione -> invocazione.getArgument(0));
+
+            // when: l'altro lato dello stesso bordo, che senza questo test resterebbe
+            // indistinguibile da un confronto scritto al contrario
+            ospiteService.aggiungi(ID_PRENOTAZIONE,
+                    richiestaSenzaDocumento(18).dataNascita(ARRIVO.minusYears(18).plusDays(1)));
+
+            // then
+            verify(ospiteRepository).saveAndFlush(any(Ospite.class));
+        }
+
+        @Test
+        @DisplayName("un minorenne che il documento ce l'ha lo puo' dare")
+        void aggiungi_conMinorenneConDocumento_registra() {
+            // given
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            when(ospiteRepository.countByPrenotazioneId(ID_PRENOTAZIONE)).thenReturn(0L);
+            when(ospiteRepository.saveAndFlush(any(Ospite.class)))
+                    .thenAnswer(invocazione -> invocazione.getArgument(0));
+
+            // when: un ragazzo di sedici anni con la sua carta d'identita'
+            ospiteService.aggiungi(ID_PRENOTAZIONE, richiesta().dataNascita(ARRIVO.minusYears(16)));
+
+            // then: la regola dice che il documento non e' obbligatorio, non che sia
+            // vietato — e nel registro un documento vero in piu' non fa danno
+            ArgumentCaptor<Ospite> salvato = ArgumentCaptor.forClass(Ospite.class);
+            verify(ospiteRepository).saveAndFlush(salvato.capture());
+            assertThat(salvato.getValue().getNumeroDocumento()).isEqualTo(NUMERO_DOCUMENTO);
+        }
+
+        @Test
+        @DisplayName("il tipo senza il numero e' 400, anche su un minorenne")
+        void aggiungi_conTipoSenzaNumero_sollevaBadRequest() {
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+
+            assertThatThrownBy(() -> ospiteService.aggiungi(ID_PRENOTAZIONE,
+                    richiestaSenzaDocumento(10)
+                            .tipoDocumento(com.felixhotel.backend.dto.TipoDocumento.PASSAPORTO)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("insieme");
+        }
+
+        @Test
+        @DisplayName("il numero senza il tipo e' 400")
+        void aggiungi_conNumeroSenzaTipo_sollevaBadRequest() {
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+
+            assertThatThrownBy(() -> ospiteService.aggiungi(ID_PRENOTAZIONE,
+                    richiestaSenzaDocumento(10).numeroDocumento(NUMERO_DOCUMENTO)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("insieme");
         }
     }
 
@@ -514,12 +681,29 @@ class OspiteServiceImplTest {
 
     // ---- fabbriche e scorciatoie -------------------------------------------------
 
+    /** Un adulto col suo documento, cioe' il caso normale del banco. */
     private OspiteRequest richiesta() {
         return new OspiteRequest()
                 .nome("Mario")
                 .cognome("Rossi")
                 .tipoDocumento(com.felixhotel.backend.dto.TipoDocumento.CARTA_IDENTITA)
-                .numeroDocumento(NUMERO_DOCUMENTO);
+                .numeroDocumento(NUMERO_DOCUMENTO)
+                .dataNascita(NASCITA_ADULTO);
+    }
+
+    /**
+     * Chi arriva avendo l'eta' indicata, senza documento.
+     *
+     * <p>L'eta' si esprime rispetto ad {@link #ARRIVO} e non a una data fissa, che e'
+     * il modo di scrivere il caso limite senza aritmetica dentro il test: nato
+     * diciotto anni prima dell'arrivo vuol dire che il compleanno cade il giorno
+     * stesso in cui si presenta.
+     */
+    private OspiteRequest richiestaSenzaDocumento(int anniAllArrivo) {
+        return new OspiteRequest()
+                .nome("Luca")
+                .cognome("Rossi")
+                .dataNascita(ARRIVO.minusYears(anniAllArrivo));
     }
 
     private Ospite ospite(Long id, String nome, String numeroDocumento) {
@@ -529,6 +713,7 @@ class OspiteServiceImplTest {
         ospite.setCognome("Rossi");
         ospite.setTipoDocumento(TipoDocumento.CARTA_IDENTITA);
         ospite.setNumeroDocumento(numeroDocumento);
+        ospite.setDataNascita(NASCITA_ADULTO);
         return ospite;
     }
 
@@ -538,6 +723,9 @@ class OspiteServiceImplTest {
         prenotazione.setId(ID_PRENOTAZIONE);
         prenotazione.setNumeroOspiti(NUMERO_OSPITI);
         prenotazione.setStato(stato);
+        // Dal V10 la data di arrivo non e' un dettaglio di contorno: e' quella su cui
+        // si decide se il documento debba esserci.
+        prenotazione.setDataCheckIn(ARRIVO);
         when(prenotazioneRepository.findById(ID_PRENOTAZIONE)).thenReturn(Optional.of(prenotazione));
     }
 

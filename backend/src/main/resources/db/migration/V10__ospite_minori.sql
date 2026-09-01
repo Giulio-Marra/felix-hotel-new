@@ -1,0 +1,47 @@
+-- Un minore non ha un documento suo, e fino a questa migration lo schema ne
+-- pretendeva uno comunque.
+--
+-- Nel V1 `tipo_documento` e `numero_documento` erano NOT NULL e `data_nascita`
+-- era l'unica colonna facoltativa della tabella. Dal 2026-08-28, con la regola
+-- che il check-in vuole **esattamente** `numero_ospiti` ospiti registrati, quei
+-- tre NOT NULL messi insieme producono un caso che negli alberghi veri capita
+-- ogni settimana e qui non si sa rappresentare: una famiglia con un bambino di
+-- quattro anni non riesce a fare il check-in finche' qualcuno non gli inventa un
+-- numero di documento. Un dato inventato in un registro di legge e' peggio del
+-- dato mancante, perche' e' indistinguibile da uno vero.
+--
+-- **L'obbligo non si allenta, si sposta.** Il TULPS chiede il documento di ogni
+-- persona che soggiorna, ma chiede quello che la persona ha: un minorenne non ha
+-- un documento di riconoscimento proprio e negli alberghi si registra sotto chi
+-- lo accompagna. Da qui l'inversione delle tre colonne — la data di nascita
+-- diventa obbligatoria, il documento diventa facoltativo — e la regola che
+-- decide quale dei due casi si ha davanti finisce nel Service, dove la data di
+-- arrivo della prenotazione e' leggibile: chi e' maggiorenne il giorno in cui
+-- arriva il documento lo deve dare, e senza e' 400.
+--
+-- **Perche' la data di nascita e' NOT NULL e non "obbligatoria per modo di
+-- dire".** Se restasse facoltativa non ci sarebbe modo di distinguere "questo e'
+-- un bambino" da "questo campo non l'ha compilato nessuno", quindi l'assenza del
+-- documento non si potrebbe ne' accettare ne' rifiutare senza indovinare. E' lo
+-- stesso motivo per cui serve al punto 21: l'esenzione per eta' della tassa di
+-- soggiorno si calcola su questa colonna, e un'esenzione che dipende da un campo
+-- che puo' mancare non e' un calcolo, e' una stima.
+--
+-- **Non converte i dati esistenti, e non potrebbe.** Se in questo momento
+-- esistesse anche una sola riga senza data di nascita, l'ALTER fallirebbe e la
+-- migration si fermerebbe qui. E' voluto, per la stessa ragione del V6: una data
+-- di nascita non la puo' inventare uno script, e un default — l'epoch, la data
+-- di oggi — sarebbe un dato falso scritto in un registro che qualcun altro puo'
+-- venire a leggere. Le righe si guardano una per una:
+--
+--     select id, prenotazione_id, nome, cognome from ospite where data_nascita is null;
+--
+-- **L'indice unico del V7 resta com'e', e si adatta da solo.** In Postgres due
+-- NULL non collidono in un indice unico, quindi due minori senza documento sulla
+-- stessa prenotazione passano — che e' esattamente quel che deve succedere: la
+-- regola "lo stesso documento non due volte" parla di documenti, e dove non c'e'
+-- un documento non c'e' niente da confrontare. Chi il documento ce l'ha resta
+-- soggetto al vincolo come prima.
+ALTER TABLE ospite ALTER COLUMN data_nascita SET NOT NULL;
+ALTER TABLE ospite ALTER COLUMN tipo_documento DROP NOT NULL;
+ALTER TABLE ospite ALTER COLUMN numero_documento DROP NOT NULL;

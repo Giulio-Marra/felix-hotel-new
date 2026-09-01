@@ -361,18 +361,39 @@ class OspiteApiIT extends IntegrationTestBase {
         }
 
         @Test
-        @DisplayName("senza il numero di documento risponde 400")
+        @DisplayName("il tipo di documento senza il numero risponde 400")
         void registra_senzaNumeroDocumento_risponde400() throws Exception {
             // given
             String admin = tokenAdmin();
             long idPrenotazione = prenotazioneConfermata(admin);
 
-            // when/then: e' il campo per cui la tabella esiste, e la validazione dello
-            // spec lo pretende prima ancora che il service veda la richiesta
+            // when/then: dal V10 questo 400 non arriva piu' dalla validazione dello spec
+            // — dove i due campi sono facoltativi — ma dal Service, che pretende la
+            // coppia intera. Il test resta perche' e' il comportamento a contare, non
+            // chi lo produce; il commento cambia perche' altrimenti mentirebbe
             mockMvc.perform(post(ospiti(idPrenotazione))
                             .header("Authorization", "Bearer " + admin)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(json(dati.ospiteRequest().numeroDocumento(null))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(
+                            org.hamcrest.Matchers.containsString("insieme")));
+        }
+
+        @Test
+        @DisplayName("senza la data di nascita risponde 400: dal V10 e' obbligatoria")
+        void registra_senzaDataNascita_risponde400() throws Exception {
+            // given
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+
+            // when/then: qui il 400 e' della validazione dello spec, cioe' l'esatto
+            // scambio di posto con il test qui sopra — ed e' il verso giusto, perche' e'
+            // la data di nascita a dire se il documento debba esserci
+            mockMvc.perform(post(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteRequest().dataNascita(null))))
                     .andExpect(status().isBadRequest());
         }
 
@@ -419,6 +440,102 @@ class OspiteApiIT extends IntegrationTestBase {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(json(dati.ospiteRequest())))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    @DisplayName("Minorenni senza documento (V10)")
+    class Minorenni {
+
+        @Test
+        @DisplayName("un bambino si registra senza documento, e la risposta lo mostra vuoto")
+        void registra_minorenneSenzaDocumento_risponde201() throws Exception {
+            // given
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+
+            // when/then: e' il caso che prima del V10 obbligava a inventare un numero di
+            // documento al banco, perche' le due colonne erano NOT NULL
+            mockMvc.perform(post(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteMinorenneRequest())))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.nome").value("Luca"))
+                    .andExpect(jsonPath("$.data.tipoDocumento").doesNotExist())
+                    .andExpect(jsonPath("$.data.numeroDocumento").doesNotExist())
+                    .andExpect(jsonPath("$.data.dataNascita").exists());
+        }
+
+        @Test
+        @DisplayName("due bambini senza documento sulla stessa prenotazione non sono un duplicato")
+        void registra_dueMinorenniSenzaDocumento_risponde201() throws Exception {
+            // given: una prenotazione per due, e nessuno dei due ha un documento
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+            registra(admin, idPrenotazione, dati.ospiteMinorenneRequest());
+
+            // when/then: e' il test che vale davvero, perche' guarda l'indice unico del
+            // V7 e non il Service — in Postgres due NULL non collidono, quindi la coppia
+            // (tipo, numero) vuota due volte passa. Se un giorno quell'indice venisse
+            // riscritto con NULLS NOT DISTINCT, e' qui che si vedrebbe
+            mockMvc.perform(post(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteMinorenneRequest().nome("Sara"))))
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
+        @DisplayName("un adulto senza documento risponde 400: l'obbligo di legge resta")
+        void registra_maggiorenneSenzaDocumento_risponde400() throws Exception {
+            // given
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+
+            // when/then: il V10 ha allargato lo schema, non la regola
+            mockMvc.perform(post(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteMinorenneRequest()
+                                    .dataNascita(LocalDate.now().minusYears(40)))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(
+                            org.hamcrest.Matchers.containsString("obbligatorio")));
+        }
+
+        @Test
+        @DisplayName("una famiglia con un bambino arriva a fare il check-in")
+        void checkIn_conUnAdultoEUnBambino_risponde200() throws Exception {
+            // given: il soggiorno comincia oggi, altrimenti il check-in sarebbe 409
+            String admin = tokenAdmin();
+            long idTipologia = tipologiaPrenotabile(admin);
+            String cliente = tokenCliente();
+            String risposta = mockMvc.perform(post(PRENOTAZIONI)
+                            .header("Authorization", "Bearer " + cliente)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.prenotazioneRequest(idTipologia)
+                                    .dataCheckIn(LocalDate.now())
+                                    .dataCheckOut(LocalDate.now().plusDays(3)))))
+                    .andExpect(status().isCreated())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            long idPrenotazione = objectMapper.readTree(risposta).path("data").path("id").asLong();
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/conferma")
+                            .header("Authorization", "Bearer " + cliente))
+                    .andExpect(status().isOk());
+
+            // when: un genitore col suo documento e un bambino senza
+            registra(admin, idPrenotazione, dati.ospiteRequest());
+            registra(admin, idPrenotazione, dati.ospiteMinorenneRequest());
+
+            // then: e' l'intero gap del 2026-08-28 preso da un capo all'altro. Prima di
+            // questo branch la seconda registrazione era impossibile, quindi il conto non
+            // arrivava mai a numeroOspiti e la chiave non si dava a una famiglia
+            mockMvc.perform(put(PRENOTAZIONI + "/" + idPrenotazione + "/check-in")
+                            .header("Authorization", "Bearer " + admin))
+                    .andExpect(status().isOk());
         }
     }
 
@@ -586,26 +703,56 @@ class OspiteApiIT extends IntegrationTestBase {
         }
 
         @Test
-        @DisplayName("la data di nascita omessa viene azzerata")
-        void correzione_senzaDataNascita_laAzzera() throws Exception {
-            // given: un ospite che ce l'ha
+        @DisplayName("il documento omesso su un minorenne viene azzerato")
+        void correzione_senzaDocumentoSuMinorenne_loAzzera() throws Exception {
+            // given: un bambino registrato con un documento che si e' scoperto non essere
+            // suo — capita che al banco si metta quello di chi lo accompagna
             String admin = tokenAdmin();
             long idPrenotazione = prenotazioneConfermata(admin);
             long idOspite = registra(admin, idPrenotazione,
-                    dati.ospiteRequest().dataNascita(LocalDate.of(1985, 4, 17)));
+                    dati.ospiteMinorenneRequest()
+                            .tipoDocumento(TipoDocumento.CARTA_IDENTITA)
+                            .numeroDocumento("CA00000XX"));
 
-            // when: la richiesta non la porta
+            // when: la correzione non lo porta piu'
             mockMvc.perform(put(ospiti(idPrenotazione) + "/" + idOspite)
                             .header("Authorization", "Bearer " + admin)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(json(dati.ospiteRequest())))
+                            .content(json(dati.ospiteMinorenneRequest())))
                     // then: e' quel che una PUT promette nel contratto, ed e' il genere di
                     // cosa che si scambia per un difetto quando succede senza preavviso
                     .andExpect(status().isOk())
-                    // il campo sparisce dalla risposta invece di comparire a null: i DTO
+                    // i campi spariscono dalla risposta invece di comparire a null: i DTO
                     // generati omettono i campi vuoti, ed e' lo stesso motivo per cui la
                     // busta di una DELETE non ha 'data'
-                    .andExpect(jsonPath("$.data.dataNascita").doesNotExist());
+                    .andExpect(jsonPath("$.data.tipoDocumento").doesNotExist())
+                    .andExpect(jsonPath("$.data.numeroDocumento").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("il documento omesso su un adulto non azzera niente: e' 400")
+        void correzione_senzaDocumentoSuMaggiorenne_risponde400() throws Exception {
+            // given: un adulto registrato col suo documento
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+            long idOspite = registra(admin, idPrenotazione, dati.ospiteRequest());
+
+            // when: una correzione distratta, che il documento non lo rimanda
+            mockMvc.perform(put(ospiti(idPrenotazione) + "/" + idOspite)
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteMinorenneRequest()
+                                    .dataNascita(LocalDate.now().minusYears(40)))))
+                    // then: qui la promessa della PUT si ferma contro l'obbligo di legge, e
+                    // va nel verso giusto — il documento di un adulto non si perde per una
+                    // richiesta a cui e' rimasto fuori un campo
+                    .andExpect(status().isBadRequest());
+
+            // e infatti e' ancora li'
+            mockMvc.perform(get(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].numeroDocumento").value("CA12345AB"));
         }
 
         @Test

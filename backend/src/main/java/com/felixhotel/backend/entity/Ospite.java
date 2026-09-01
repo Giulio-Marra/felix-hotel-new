@@ -85,7 +85,17 @@ public class Ospite extends BaseAuditableEntity {
     private String cognome;
 
     /**
-     * Che documento e' stato esibito.
+     * Che documento e' stato esibito, oppure {@code null} se chi soggiorna non ne
+     * ha uno perche' e' minorenne.
+     *
+     * <p><b>Facoltativo dal V10, e viaggia in coppia con {@link #numeroDocumento}</b>:
+     * o ci sono tutti e due o non c'e' nessuno dei due. Un tipo senza numero e' mezzo
+     * dato, e chi lo rileggesse non saprebbe se il numero manca perche' non esiste o
+     * perche' qualcuno si e' fermato a meta' del modulo. A tenerli insieme non e' il
+     * database — un {@code CHECK} sulle due colonne si potrebbe scrivere — ma il
+     * Service, che e' anche l'unico posto in cui si sa se la persona e' maggiorenne
+     * il giorno in cui arriva, cioe' l'unico posto in cui la coppia mancante e' un
+     * errore invece che il caso normale.
      *
      * <p>{@code EnumType.STRING} come ovunque nel progetto: l'ordinale renderebbe
      * il significato delle righe dipendente dall'ordine in cui i valori sono
@@ -93,7 +103,7 @@ public class Ospite extends BaseAuditableEntity {
      * pericolosa.
      */
     @Enumerated(EnumType.STRING)
-    @Column(name = "tipo_documento", nullable = false, length = 30)
+    @Column(name = "tipo_documento", length = 30)
     private TipoDocumento tipoDocumento;
 
     /**
@@ -106,18 +116,28 @@ public class Ospite extends BaseAuditableEntity {
      * Il vincolo lo garantisce l'indice del
      * V7__unicita_documento_ospite.sql, dove sta scritto anche perche' quel
      * doppione fa danno invece di essere solo ridondante.
+     *
+     * <p><b>Null per i minorenni</b>, come {@link #tipoDocumento}. Due righe senza
+     * documento sulla stessa prenotazione non violano l'indice unico, perche' in
+     * Postgres due NULL non collidono: e' quel che serve, visto che dove non c'e' un
+     * documento non c'e' niente da confrontare.
      */
-    @Column(name = "numero_documento", nullable = false, length = 50)
+    @Column(name = "numero_documento", length = 50)
     private String numeroDocumento;
 
     /**
-     * Data di nascita, se e' stata presa.
+     * Data di nascita. <b>Obbligatoria dal V10</b>, dove prima era l'unico campo
+     * facoltativo della tabella.
      *
-     * <p><b>L'unico campo facoltativo</b>, e non per trascuratezza: serve a
-     * distinguere due omonimi e a sapere se si ha davanti un minore, ma non e'
-     * una condizione perche' la registrazione valga. Il documento c'e' o non
-     * c'e'; questa e' una comodita' di chi legge il registro dopo.
+     * <p>L'inversione ha una ragione sola: e' questa colonna a dire se il documento
+     * ci deve essere. Finche' poteva mancare, l'assenza del documento non si poteva
+     * ne' accettare ne' rifiutare senza indovinare — "e' un bambino" e "il modulo e'
+     * incompleto" avevano lo stesso aspetto. Da qui in avanti chi registra un ospite
+     * dice sempre quando e' nato, ed e' il dato da cui discende tutto il resto.
+     *
+     * <p>Ci si appoggera' anche l'esenzione per eta' della tassa di soggiorno, che
+     * senza un campo sempre valorizzato sarebbe una stima e non un calcolo.
      */
-    @Column(name = "data_nascita")
+    @Column(name = "data_nascita", nullable = false)
     private LocalDate dataNascita;
 }

@@ -284,11 +284,31 @@ public class TestDataFactory {
      * ({@code prenotazioneRequest(id).utenteId(7L).canale(TELEFONO)}).
      */
     public PrenotazioneRequest prenotazioneRequest(Long tipologiaCameraId) {
+        // Una lettura sola dell'orologio per tutte e due le date: con due chiamate
+        // separate, una richiesta costruita a cavallo della mezzanotte otterrebbe un
+        // soggiorno di quattro notti invece di tre.
+        LocalDate arrivo = dataArrivoDefault();
         return new PrenotazioneRequest()
                 .tipologiaCameraId(tipologiaCameraId)
-                .dataCheckIn(LocalDate.now().plusDays(7))
-                .dataCheckOut(LocalDate.now().plusDays(10))
+                .dataCheckIn(arrivo)
+                .dataCheckOut(arrivo.plusDays(3))
                 .numeroOspiti(2);
+    }
+
+    /**
+     * Il giorno di arrivo della prenotazione di default.
+     *
+     * <p>Un metodo e non una costante, perche' dipende da {@code now()} e una
+     * costante statica la fisserebbe al caricamento della classe — una differenza
+     * invisibile per tutta la giornata e poi una suite rossa a mezzanotte.
+     *
+     * <p><b>Esiste dal V10</b>, che ha reso questa data una cosa che i test devono
+     * poter nominare: e' su di essa che si decide se un ospite debba avere un
+     * documento, quindi chi costruisce un minorenne deve partire da qui e non da una
+     * data scritta a mano che domani potrebbe non combaciare.
+     */
+    public LocalDate dataArrivoDefault() {
+        return LocalDate.now().plusDays(7);
     }
 
     /**
@@ -301,16 +321,43 @@ public class TestDataFactory {
      * uno e non una sequenza. Una fabbrica che generasse numeri diversi ad ogni
      * chiamata nasconderebbe quel vincolo proprio ai test che devono vederlo.
      *
-     * <p>{@code dataNascita} non c'e': e' l'unico campo facoltativo, e lasciarlo
-     * fuori tiene esercitato il caso normale — al banco la si prende quando
-     * capita.
+     * <p><b>E' un adulto</b>, ed e' la scelta che conta dal V10: nato nel 1985,
+     * cioe' maggiorenne a qualunque data di arrivo un test possa usare, quindi il
+     * documento e' obbligatorio e c'e'. Il caso opposto — il minorenne senza
+     * documento — ha la sua fabbrica in {@link #ospiteMinorenneRequest()}, che lo
+     * dice nel nome: un test che registra un bambino deve leggersi come tale senza
+     * andare a contare gli anni.
      */
     public OspiteRequest ospiteRequest() {
         return new OspiteRequest()
                 .nome("Mario")
                 .cognome("Rossi")
                 .tipoDocumento(TipoDocumento.CARTA_IDENTITA)
-                .numeroDocumento("CA12345AB");
+                .numeroDocumento("CA12345AB")
+                .dataNascita(LocalDate.of(1985, 4, 17));
+    }
+
+    /**
+     * Un minorenne da registrare senza documento proprio, che dal V10 e' il caso
+     * che questa risorsa sa rappresentare e prima no.
+     *
+     * <p>La data di nascita si calcola da {@link #dataArrivoDefault()} e non e' una
+     * costante, ed e' il punto: il documento e' obbligatorio per chi e' maggiorenne
+     * <b>alla data di arrivo</b>, quindi una data fissa renderebbe il test giusto
+     * oggi e sbagliato fra vent'anni. Qui il bambino ha dieci anni il giorno in cui
+     * arriva, sempre. Chi sposta l'arrivo della prenotazione — c'e' chi lo mette a
+     * oggi per poter fare il check-in — resta comunque coperto: dieci anni prima di
+     * una settimana fa e' minorenne allo stesso modo.
+     *
+     * <p>Niente {@code tipoDocumento} e niente {@code numeroDocumento}: e'
+     * esattamente cio' che si sta verificando, e metterceli renderebbe questa
+     * fabbrica indistinguibile da quella di sopra.
+     */
+    public OspiteRequest ospiteMinorenneRequest() {
+        return new OspiteRequest()
+                .nome("Luca")
+                .cognome("Rossi")
+                .dataNascita(dataArrivoDefault().minusYears(10));
     }
 
     /**

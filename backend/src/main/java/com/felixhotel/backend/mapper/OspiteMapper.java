@@ -28,6 +28,12 @@ import java.util.List;
  * diversi che si somigliano, e la corrispondenza fra i loro valori la tiene in
  * piedi questa riga e nient'altro. E' il motivo per cui i test unitari dei
  * Service usano un mapper vero e non un finto.
+ *
+ * <p><b>Il documento puo' non esserci</b>, dal V10: un minorenne si registra senza,
+ * e le due colonne restano vuote. Quindi la conversione dell'enum passa da
+ * {@link #tipoDocumento(Ospite)} invece di stare in linea — la versione precedente,
+ * scritta quando le colonne erano NOT NULL, chiamava {@code name()} sul valore e
+ * sarebbe diventata un {@code NullPointerException} al primo bambino registrato.
  */
 @Component
 public class OspiteMapper {
@@ -37,10 +43,25 @@ public class OspiteMapper {
                 .id(ospite.getId())
                 .nome(ospite.getNome())
                 .cognome(ospite.getCognome())
-                .tipoDocumento(com.felixhotel.backend.dto.TipoDocumento.fromValue(
-                        ospite.getTipoDocumento().name()))
+                .tipoDocumento(tipoDocumento(ospite))
                 .numeroDocumento(ospite.getNumeroDocumento())
                 .dataNascita(ospite.getDataNascita());
+    }
+
+    /**
+     * Il tipo di documento nel tipo del contratto, oppure {@code null} per chi non
+     * ne ha uno.
+     *
+     * <p>Il {@code null} esce cosi' com'e' e non diventa un valore dell'enum: nel
+     * contratto "questo ospite non ha un documento" e' l'assenza del campo, non un
+     * valore in piu' fra CARTA_IDENTITA e PASSAPORTO. Aggiungerne uno vorrebbe dire
+     * scrivere nel registro che il documento e' di tipo "nessuno", che e' una frase
+     * diversa e piu' brutta.
+     */
+    private com.felixhotel.backend.dto.TipoDocumento tipoDocumento(Ospite ospite) {
+        return ospite.getTipoDocumento() == null
+                ? null
+                : com.felixhotel.backend.dto.TipoDocumento.fromValue(ospite.getTipoDocumento().name());
     }
 
     /**

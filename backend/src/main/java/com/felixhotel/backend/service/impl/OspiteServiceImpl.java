@@ -31,7 +31,7 @@ import java.util.List;
  *
  * <p>Nella forma e' il gemello di {@code MediaCameraServiceImpl} — sottorisorsa,
  * controllo preventivo sul duplicato piu' {@code saveAndFlush} dentro il try per
- * tradurre in 409 anche la richiesta gemella arrivata nel frattempo — ma ha due
+ * tradurre in 409 anche la richiesta gemella arrivata nel frattempo — ma ha tre
  * cose che quello non aveva, e sono le sole che vale la pena leggere due volte.
  *
  * <p><b>La prima: il permesso non finisce sul Controller.</b> Ogni metodo
@@ -53,6 +53,16 @@ import java.util.List;
  * li' non c'e' ancora nessun soggiorno, perche' un carrello non confermato non
  * impegna niente e nessuno.
  *
+ * <p><b>La terza: il documento non lo si pretende da chi non ce l'ha.</b> Dal V10
+ * {@code tipoDocumento} e {@code numeroDocumento} sono facoltativi nello schema, e
+ * a decidere se in questa richiesta debbano esserci e'
+ * {@link #verificaDocumento(OspiteRequest, Prenotazione)}. La regola sta qui e non
+ * nel contratto per una ragione precisa: dipende dalla <b>data di arrivo della
+ * prenotazione</b>, che sta nell'URL e non nel corpo, quindi nessuna validazione di
+ * bordo puo' vederla. E l'obbligo di legge non si allenta di un millimetro — un
+ * minorenne un documento proprio non ce l'ha, e pretenderlo lo farebbe inventare al
+ * banco, riempiendo di numeri falsi il registro che esiste apposta per essere vero.
+ *
  * <p><b>Perche' il conteggio e' esatto e non un massimo.</b> Il tetto qui e' il
  * pavimento del check-in: si rifiuta l'ospite oltre {@code numeroOspiti} perche'
  * non si vendono piu' posti letto di quanti ne siano stati comprati, e
@@ -73,6 +83,18 @@ public class OspiteServiceImpl implements OspiteService {
      */
     private static final List<StatoPrenotazione> STATI_MODIFICABILI =
             List.of(StatoPrenotazione.CONFERMATA, StatoPrenotazione.CHECK_IN);
+
+    /**
+     * Gli anni sotto i quali non si pretende un documento.
+     *
+     * <p><b>Una costante e non una configurazione</b>, ed e' la regola 24 applicata
+     * a un numero: la maggiore eta' e' la stessa per ogni albergo d'Italia, quindi
+     * non e' qualcosa che due alberghi vorrebbero diverso. La soglia dell'esenzione
+     * dalla tassa di soggiorno, che assomiglia a questa e non e' questa, sara'
+     * invece configurabile — la decide il comune, e ogni comune la scrive a modo
+     * suo. Tenerle separate e' cio' che evita che cambiarne una muova l'altra.
+     */
+    private static final int MAGGIORE_ETA = 18;
 
     private final OspiteRepository ospiteRepository;
 
@@ -167,10 +189,15 @@ public class OspiteServiceImpl implements OspiteService {
         Prenotazione prenotazione = trovaPrenotazioneOrElseThrow(prenotazioneId);
         assicuraFinestraDiScrittura(prenotazione);
 
-        TipoDocumento tipoDocumento = tipoDocumento(request);
         verificaDataNascita(request.getDataNascita());
+        TipoDocumento tipoDocumento = verificaDocumento(request, prenotazione);
 
-        if (ospiteRepository.existsByPrenotazioneIdAndTipoDocumentoAndNumeroDocumento(
+        // Il controllo del duplicato si salta per chi non ha un documento: dove non
+        // c'e' un documento non c'e' niente da confrontare, e due minorenni sulla
+        // stessa prenotazione sono il caso normale di una famiglia. Lo stesso vale
+        // per l'indice unico del V7, che sui NULL non scatta.
+        if (tipoDocumento != null
+                && ospiteRepository.existsByPrenotazioneIdAndTipoDocumentoAndNumeroDocumento(
                 prenotazioneId, tipoDocumento, request.getNumeroDocumento())) {
             throw new ConflictException("Questo documento e' gia' registrato su questa prenotazione");
         }
@@ -213,10 +240,12 @@ public class OspiteServiceImpl implements OspiteService {
 
         Ospite ospite = trovaOspiteOrElseThrow(prenotazioneId, ospiteId);
 
-        TipoDocumento tipoDocumento = tipoDocumento(request);
         verificaDataNascita(request.getDataNascita());
+        TipoDocumento tipoDocumento = verificaDocumento(request, prenotazione);
 
-        if (ospiteRepository.existsByPrenotazioneIdAndTipoDocumentoAndNumeroDocumentoAndIdNot(
+        // Saltato per chi non ha documento, per la stessa ragione scritta in aggiungi().
+        if (tipoDocumento != null
+                && ospiteRepository.existsByPrenotazioneIdAndTipoDocumentoAndNumeroDocumentoAndIdNot(
                 prenotazioneId, tipoDocumento, request.getNumeroDocumento(), ospiteId)) {
             throw new ConflictException(
                     "Questo documento e' gia' registrato su un altro ospite di questa prenotazione");
@@ -322,21 +351,82 @@ public class OspiteServiceImpl implements OspiteService {
     }
 
     /**
-     * Il tipo di documento dell'entita' a partire da quello del contratto.
+     * Decide se questa richiesta debba portare un documento, e in caso lo traduce
+     * nell'enum dell'entita'. Restituisce {@code null} per chi un documento non lo
+     * deve dare, cioe' per un minorenne che non l'ha allegato.
      *
-     * <p>I due enum sono tipi diversi che si somigliano, e il passaggio da uno
-     * all'altro e' logica: se il contratto guadagnasse un valore che l'entita'
-     * non ha, e' qui che si vedrebbe. La conversione non puo' fallire — la
-     * validazione del DTO ha gia' rifiutato tutto cio' che non e' nell'enum
-     * generato — ma i due elenchi vanno tenuti allineati a mano, e questo e'
-     * l'unico punto in cui si toccano.
+     * <p><b>Due regole in un metodo solo</b>, perche' sono la stessa domanda —
+     * <i>questo documento e' in regola?</i> — guardata dai due lati:
+     * <ol>
+     *   <li><b>tipo e numero viaggiano in coppia.</b> Uno senza l'altro e' mezzo
+     *       dato: chi rilegge il registro non saprebbe se il numero manchi perche'
+     *       non esiste o perche' qualcuno si e' fermato a meta' del modulo. Non lo
+     *       impedisce nessun vincolo di database, di proposito — un {@code CHECK}
+     *       sulle due colonne si potrebbe scrivere, ma direbbe la meta' della regola
+     *       lasciando fuori quella che conta.</li>
+     *   <li><b>senza documento si passa solo se si e' minorenni all'arrivo.</b> Un
+     *       maggiorenne che non lo allega e' un 400 e non un caso da accogliere: e'
+     *       l'obbligo del TULPS, ed e' esattamente quel che questa risorsa esiste
+     *       per far rispettare.</li>
+     * </ol>
+     *
+     * <p><b>Perche' e' 400 e non 409.</b> Non c'e' nessun conflitto con qualcosa
+     * che esiste gia': e' il corpo della richiesta a non stare in piedi da solo,
+     * come una data di nascita nel futuro.
+     *
+     * <p>La conversione fra i due {@code TipoDocumento} — quello del contratto e
+     * quello dell'entita' — resta qui, ed e' logica e non copia: se il contratto
+     * guadagnasse un valore che l'entita' non ha, e' questa riga a rompersi. Non
+     * puo' fallire sui valori attuali, perche' la validazione del DTO ha gia'
+     * rifiutato tutto cio' che non e' nell'enum generato, ma i due elenchi vanno
+     * tenuti allineati a mano e questo e' l'unico punto in cui si toccano.
      */
-    private TipoDocumento tipoDocumento(OspiteRequest request) {
-        return TipoDocumento.valueOf(request.getTipoDocumento().getValue());
+    private TipoDocumento verificaDocumento(OspiteRequest request, Prenotazione prenotazione) {
+        // Letti una volta in due variabili, e non richiesti al DTO ad ogni riga: sono
+        // campi facoltativi, quindi il tipo dichiara di poter essere null e un secondo
+        // accesso e' un secondo valore per chi legge il flusso — SpotBugs compreso, che
+        // sulla versione con due getter separati segnalava un possibile dereferenziamento.
+        com.felixhotel.backend.dto.TipoDocumento tipoRichiesto = request.getTipoDocumento();
+        String numeroRichiesto = request.getNumeroDocumento();
+
+        if ((tipoRichiesto == null) != (numeroRichiesto == null)) {
+            throw new BadRequestException(
+                    "Tipo e numero del documento vanno indicati insieme, oppure omessi tutti e due");
+        }
+
+        if (tipoRichiesto == null) {
+            if (maggiorenneAllArrivo(request.getDataNascita(), prenotazione.getDataCheckIn())) {
+                throw new BadRequestException(
+                        "Il documento e' obbligatorio: alla data di arrivo questo ospite e' maggiorenne");
+            }
+            // Minorenne senza documento: e' il caso che il V10 esiste per permettere.
+            return null;
+        }
+
+        return TipoDocumento.valueOf(tipoRichiesto.getValue());
     }
 
     /**
-     * Che la data di nascita, se c'e', non sia nel futuro.
+     * Se il giorno dell'arrivo questa persona avra' gia' compiuto diciotto anni.
+     *
+     * <p><b>La data che conta e' quella di arrivo e non oggi</b>, e la differenza si
+     * vede su una prenotazione fatta con mesi di anticipo per qualcuno che nel
+     * frattempo diventa maggiorenne. E' l'arrivo perche' e' li' che il TULPS chiede
+     * il documento — <i>all'atto dell'arrivo</i> — quindi e' quello il giorno in cui
+     * la domanda "questa persona un documento ce l'ha?" ha una risposta.
+     *
+     * <p>Il confronto e' fra date e non fra numeri di anni: {@code dataNascita} piu'
+     * diciotto anni cade il giorno del compleanno, e chi arriva quel giorno e' gia'
+     * maggiorenne. Scritto cosi' invece che con un {@code Period} perche' e' la
+     * stessa frase della legge, senza un'aritmetica in mezzo da rileggere.
+     */
+    private boolean maggiorenneAllArrivo(LocalDate dataNascita, LocalDate dataArrivo) {
+        return !dataNascita.plusYears(MAGGIORE_ETA).isAfter(dataArrivo);
+    }
+
+    /**
+     * Che la data di nascita non sia nel futuro. Che ci sia lo ha gia' preteso la
+     * validazione del bordo: dal V10 e' un campo obbligatorio dello schema.
      *
      * <p>E' l'unico controllo possibile su questo campo senza inventare una
      * regola che nessuno ha deciso: quanti anni debba avere un ospite, o quanto
@@ -344,11 +434,20 @@ public class OspiteServiceImpl implements OspiteService {
      * nel futuro invece non e' un'opinione, e' un errore di battitura — quasi
      * sempre l'anno.
      *
+     * <p><b>Non e' una difesa contro chi mentisse sull'eta' per non dare il
+     * documento</b>, e vale la pena dirlo adesso che da questo campo dipende quello
+     * obbligo: una data di nascita finta la scrive il personale, cioe' proprio chi
+     * il registro ha l'obbligo di tenere vero, e nessun controllo di formato
+     * distingue un bambino inventato da uno reale. Cio' che il codice puo' fare e'
+     * non rendere l'inganno necessario, ed e' quel che il V10 ha fatto. Da notare
+     * che una data molto <i>indietro</i> nel tempo sbaglia dalla parte severa: rende
+     * l'ospite maggiorenne, quindi il documento diventa obbligatorio.
+     *
      * <p>400 e non 409, al contrario dei controlli sullo stato: qui e' un valore
      * sbagliato nel corpo, non un conflitto con qualcosa che gia' esiste.
      */
     private void verificaDataNascita(LocalDate dataNascita) {
-        if (dataNascita != null && dataNascita.isAfter(LocalDate.now(clock))) {
+        if (dataNascita.isAfter(LocalDate.now(clock))) {
             throw new BadRequestException("La data di nascita non puo' essere nel futuro");
         }
     }
@@ -362,9 +461,10 @@ public class OspiteServiceImpl implements OspiteService {
     private void applica(Ospite ospite, OspiteRequest request, TipoDocumento tipoDocumento) {
         ospite.setNome(request.getNome());
         ospite.setCognome(request.getCognome());
+        // Tutti e due null per un minorenne senza documento, mai uno solo dei due:
+        // verificaDocumento() ha gia' rifiutato la coppia a meta'.
         ospite.setTipoDocumento(tipoDocumento);
         ospite.setNumeroDocumento(request.getNumeroDocumento());
-        // Facoltativa: omessa vuol dire azzerata, che e' quel che una PUT promette.
         ospite.setDataNascita(request.getDataNascita());
     }
 
