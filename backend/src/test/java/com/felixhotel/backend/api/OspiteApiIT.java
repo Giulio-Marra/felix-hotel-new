@@ -1,5 +1,6 @@
 package com.felixhotel.backend.api;
 
+import com.felixhotel.backend.dto.MotivoEsenzione;
 import com.felixhotel.backend.dto.OspiteRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
@@ -378,6 +379,44 @@ class OspiteApiIT extends IntegrationTestBase {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message").value(
                             org.hamcrest.Matchers.containsString("insieme")));
+        }
+
+        @Test
+        @DisplayName("il motivo di esenzione si scrive e si rilegge")
+        void registra_conMotivoEsenzione_loConserva() throws Exception {
+            // given
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+
+            // when: un residente nel comune, che la tassa di soggiorno non la paga
+            mockMvc.perform(post(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteRequest()
+                                    .motivoEsenzione(MotivoEsenzione.RESIDENTE))))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.motivoEsenzione").value("RESIDENTE"));
+
+            // then: e' un campo che nessun controllo verifica — non c'e' niente contro cui
+            // verificarlo — quindi l'unica cosa da provare e' che faccia il giro intero
+            mockMvc.perform(get(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].motivoEsenzione").value("RESIDENTE"));
+        }
+
+        @Test
+        @DisplayName("senza motivo di esenzione il campo non compare, ed e' il caso normale")
+        void registra_senzaMotivoEsenzione_nonCompare() throws Exception {
+            String admin = tokenAdmin();
+            long idPrenotazione = prenotazioneConfermata(admin);
+
+            mockMvc.perform(post(ospiti(idPrenotazione))
+                            .header("Authorization", "Bearer " + admin)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.ospiteRequest())))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.motivoEsenzione").doesNotExist());
         }
 
         @Test

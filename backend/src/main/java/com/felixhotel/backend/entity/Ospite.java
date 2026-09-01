@@ -140,4 +140,27 @@ public class Ospite extends BaseAuditableEntity {
      */
     @Column(name = "data_nascita", nullable = false)
     private LocalDate dataNascita;
+
+    /**
+     * Perche' questa persona non paga la tassa di soggiorno, se e' uno dei motivi
+     * che qualcuno deve dichiarare. {@code null} e' il caso normale.
+     *
+     * <p><b>Qui non finiscono l'eta' e le notti lunghe</b>, che sono le altre due
+     * esenzioni: quelle il calcolo le deduce da {@link #dataNascita} e dalle date
+     * della prenotazione, e scriverle anche qui vorrebbe dire due fonti per lo
+     * stesso fatto — col giorno in cui non sono d'accordo e nessun criterio per
+     * decidere quale delle due ha ragione. Il perche' esteso della divisione sta su
+     * {@link MotivoEsenzione}.
+     *
+     * <p><b>Lo scrive il personale, guardando un tesserino</b>: residenza,
+     * disabilita', servizio, ricovero sono fatti del mondo che nessun dato di
+     * questa applicazione contiene. E' anche il motivo per cui non c'e' nessun
+     * controllo che lo verifichi: non esiste niente contro cui verificarlo, e
+     * l'unica cosa che il codice puo' fare e' registrare chi l'ha dichiarato —
+     * cosa che l'audit di {@link BaseAuditableEntity} gia' non fa, e che diventera'
+     * una domanda vera solo il giorno in cui un controllo del comune la porra'.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "motivo_esenzione", length = 40)
+    private MotivoEsenzione motivoEsenzione;
 }

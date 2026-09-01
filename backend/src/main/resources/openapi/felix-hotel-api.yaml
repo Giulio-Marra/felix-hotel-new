@@ -2276,6 +2276,85 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/prenotazioni/{id}/tassa-soggiorno:
+
+    get:
+      tags:
+        - Tassa di soggiorno
+      operationId: calcolaTassaSoggiornoPrenotazione
+      summary: Quanto si deve di tassa di soggiorno per questa prenotazione
+      description: >
+        Il conto della tassa di soggiorno: quanto deve il soggiorno in tutto, e
+        persona per persona quante notti paga e perche' eventualmente non paga.
+        La vedono **STAFF** e **ADMIN** su qualunque prenotazione, e il **cliente
+        sulla propria**.
+        **Perche' anche il cliente**, al contrario del registro degli ospiti che
+        resta chiuso al personale: e' un importo che paghera' lui all'arrivo, e
+        non c'e' nessuna ragione di nascondergli quanto sara'. Il dettaglio porta
+        nome e cognome degli ospiti e nient'altro — **mai il numero di
+        documento** — perche' quelle persone le ha portate lui, i loro documenti
+        no. La prenotazione di un altro cliente risponde **404 e non 403**, come
+        ogni altra rotta sotto /api/prenotazioni.
+        **Si calcola sugli ospiti registrati**, quindi su una prenotazione ancora
+        IN_ATTESA il totale e' zero: gli ospiti si registrano dopo la conferma. La
+        lettura **non ha finestra di stato**, come quella del registro: dopo la
+        partenza serve ancora, ed e' anzi quando serve di piu'.
+        **Non e' una fotografia.** A differenza di 'importoTotale', che si fissa
+        alla creazione, questo numero si ricalcola ad ogni chiamata: dipende da chi
+        e' registrato, e chi e' registrato cambia fino al check-in. Un totale
+        congelato prima che gli ospiti esistano sarebbe un numero inventato.
+        **Le esenzioni sono di due specie.** Quelle che il sistema calcola —
+        l'**eta**, confrontata con l'aliquota, e le **notti oltre il tetto** — e
+        quelle che il personale dichiara sull'ospite ('motivoEsenzione': residente,
+        disabile, forze dell'ordine...). Le prime non si possono scrivere a mano e
+        le seconde non si possono dedurre.
+        **L'eta si valuta alla data di arrivo**, come la maggiore eta' che decide
+        se serve il documento: chi compie gli anni durante il soggiorno lo passa
+        intero con l'eta' che aveva arrivando.
+        **Nessuna aliquota configurata non e' un errore**: il totale e' zero e
+        'nottiNonCoperte' dice quante notti nessuna aliquota copriva. Un comune
+        senza tassa di soggiorno esiste, e un'installazione appena fatta non ha
+        ancora configurato niente.
+        Risposta: busta ApiBaseResponse con **TassaSoggiornoResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      responses:
+        '200':
+          description: Tassa di soggiorno calcolata ('data' = TassaSoggiornoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Tassa di soggiorno calcolata
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  totale: 12.00
+                  nottiSoggiorno: 3
+                  nottiNonCoperte: 0
+                  ospiti:
+                    - ospiteId: 12
+                      nome: Mario
+                      cognome: Rossi
+                      nottiTassate: 3
+                      importo: 6.00
+                      esenzioneEta: false
+                    - ospiteId: 13
+                      nome: Luca
+                      cognome: Rossi
+                      nottiTassate: 0
+                      importo: 0.00
+                      esenzioneEta: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/disponibilita:
 
     get:
@@ -2859,6 +2938,230 @@ paths:
                   orarioCheckOutDefault: "10:00:00"
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /api/tassa-soggiorno/aliquote:
+
+    get:
+      tags:
+        - Tassa di soggiorno
+      operationId: elencaAliquoteTassaSoggiorno
+      summary: Le aliquote della tassa di soggiorno
+      description: >
+        Il calendario della tassa di soggiorno: in che date si paga quanto, fino a
+        quante notti, e sotto che eta' non si paga. Riservato a **STAFF** e
+        **ADMIN**.
+        **Perche' lo STAFF legge e non scrive**, come per le tariffe: chi sta al
+        banco deve poter rispondere a "quant'e' la tassa di soggiorno?" senza
+        chiamare nessuno. Deliberarla no — non e' nemmeno una scelta
+        dell'albergatore, e' un regolamento comunale che qualcuno trascrive, e chi
+        lo trascrive e' l'ADMIN.
+        **Non e' pubblico** e non e' una dimenticanza: il cliente la domanda se la
+        fa sulla propria prenotazione, dove ottiene il conto vero
+        (GET /api/prenotazioni/{id}/tassa-soggiorno) invece di un calendario da
+        interpretare.
+        **E' paginato** come le tariffe e per la stessa ragione: le aliquote si
+        accumulano di anno in anno e niente le limita.
+        L'ordine e' **per data di inizio**. Le date non possono accavallarsi,
+        quindi non serve un secondo criterio.
+        Risposta: busta ApiBaseResponsePaginated con un **array di
+        AliquotaTassaSoggiornoResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+      responses:
+        '200':
+          description: Pagina di aliquote ('data' = array di AliquotaTassaSoggiornoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+              example:
+                status: 200
+                message: Aliquote della tassa di soggiorno recuperate
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  - id: 1
+                    dataInizio: 2027-01-01
+                    dataFine: 2027-12-31
+                    importoPerPersonaNotte: 2.00
+                    nottiMassimeTassate: 5
+                    etaEsenzione: 12
+                page:
+                  pageNumber: 0
+                  pageSize: 20
+                  totalElements: 1
+                  totalPages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Tassa di soggiorno
+      operationId: creaAliquotaTassaSoggiorno
+      summary: Aggiungi un'aliquota della tassa di soggiorno
+      description: >
+        Trascrive quello che il regolamento comunale dice per un periodo.
+        Riservato agli **ADMIN**.
+        **409 se le date si accavallano con un'altra aliquota**, e il messaggio
+        dice con quale. Il motivo e' lo stesso dei periodi tariffari: "quanto si
+        paga per la notte del 15 agosto" deve avere **una** risposta, e senza il
+        vincolo dipenderebbe dall'ordine in cui il database restituisce le righe —
+        che su un importo da versare al comune non e' una risposta.
+        **Le notti che nessuna aliquota copre non si pagano**, ed e' l'opposto
+        delle tariffe, dove una notte scoperta cade sul listino della tipologia.
+        La differenza e' voluta: un prezzo mancante e' una configurazione
+        incompleta, una tassa mancante e' il caso legittimo di un comune che non
+        la applica. Non esiste una "tassa di listino" a cui ricadere, e inventarne
+        una vorrebbe dire far pagare qualcosa che nessuno ha deliberato.
+        Risposta: busta ApiBaseResponse con **AliquotaTassaSoggiornoResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AliquotaTassaSoggiornoRequest'
+      responses:
+        '201':
+          description: Aliquota creata ('data' = AliquotaTassaSoggiornoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Aliquota creata
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  id: 1
+                  dataInizio: 2027-01-01
+                  dataFine: 2027-12-31
+                  importoPerPersonaNotte: 2.00
+                  nottiMassimeTassate: 5
+                  etaEsenzione: 12
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/tassa-soggiorno/aliquote/{aliquotaId}:
+
+    put:
+      tags:
+        - Tassa di soggiorno
+      operationId: aggiornaAliquotaTassaSoggiorno
+      summary: Modifica un'aliquota della tassa di soggiorno
+      description: >
+        Riscrive un'aliquota per intero. Riservato agli **ADMIN**.
+        **Vale lo stesso 409 sulla sovrapposizione**, con una differenza che si
+        nota solo qui: l'aliquota che si sta modificando **non fa conflitto con se
+        stessa**, altrimenti riconfermarle le proprie date sarebbe impossibile.
+        E' una PUT: un campo facoltativo omesso viene **azzerato**, non lasciato
+        com'era. Omettere 'nottiMassimeTassate' toglie il tetto; omettere
+        'etaEsenzione' fa pagare anche i bambini.
+        **Le prenotazioni gia' calcolate cambiano importo**, ed e' voluto: la
+        tassa non e' una fotografia come 'importoTotale' ma un debito verso il
+        comune, e quello e' quello che il regolamento dice oggi. Se un comune
+        cambia l'aliquota a meta' stagione, le nuove date vanno scritte come
+        un'aliquota nuova accanto alla vecchia — non riscrivendo quella vecchia,
+        che rifarebbe i conti anche a chi ha gia' pagato.
+        Risposta: busta ApiBaseResponse con **AliquotaTassaSoggiornoResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdAliquotaTassaSoggiorno'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AliquotaTassaSoggiornoRequest'
+      responses:
+        '200':
+          description: Aliquota aggiornata ('data' = AliquotaTassaSoggiornoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Aliquota aggiornata
+                timestamp: 2026-09-01T10:15:30Z
+                data:
+                  id: 1
+                  dataInizio: 2027-01-01
+                  dataFine: 2027-12-31
+                  importoPerPersonaNotte: 2.50
+                  nottiMassimeTassate: 5
+                  etaEsenzione: 12
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags:
+        - Tassa di soggiorno
+      operationId: eliminaAliquotaTassaSoggiorno
+      summary: Elimina un'aliquota della tassa di soggiorno
+      description: >
+        Toglie un'aliquota dal calendario. Riservato agli **ADMIN**.
+        **Le notti che copriva smettono di essere tassate**, senza nessun errore e
+        senza nessuna rete: non c'e' un valore di base a cui ricadere, quindi
+        cancellare l'aliquota dell'anno in corso azzera la tassa di ogni soggiorno
+        di quell'anno. E' la conseguenza diretta della scelta "niente tassa di
+        listino", ed e' scritta qui perche' e' l'unico posto in cui fa danno.
+        **Nessun 409 e nessun controllo sulle prenotazioni che l'hanno usata**: la
+        tassa non e' mai stata scritta su nessuna riga: si ricalcola ad ogni
+        richiesta, quindi non esiste niente che punti a questa aliquota.
+        Risposta: busta ApiBaseResponse con 'data' a null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdAliquotaTassaSoggiorno'
+      responses:
+        '200':
+          description: Aliquota eliminata ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Aliquota eliminata
+                timestamp: 2026-09-01T10:15:30Z
+                data: null
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -2917,6 +3220,20 @@ components:
         Identificativo del periodo tariffario. Si accompagna sempre all'id della
         tipologia nel percorso: un periodo non ha una rotta propria, esiste
         dentro il calendario dei prezzi della tipologia a cui appartiene.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+    IdAliquotaTassaSoggiorno:
+      name: aliquotaId
+      in: path
+      required: true
+      description: >
+        Identificativo dell'aliquota della tassa di soggiorno. **Non si accompagna
+        a nessun altro id**, al contrario di quello del periodo tariffario: le
+        tariffe sono di una tipologia, l'aliquota e' dell'albergo — la decide il
+        comune e vale per chiunque dorma li'.
       schema:
         type: integer
         format: int64
@@ -3960,6 +4277,33 @@ components:
         - PERMESSO_SOGGIORNO
       example: CARTA_IDENTITA
 
+    MotivoEsenzione:
+      type: string
+      description: >
+        Perche' un ospite non paga la tassa di soggiorno, fra i motivi che
+        **qualcuno deve dichiarare**.
+        **Qui non ci sono l'eta' e le notti lunghe**, che pure sono esenzioni, e la
+        divisione e' il punto: quelle il sistema le **calcola** da dati che gia'
+        esistono — la data di nascita dell'ospite, le date della prenotazione —
+        mentre queste sono fatti del mondo che qualcuno constata al banco, quasi
+        sempre guardando un tesserino, e che nessun dato di questa applicazione
+        contiene. Un valore 'MINORE' qui sarebbe un modo di scrivere a mano una
+        cosa che il calcolo sa fare, col giorno in cui i due non sono d'accordo e
+        nessun criterio per decidere chi ha ragione.
+        **L'elenco lo decide un regolamento comunale**, non questo contratto:
+        sono i motivi che ricorrono in quasi tutti quelli italiani. Un comune che
+        ne avesse uno suo obbliga a toccare il codice, ed e' un caso che non si e'
+        voluto anticipare con una tabella configurabile — un motivo che il calcolo
+        non conosce sarebbe una configurazione senza codice dietro.
+      enum:
+        - RESIDENTE
+        - DISABILE
+        - ACCOMPAGNATORE_DISABILE
+        - FORZE_ORDINE
+        - AUTISTA_O_GUIDA
+        - RICOVERO
+      example: RESIDENTE
+
     OspiteRequest:
       type: object
       description: >
@@ -4027,6 +4371,18 @@ components:
             della POST per il perche' quel doppione fa danno invece di essere
             solo ridondante).
           example: CA12345AB
+        motivoEsenzione:
+          allOf:
+            - $ref: '#/components/schemas/MotivoEsenzione'
+          description: >
+            Facoltativo, e quasi sempre assente: lo si valorizza solo per chi ha
+            diritto a un'esenzione dalla tassa di soggiorno che **il sistema non
+            puo' dedurre** — residenza, disabilita', servizio, ricovero.
+            **Non serve per i bambini**: l'esenzione per eta' la calcola il sistema
+            dalla data di nascita, confrontandola con l'aliquota che vale in quelle
+            notti. Scriverla anche qui vorrebbe dire due fonti per lo stesso fatto.
+            **Nessun controllo lo verifica**, e non e' una svista: non esiste niente
+            contro cui verificarlo. Lo dichiara chi ha guardato il tesserino.
         dataNascita:
           type: string
           format: date
@@ -4079,6 +4435,13 @@ components:
           type: string
           description: Null insieme a 'tipoDocumento', per lo stesso motivo.
           example: CA12345AB
+        motivoEsenzione:
+          allOf:
+            - $ref: '#/components/schemas/MotivoEsenzione'
+          description: >
+            Null se questo ospite non ha un'esenzione dichiarata, che e' il caso
+            normale. L'esenzione per eta' non compare qui: si vede nel conto della
+            tassa (GET /api/prenotazioni/{id}/tassa-soggiorno), dove e' calcolata.
         dataNascita:
           type: string
           format: date
@@ -4749,6 +5112,222 @@ components:
           minimum: 0
           maximum: 99999999.99
           example: 210.00
+
+    AliquotaTassaSoggiornoRequest:
+      type: object
+      description: >
+        Quanto si paga di tassa di soggiorno in un intervallo di date, e chi non
+        paga. I limiti ricalcano le colonne del database, vedi
+        V11__tassa_soggiorno.sql.
+        **Gli estremi sono compresi tutti e due e si contano in notti**, come per
+        i periodi tariffari: dal 1 al 31 agosto sono la notte del 1 e quella del
+        31, con tutte quelle in mezzo. Un'aliquota di un giorno solo e' legittima.
+        **Due aliquote non possono sovrapporsi**: e' 409, e il messaggio dice con
+        quale. Qui non c'e' l'eccezione che vale per le tariffe — quelle di
+        tipologie diverse possono coincidere — perche' l'aliquota e' una sola per
+        l'albergo: la decide il comune.
+        **Lo stesso schema serve alla creazione e alla correzione**, come per gli
+        ospiti: non c'e' nessun campo che abbia senso una volta sola.
+      required:
+        - dataInizio
+        - dataFine
+        - importoPerPersonaNotte
+      properties:
+        dataInizio:
+          type: string
+          format: date
+          description: Prima notte coperta dall'aliquota.
+          example: 2027-01-01
+        dataFine:
+          type: string
+          format: date
+          description: >
+            Ultima notte coperta, compresa. Puo' coincidere con 'dataInizio' ma
+            non essere precedente: e' 400.
+          example: 2027-12-31
+        importoPerPersonaNotte:
+          type: number
+          description: >
+            Quanto deve **una persona per una notte**, in euro.
+            **Zero e' legittimo e non disattiva l'aliquota**: un comune puo'
+            deliberare una sospensione per un periodo, e scriverla come aliquota a
+            zero e' piu' onesto che cancellare la riga — resta agli atti che quel
+            periodo e' stato deciso e non dimenticato.
+            Al massimo **due decimali**, come ogni altro importo del progetto: la
+            colonna e' NUMERIC(10,2) e un terzo decimale verrebbe troncato in
+            silenzio, cioe' la risposta direbbe un numero e il database ne
+            conserverebbe un altro.
+          minimum: 0
+          maximum: 99999999.99
+          example: 2.00
+        nottiMassimeTassate:
+          type: integer
+          description: >
+            Quante notti di un soggiorno si pagano al massimo; dalla successiva in
+            poi non si paga piu'. E' l'esenzione piu' diffusa dopo quella per eta'
+            — quasi ogni regolamento ne ha una, di solito fra le tre e le sette
+            notti — e serve a non tassare chi in albergo ci vive.
+            **Omesso vuol dire nessun tetto, e non zero.** Zero direbbe "nessuna
+            notte si paga", che e' una frase diversa e che si scrive gia' mettendo
+            'importoPerPersonaNotte' a zero: per questo il minimo e' 1.
+          minimum: 1
+          maximum: 999
+          example: 5
+        etaEsenzione:
+          type: integer
+          description: >
+            L'eta' sotto la quale non si paga. **Omessa vuol dire che pagano
+            tutti**, che e' un caso che esiste davvero.
+            L'eta' si valuta alla **data di arrivo** della prenotazione, come la
+            maggiore eta' che decide se serve il documento: chi compie gli anni
+            durante il soggiorno lo passa intero con l'eta' che aveva arrivando.
+            **Non e' la maggiore eta' e non va confusa con lei**: quella dice se
+            serve un documento, vale 18 per legge ed e' la stessa per ogni albergo
+            d'Italia, quindi non e' configurabile. Questa la decide il regolamento
+            comunale — dieci anni, dodici, quattordici — quindi si scrive qui.
+          minimum: 0
+          maximum: 120
+          example: 12
+
+    AliquotaTassaSoggiornoResponse:
+      type: object
+      description: >
+        Un'aliquota come viene restituita al client. Gli stessi campi della
+        richiesta piu' l'id: qui non c'e' niente di derivato da mostrare, perche'
+        quanto si deve dipende dal soggiorno e si chiede alla prenotazione.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        dataInizio:
+          type: string
+          format: date
+          example: 2027-01-01
+        dataFine:
+          type: string
+          format: date
+          example: 2027-12-31
+        importoPerPersonaNotte:
+          type: number
+          example: 2.00
+        nottiMassimeTassate:
+          type: integer
+          description: Null se non c'e' nessun tetto di notti.
+          example: 5
+        etaEsenzione:
+          type: integer
+          description: Null se pagano tutte le eta'.
+          example: 12
+
+    TassaSoggiornoOspite:
+      type: object
+      description: >
+        Il conto di **una persona**: quante notti paga, quanto, e se non paga
+        perche'.
+        **Nome e cognome e nient'altro.** Non c'e' il numero di documento, ed e' la
+        ragione per cui questa risposta puo' vederla anche il cliente sulla propria
+        prenotazione: le persone le ha portate lui, i loro documenti no. Se un
+        domani servisse aggiungere un campo qui, e' questa la frase da rileggere
+        per prima.
+      properties:
+        ospiteId:
+          type: integer
+          format: int64
+          example: 12
+        nome:
+          type: string
+          example: Mario
+        cognome:
+          type: string
+          example: Rossi
+        nottiTassate:
+          type: integer
+          description: >
+            Quante notti questa persona paga davvero. **Zero vuol dire esente**, e
+            il perche' lo dicono 'esenzioneEta' e 'motivoEsenzione'.
+            **Se e' minore di 'nottiSoggiorno' senza che nessuno dei due sia
+            valorizzato, e' il tetto di notti dell'aliquota**: quella e' l'unica
+            esenzione che non esenta la persona ma alcune delle sue notti, ed e'
+            per questo che non ha un campo suo.
+          example: 3
+        importo:
+          type: number
+          description: Quanto deve questa persona, in euro. Zero se e' esente.
+          example: 6.00
+        esenzioneEta:
+          type: boolean
+          description: >
+            Vero se **almeno una notte** e' stata esentata perche' alla data di
+            arrivo questa persona era sotto l'eta' di esenzione dell'aliquota che
+            copriva quella notte. **La calcola il sistema**, non si dichiara.
+            **Non vuol dire "non paga niente"**, e la sfumatura conta in un caso
+            preciso: se il soggiorno attraversa due aliquote con soglie d'eta'
+            diverse — sotto i 12 la prima, sotto i 6 la seconda — un bambino di
+            dieci anni e' esente sotto la prima e paga sotto la seconda, quindi
+            questo campo e' vero accanto a un 'importo' maggiore di zero. Chi vuole
+            sapere se una persona paga guarda 'importo'; questo campo dice
+            **perche'** una parte del conto e' scesa.
+            L'eta' si valuta **alla data di arrivo** e non notte per notte: chi
+            compie gli anni durante il soggiorno lo passa intero con l'eta' che
+            aveva arrivando. A cambiare fra una notte e l'altra e' la soglia
+            dell'aliquota, non l'eta'.
+          example: false
+        motivoEsenzione:
+          allOf:
+            - $ref: '#/components/schemas/MotivoEsenzione'
+          description: >
+            Il motivo dichiarato sull'ospite, se ce n'e' uno. Null e' il caso
+            normale. **Chi non paga o ha questo campo valorizzato o ha
+            'esenzioneEta' a true**: il consumatore che vuole sapere "paga?" guarda
+            'importo', quello che vuole sapere "perche' no?" guarda questi due.
+
+    TassaSoggiornoResponse:
+      type: object
+      description: >
+        Il conto della tassa di soggiorno per una prenotazione: il totale e il
+        dettaglio persona per persona.
+        **Si ricalcola ad ogni chiamata e non e' una fotografia**, al contrario di
+        'importoTotale' della prenotazione: dipende da chi e' registrato, e chi e'
+        registrato cambia fino al check-in. Un totale congelato prima che gli
+        ospiti esistano sarebbe un numero inventato.
+      properties:
+        totale:
+          type: number
+          description: >
+            La somma degli importi di tutti gli ospiti registrati, in euro.
+            **Zero e' un valore legittimo** e vuole dire una di tre cose, che il
+            resto della risposta distingue: nessun ospite ancora registrato (la
+            prenotazione e' IN_ATTESA), tutti esenti, oppure nessuna aliquota
+            configurata per quelle notti — e in quest'ultimo caso
+            'nottiNonCoperte' e' maggiore di zero.
+          example: 12.00
+        nottiSoggiorno:
+          type: integer
+          description: >
+            Le notti fra arrivo e partenza. Serve a leggere 'nottiTassate' di ogni
+            ospite: se e' minore di questo numero, quella persona ha smesso di
+            pagare per il tetto di notti dell'aliquota.
+          example: 3
+        nottiNonCoperte:
+          type: integer
+          description: >
+            Quante notti del soggiorno **nessuna aliquota copriva**. Non e' un
+            errore: un comune senza tassa di soggiorno esiste, e un'installazione
+            appena fatta non ha ancora configurato niente. Quelle notti non si
+            pagano — non c'e' nessuna "tassa di listino" a cui ricadere, al
+            contrario del prezzo della camera.
+            Maggiore di zero con un totale a zero vuol dire quasi sempre che manca
+            una configurazione, ed e' il numero da guardare per capirlo.
+          example: 0
+        ospiti:
+          type: array
+          description: >
+            Un elemento per ogni ospite registrato, nell'ordine di registrazione —
+            lo stesso di GET /api/prenotazioni/{id}/ospiti. **Vuoto** su una
+            prenotazione ancora IN_ATTESA, dove nessuno e' stato registrato.
+          items:
+            $ref: '#/components/schemas/TassaSoggiornoOspite'
 
     PeriodoTariffarioRequest:
       type: object

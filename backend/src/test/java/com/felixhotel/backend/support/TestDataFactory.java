@@ -1,5 +1,6 @@
 package com.felixhotel.backend.support;
 
+import com.felixhotel.backend.dto.AliquotaTassaSoggiornoRequest;
 import com.felixhotel.backend.dto.CameraRequest;
 import com.felixhotel.backend.dto.CameraStatoRequest;
 import com.felixhotel.backend.dto.DotazioneRequest;
@@ -358,6 +359,33 @@ public class TestDataFactory {
                 .nome("Luca")
                 .cognome("Rossi")
                 .dataNascita(dataArrivoDefault().minusYears(10));
+    }
+
+    /**
+     * Un'aliquota della tassa di soggiorno valida in ogni campo.
+     *
+     * <p><b>Copre un anno intero attorno all'arrivo di default</b> invece di date
+     * fisse, e per la stessa ragione per cui il minorenne si costruisce dall'arrivo:
+     * un'aliquota scritta con anni costanti smetterebbe di coprire i soggiorni dei
+     * test il giorno in cui quell'anno passa. Cosi' copre sempre.
+     *
+     * <p><b>Due aliquote di questa fabbrica si sovrappongono</b>, ed e' voluto: la
+     * sovrapposizione e' il vincolo centrale di questa risorsa, e una fabbrica che
+     * generasse date sempre diverse lo nasconderebbe proprio ai test che devono
+     * vederlo. Chi ne vuole due che convivono sposta le date a mano.
+     *
+     * <p>Tetto ed eta' di esenzione ci sono tutti e due, coi valori che ricorrono
+     * nei regolamenti veri: chi vuole provarne l'assenza li mette a null
+     * ({@code aliquotaRequest().etaEsenzione(null)}).
+     */
+    public AliquotaTassaSoggiornoRequest aliquotaRequest() {
+        LocalDate arrivo = dataArrivoDefault();
+        return new AliquotaTassaSoggiornoRequest()
+                .dataInizio(arrivo.minusMonths(6))
+                .dataFine(arrivo.plusMonths(6))
+                .importoPerPersonaNotte(new BigDecimal("2.00"))
+                .nottiMassimeTassate(5)
+                .etaEsenzione(12);
     }
 
     /**

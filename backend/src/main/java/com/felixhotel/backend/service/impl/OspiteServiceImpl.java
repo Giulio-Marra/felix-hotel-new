@@ -2,6 +2,7 @@ package com.felixhotel.backend.service.impl;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.OspiteRequest;
+import com.felixhotel.backend.entity.MotivoEsenzione;
 import com.felixhotel.backend.entity.Ospite;
 import com.felixhotel.backend.entity.Prenotazione;
 import com.felixhotel.backend.entity.StatoPrenotazione;
@@ -466,6 +467,26 @@ public class OspiteServiceImpl implements OspiteService {
         ospite.setTipoDocumento(tipoDocumento);
         ospite.setNumeroDocumento(request.getNumeroDocumento());
         ospite.setDataNascita(request.getDataNascita());
+        // Quasi sempre null. Nessun controllo lo verifica, e non c'e' niente contro
+        // cui verificarlo: lo dichiara chi ha guardato il tesserino. Vedi
+        // MotivoEsenzione per il perche' l'eta' non passa di qui.
+        ospite.setMotivoEsenzione(motivoEsenzione(request));
+    }
+
+    /**
+     * Il motivo di esenzione dell'entita' a partire da quello del contratto.
+     *
+     * <p>Stessa forma della conversione del tipo di documento, e stessa ragione:
+     * i due enum sono tipi diversi che si somigliano, e se il contratto guadagnasse
+     * un valore che l'entita' non ha e' qui che si vedrebbe.
+     */
+    private MotivoEsenzione motivoEsenzione(OspiteRequest request) {
+        // Letto una volta in una variabile, come in verificaDocumento e per la stessa
+        // ragione: e' un campo facoltativo, quindi il tipo dichiara di poter essere
+        // null, e due accessi separati sono due valori per chi legge il flusso —
+        // SpotBugs compreso.
+        com.felixhotel.backend.dto.MotivoEsenzione motivo = request.getMotivoEsenzione();
+        return motivo == null ? null : MotivoEsenzione.valueOf(motivo.getValue());
     }
 
     /**

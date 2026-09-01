@@ -45,7 +45,8 @@ public class OspiteMapper {
                 .cognome(ospite.getCognome())
                 .tipoDocumento(tipoDocumento(ospite))
                 .numeroDocumento(ospite.getNumeroDocumento())
-                .dataNascita(ospite.getDataNascita());
+                .dataNascita(ospite.getDataNascita())
+                .motivoEsenzione(motivoEsenzione(ospite));
     }
 
     /**
@@ -62,6 +63,21 @@ public class OspiteMapper {
         return ospite.getTipoDocumento() == null
                 ? null
                 : com.felixhotel.backend.dto.TipoDocumento.fromValue(ospite.getTipoDocumento().name());
+    }
+
+    /**
+     * Il motivo di esenzione dichiarato, nel tipo del contratto, oppure
+     * {@code null} per chi non ne ha uno — che e' il caso normale.
+     *
+     * <p>Stessa forma della conversione qui sopra, e stessa ragione: due enum
+     * diversi che si somigliano, con questa riga sola a tenerne allineati gli
+     * elenchi. <b>Qui escono solo i motivi dichiarati</b>: l'esenzione per eta' non
+     * e' un campo dell'ospite, si calcola, e si vede nel conto della tassa.
+     */
+    private com.felixhotel.backend.dto.MotivoEsenzione motivoEsenzione(Ospite ospite) {
+        return ospite.getMotivoEsenzione() == null
+                ? null
+                : com.felixhotel.backend.dto.MotivoEsenzione.fromValue(ospite.getMotivoEsenzione().name());
     }
 
     /**
