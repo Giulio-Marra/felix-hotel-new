@@ -5,9 +5,6 @@ import com.felixhotel.backend.service.RegistrationAttemptService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-// Spring Boot 4 ha spacchettato spring-boot-test-autoconfigure in moduli per tecnologia:
-// @AutoConfigureMockMvc vive in spring-boot-webmvc-test, non piu' sotto
-// org.springframework.boot.test.autoconfigure.web.servlet (package di Boot 3).
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
@@ -88,10 +85,19 @@ public abstract class IntegrationTestBase {
      */
     protected Autenticatore auth;
 
+    /**
+     * La casella dei test, condivisa da tutti gli IT perche' il contesto Spring e' uno
+     * solo. Va svuotata prima di ogni test, altrimenti uno leggerebbe il messaggio del
+     * precedente — vedi {@link PostaDiProva}.
+     */
+    @Autowired
+    protected PostaDiProva posta;
+
     @BeforeEach
     void inizializzaDati() {
         dati = new TestDataFactory();
-        auth = new Autenticatore(mockMvc, objectMapper, dati);
+        posta.svuota();
+        auth = new Autenticatore(mockMvc, objectMapper, dati, posta);
         loginAttemptService.reset();
         registrationAttemptService.reset();
     }

@@ -2,9 +2,15 @@ package com.felixhotel.backend.service.impl;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.AuthResponse;
+import com.felixhotel.backend.dto.EmailRequest;
 import com.felixhotel.backend.dto.LoginRequest;
+import com.felixhotel.backend.dto.NuovaPasswordRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.TokenRequest;
 import com.felixhotel.backend.entity.Ruolo;
+import com.felixhotel.backend.entity.Staff;
+import com.felixhotel.backend.entity.TipoTokenEmail;
+import com.felixhotel.backend.entity.TokenEmail;
 import com.felixhotel.backend.entity.Utente;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
@@ -18,9 +24,11 @@ import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.JwtService;
+import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.AuthService;
 import com.felixhotel.backend.service.LoginAttemptService;
 import com.felixhotel.backend.service.RegistrationAttemptService;
+import com.felixhotel.backend.service.ServizioNotifiche;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -58,6 +66,12 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final LoginAttemptService loginAttemptService;
     private final RegistrationAttemptService registrationAttemptService;
+    /** Manda le tre email che partono da qui: verifica, reinvio e reset. */
+    private final ServizioNotifiche servizioNotifiche;
+
+    /** Verifica i token che arrivano dai link, e li consuma. */
+    private final ServizioTokenEmail servizioToken;
+
     private final UtenteMapper utenteMapper;
     private final AuthMapper authMapper;
     private final ApiResponseMapper apiResponseMapper;
@@ -124,14 +138,12 @@ public class AuthServiceImpl implements AuthService {
         utente.setDataNascita(request.getDataNascita());
         utente.setDataRegistrazione(LocalDateTime.now());
         utente.setAttivo(true);
-        // L'account nasce gia' verificato perche' un flusso di verifica non esiste: non c'e'
-        // modo di spedire l'email, ne' un token di conferma, ne' un controllo che impedisca
-        // il login a chi non ha confermato. Lasciare il campo a false lo farebbe sembrare un
-        // vincolo attivo mentre il login autenticherebbe comunque tutti (regola 17: niente
-        // promesse senza il codice che le mantiene). Torna a false il giorno che la verifica
-        // esistera' davvero — invio, token con scadenza e login bloccato finche' non e'
-        // confermata — e non un momento prima.
-        utente.setEmailVerificata(true);
+        // Nasce NON verificato, dal 2026-09-02. Fino a ieri nasceva a true, e il commento
+        // che stava qui diceva: "torna a false il giorno che la verifica esistera' davvero
+        // — invio, token con scadenza e login bloccato finche' non e' confermata — e non
+        // un momento prima". Quel giorno e' oggi: le tre cose ci sono tutte e tre, e il
+        // campo e' tornato a significare qualcosa.
+        utente.setEmailVerificata(false);
         // Arrivati qui il consenso e' per forza true (controllato sopra), quindi la data si
         // valorizza sempre: e' l'istante in cui il consenso e' stato raccolto.
         utente.setConsensoPrivacy(true);
@@ -140,11 +152,23 @@ public class AuthServiceImpl implements AuthService {
 
         Utente salvato = utenteRepository.save(utente);
 
+        // Il link di conferma. Parte dopo il commit e non fa fallire niente se l'SMTP e'
+        // irraggiungibile (vedi ServizioEmail): una registrazione riuscita resta riuscita,
+        // e chi non riceve niente se ne fa mandare un altro.
+        servizioNotifiche.verificaIndirizzo(salvato);
+
         // Nessun token qui: la registrazione crea l'account e basta, l'autenticazione si
         // ottiene con una chiamata esplicita a /api/auth/login. Il 201 restituisce la
         // risorsa appena creata, non una sessione: sono due operazioni distinte e chi
         // registra per conto d'altri (un domani, dal backoffice) non deve ritrovarsi loggato.
-        return apiResponseMapper.toResponse(HttpStatus.CREATED, "Registrazione completata con successo",
+        //
+        // Il messaggio dice cosa fare adesso, e non e' una gentilezza: il login rifiutera'
+        // questo account finche' l'indirizzo non e' confermato, e rispondera' "Credenziali
+        // non valide" come per ogni altro rifiuto — perche' distinguere i motivi direbbe a
+        // chi prova email a caso quali esistono (decisione gia' presa, vedi login()).
+        // Questo messaggio e' quindi l'unico posto in cui glielo si puo' spiegare.
+        return apiResponseMapper.toResponse(HttpStatus.CREATED,
+                "Registrazione completata: conferma il tuo indirizzo email per poter accedere",
                 utenteMapper.toAccountSummary(salvato));
     }
 
@@ -209,4 +233,161 @@ public class AuthServiceImpl implements AuthService {
         return apiResponseMapper.toResponse(HttpStatus.OK, "Dati account recuperati",
                 authMapper.toAccountSummary(chiamanteCorrente.autenticato()));
     }
+    /**
+     * Conferma l'indirizzo di un cliente consumando il token del link.
+     *
+     * <p><b>Non restituisce un token di accesso</b>, e non e' una dimenticanza: e' la
+     * stessa scelta gia' fatta dalla registrazione, che crea l'account e non autentica
+     * nessuno. Confermare l'indirizzo e accedere sono due operazioni, e chi apre il link
+     * puo' benissimo farlo da un dispositivo diverso da quello su cui vuole entrare.
+     *
+     * <p><b>Nessun limite di frequenza</b>, al contrario del reinvio: qui non si manda
+     * niente e non si scrive niente finche' il token non e' valido, e indovinarne uno
+     * vuol dire indovinare 256 bit.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse verificaEmail(TokenRequest request) {
+        TokenEmail token = servizioToken.consuma(TipoTokenEmail.VERIFICA_EMAIL, request.getToken());
+
+        // Il token dice a chi appartiene, e il tipo di account dice in quale tabella
+        // cercarlo. Un token di verifica e' sempre di un cliente — lo emette solo la
+        // registrazione — ma il controllo c'e' lo stesso: e' l'unica cosa che
+        // impedirebbe a una futura emissione sbagliata di scrivere sulla riga di un altro.
+        if (token.getTipoAccount() != TipoAccount.CLIENTE) {
+            throw new BadRequestException("Il link non e' valido");
+        }
+
+        Utente utente = utenteRepository.findById(token.getSoggettoId())
+                // L'account e' stato cancellato fra l'invio e il clic. Stesso messaggio
+                // degli altri casi: chi legge non deve poter distinguere "non esiste piu'"
+                // da "non e' mai esistito".
+                .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
+
+        utente.setEmailVerificata(true);
+        utenteRepository.save(utente);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Indirizzo confermato, ora puoi accedere", null);
+    }
+
+    /**
+     * Rimanda il link di conferma.
+     *
+     * <p><b>Risponde 200 sempre, e il messaggio e' al condizionale.</b> Un indirizzo che
+     * non esiste, uno gia' confermato e uno in attesa danno la stessa risposta: qualunque
+     * differenza trasformerebbe questa rotta in un modo per sapere quali indirizzi sono
+     * registrati, senza nemmeno provare una password. E' lo stesso criterio del login.
+     *
+     * <p><b>Ha un limite di frequenza</b>, al contrario della conferma, e la ragione e'
+     * che qui una richiesta <i>manda un'email</i>: senza, chiunque potrebbe usare questa
+     * rotta per riempire la casella di qualcun altro, e farlo usando il nostro dominio
+     * come mittente.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse reinviaVerificaEmail(EmailRequest request, String clientIp) {
+        registrationAttemptService.checkNotThrottled(clientIp);
+        registrationAttemptService.recordAttempt(clientIp);
+
+        utenteRepository.findByEmailIgnoreCase(request.getEmail())
+                // Gia' confermato: non si rimanda niente, ma la risposta non lo dice.
+                .filter(utente -> !utente.isEmailVerificata())
+                .ifPresent(servizioNotifiche::verificaIndirizzo);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK,
+                "Se l'indirizzo e' registrato e non ancora confermato, hai ricevuto un link", null);
+    }
+
+    /**
+     * Accetta un invito e imposta la password scelta dalla persona.
+     *
+     * <p>E' il modo in cui nasce l'accesso di uno STAFF o di un ADMIN dal 2026-09-02.
+     * Fino a quel momento l'account esiste, e' attivo, e <b>non si autentica</b>: la sua
+     * password e' nulla, e {@code CustomUserDetailsService} lo tratta come non abilitato.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse attivaAccountPersonale(NuovaPasswordRequest request) {
+        TokenEmail token = servizioToken.consuma(TipoTokenEmail.INVITO_STAFF, request.getToken());
+
+        if (token.getTipoAccount() != TipoAccount.PERSONALE) {
+            throw new BadRequestException("Il link non e' valido");
+        }
+
+        Staff staff = staffRepository.findById(token.getSoggettoId())
+                .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
+
+        staff.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        staffRepository.save(staff);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Password impostata, ora puoi accedere", null);
+    }
+
+    /**
+     * Manda il link per reimpostare la password.
+     *
+     * <p><b>Cerca in tutte e due le popolazioni</b>, clienti e personale, nello stesso
+     * ordine del login: la credenziale e' una sola per tutto il progetto, quindi chi
+     * dimentica la password non deve sapere in quale tabella vive.
+     *
+     * <p><b>Risponde 200 sempre</b>, come il reinvio e per una ragione che qui pesa di
+     * piu': una risposta diversa direbbe a chiunque quali indirizzi hanno un account,
+     * gratis.
+     *
+     * <p><b>Chi non ha ancora accettato l'invito non riceve un reset</b>: non ha una
+     * password da reimpostare, e mandargliene uno vorrebbe dire una seconda strada per
+     * entrare che scavalca l'invito. Anche questo caso risponde 200 e non manda niente.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse richiediResetPassword(EmailRequest request, String clientIp) {
+        registrationAttemptService.checkNotThrottled(clientIp);
+        registrationAttemptService.recordAttempt(clientIp);
+
+        utenteRepository.findByEmailIgnoreCase(request.getEmail()).ifPresentOrElse(
+                utente -> servizioNotifiche.resetPassword(
+                        utente.getEmail(), utente.getNome(), TipoAccount.CLIENTE, utente.getId()),
+                () -> staffRepository.findByEmailIgnoreCase(request.getEmail())
+                        .filter(staff -> staff.getPasswordHash() != null)
+                        .ifPresent(staff -> servizioNotifiche.resetPassword(
+                                staff.getEmail(), staff.getNome(), TipoAccount.PERSONALE, staff.getId())));
+
+        return apiResponseMapper.toResponse(HttpStatus.OK,
+                "Se l'indirizzo e' registrato, hai ricevuto un link per reimpostare la password", null);
+    }
+
+    /**
+     * Scrive la nuova password consumando il token di reset.
+     *
+     * <p><b>E' il token a dire in quale tabella scrivere</b>, non chi chiama: lasciarlo
+     * scegliere al corpo della richiesta vorrebbe dire accettare che indichi la tabella
+     * sbagliata, e un id che esiste in tutte e due le sequenze e' il caso normale, non
+     * quello raro.
+     *
+     * <p><b>Chi ha gia' un token di accesso lo tiene</b>, ed e' un limite noto del
+     * progetto e non di questa rotta: non esiste nessun modo di revocare un JWT, quindi
+     * cambiare la password non butta fuori chi era gia' entrato. Sta nei gap dal
+     * 2026-08-06.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse reimpostaPassword(NuovaPasswordRequest request) {
+        TokenEmail token = servizioToken.consuma(TipoTokenEmail.RESET_PASSWORD, request.getToken());
+        String hash = passwordEncoder.encode(request.getPassword());
+
+        if (token.getTipoAccount() == TipoAccount.CLIENTE) {
+            Utente utente = utenteRepository.findById(token.getSoggettoId())
+                    .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
+            utente.setPasswordHash(hash);
+            utenteRepository.save(utente);
+        } else {
+            Staff staff = staffRepository.findById(token.getSoggettoId())
+                    .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
+            staff.setPasswordHash(hash);
+            staffRepository.save(staff);
+        }
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Password reimpostata, ora puoi accedere", null);
+    }
+
 }

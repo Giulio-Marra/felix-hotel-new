@@ -145,6 +145,226 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/auth/verifica-email:
+
+    post:
+      tags:
+        - Auth
+      operationId: verificaEmail
+      summary: Conferma l'indirizzo email con il link ricevuto
+      description: >
+        Consuma il token arrivato per email alla registrazione e rende l'account
+        utilizzabile. **Pubblica**: chi la chiama non e' ancora autenticato, e non
+        potrebbe esserlo — il login rifiuta gli account non confermati, quindi
+        pretendere un token di accesso qui sarebbe un cerchio chiuso.
+        **Il link vale 24 ore e una volta sola.** Un secondo clic sullo stesso link
+        e' **400**, come uno scaduto e come uno inventato: sono tre casi con lo
+        stesso messaggio, di proposito — chi legge deve fare la stessa cosa
+        (farsene mandare un altro), e distinguerli direbbe a chi prova token a caso
+        quali esistono.
+        **Non restituisce un token di accesso**: confermare l'indirizzo e accedere
+        restano due operazioni, come lo sono registrazione e login.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: Indirizzo confermato ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Indirizzo confermato, ora puoi accedere
+                timestamp: 2026-09-02T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/verifica-email/invio:
+
+    post:
+      tags:
+        - Auth
+      operationId: reinviaVerificaEmail
+      summary: Rimanda il link di conferma
+      description: >
+        Manda un nuovo link di conferma a chi non ha ricevuto il primo o lo ha
+        lasciato scadere. **Pubblica**, per la stessa ragione della rotta qui sopra.
+        **Risponde 200 sempre**, anche per un indirizzo che non esiste o gia'
+        confermato, ed e' una scelta: rispondere in modo diverso trasformerebbe
+        questa rotta in un modo per sapere quali indirizzi sono registrati, senza
+        nemmeno provare una password. Il messaggio e' volutamente al condizionale.
+        **Il link precedente smette di valere**: chi ne chiede due si aspetta che
+        valga l'ultimo ricevuto, e lasciarli validi tutti e due non darebbe a chi
+        legge la posta nessun modo di capire quale sia quello buono.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Richiesta presa in carico ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Se l'indirizzo e' registrato e non ancora confermato, hai ricevuto un link
+                timestamp: 2026-09-02T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/attivazione:
+
+    post:
+      tags:
+        - Auth
+      operationId: attivaAccountPersonale
+      summary: Accetta l'invito e scegli la password
+      description: >
+        Consuma il token di invito mandato a un membro del personale e imposta la
+        password che ha scelto. **Pubblica**: chi la chiama una password non ce l'ha
+        ancora, quindi non puo' autenticarsi.
+        **E' il modo in cui nasce l'accesso di uno STAFF o di un ADMIN**, dal
+        2026-09-02. Prima la password la sceglieva l'ADMIN creando l'account e la
+        comunicava a voce: era un ripiego dichiarato, scelto il 2026-08-27 **solo**
+        perche' non c'era modo di spedire email. Ora nessuna password del personale
+        passa piu' per le mani di qualcun altro.
+        **Il link vale 7 giorni**, che e' la piu' lunga delle tre scadenze del
+        progetto: un invito mandato il venerdi' a chi comincia il lunedi' deve
+        essere ancora valido. Scaduto, lo rimanda un ADMIN.
+        **Non restituisce un token di accesso**: dopo aver scelto la password si fa
+        il login, come chiunque altro.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuovaPasswordRequest'
+      responses:
+        '200':
+          description: Password impostata ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Password impostata, ora puoi accedere
+                timestamp: 2026-09-02T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/password-dimenticata:
+
+    post:
+      tags:
+        - Auth
+      operationId: richiediResetPassword
+      summary: Chiedi il link per reimpostare la password
+      description: >
+        Manda il link di reset all'indirizzo indicato. **Pubblica**, e vale per i
+        **clienti e per il personale**: sono due tabelle diverse ma una credenziale
+        sola, come gia' per il login.
+        **Risponde 200 sempre**, anche per un indirizzo che non esiste, e qui la
+        ragione pesa piu' che altrove: una risposta diversa direbbe a chiunque quali
+        indirizzi hanno un account, e su questa rotta la si otterrebbe senza
+        nemmeno provare una password.
+        **Il link vale un'ora**, la piu' corta delle tre scadenze: e' il token che
+        fa piu' danno se qualcuno lo intercetta, perche' cambia una credenziale
+        invece di confermarne una. Chi lo chiede lo sta aspettando in quel momento.
+        **Il link precedente smette di valere.**
+        Risposta: busta ApiBaseResponse con 'data' null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Richiesta presa in carico ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Se l'indirizzo e' registrato, hai ricevuto un link per reimpostare la password
+                timestamp: 2026-09-02T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/password-reset:
+
+    post:
+      tags:
+        - Auth
+      operationId: reimpostaPassword
+      summary: Reimposta la password con il link ricevuto
+      description: >
+        Consuma il token di reset e scrive la nuova password. **Pubblica**: chi la
+        chiama la propria password non la ricorda, che e' il motivo per cui e' qui.
+        **Vale per i clienti e per il personale**: e' il token a sapere in quale
+        delle due tabelle vive chi lo ha chiesto, quindi il corpo non deve dirlo —
+        e non potrebbe, perche' lasciarlo scegliere a chi chiama vorrebbe dire
+        accettare che indichi la tabella sbagliata.
+        **Il token vale una volta sola**: dopo, per cambiarla ancora, se ne chiede
+        un altro.
+        **Chi ha gia' un token di accesso lo tiene**, ed e' un limite noto e
+        scritto: questo progetto non ha nessun modo di revocare un JWT, quindi
+        cambiare la password **non butta fuori** chi era gia' entrato. Vedi i gap in
+        CLAUDE.md.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NuovaPasswordRequest'
+      responses:
+        '200':
+          description: Password reimpostata ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Password reimpostata, ora puoi accedere
+                timestamp: 2026-09-02T10:15:30Z
+                data: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/tipologie-camera:
 
     get:
@@ -2507,15 +2727,23 @@ paths:
         che distribuisce i privilegi, e un ADMIN puo' creare anche altri ADMIN.
         Non esiste una registrazione pubblica per il personale — questo endpoint
         e' l'unico modo di far nascere uno STAFF o un ADMIN.
-        **La password la sceglie chi crea l'account** e va comunicata alla
-        persona: non c'e' nessun invito via email, perche' non c'e' ancora modo
-        di spedirne. Viene salvata come hash BCrypt, e da qui in poi non e' piu'
-        leggibile da nessuno — nemmeno da un ADMIN, che per cambiarla passa da
-        PUT /api/staff/{id}/password.
+        **La password non si manda piu'**, dal 2026-09-02: la creazione fa partire
+        un **invito per email** e la persona sceglie la propria password aprendo il
+        link, su POST /api/auth/attivazione. Prima la sceglieva l'ADMIN e la
+        comunicava a voce — un ripiego dichiarato, scelto il 2026-08-27 **solo**
+        perche' non c'era modo di spedire email.
+        **L'account nasce quindi senza credenziali e non si autentica**: fino a
+        quando l'invito non viene accettato, il login lo rifiuta come rifiuta un
+        account disattivato. Non e' uno stato da temere, e' il caso normale fra la
+        creazione e il primo accesso.
+        **L'invito vale 7 giorni.** Scaduto, non c'e' un endpoint per rimandarlo:
+        un ADMIN puo' impostare una password con PUT /api/staff/{id}/password, che
+        resta l'unica via di riserva — vedi i gap in CLAUDE.md.
         L'email deve essere libera **su entrambe le popolazioni**, clienti
         compresi, e il confronto ignora le maiuscole: e' la credenziale di
         login, che e' una sola per tutto il progetto.
-        L'account nasce **attivo**.
+        L'account nasce **attivo**, che qui vuol dire "non disattivato": e' una
+        cosa diversa dall'essere utilizzabile.
         Risposta: busta ApiBaseResponse con **StaffResponse** in 'data'.
       security:
         - bearerAuth: []
@@ -3825,6 +4053,72 @@ components:
 
   schemas:
 
+    TokenRequest:
+      type: object
+      description: >
+        Il token arrivato per email, e nient'altro.
+        **Uno schema solo per due rotte** (conferma dell'indirizzo e, insieme alla
+        password, attivazione e reset): il token e' sempre la stessa cosa — un
+        segreto opaco che il client non deve interpretare, solo rimandare indietro
+        come lo ha ricevuto.
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            Il valore del parametro 'token' del link ricevuto per email.
+            **E' una credenziale**: chi lo ha in mano puo' compiere l'azione a cui
+            si riferisce senza sapere nessuna password. Non va messo nei log, non va
+            rimandato a nessuno e non compare in nessuna risposta di questa API.
+          example: 9xQm2K7bV1nR4tYw
+
+    EmailRequest:
+      type: object
+      description: >
+        L'indirizzo a cui mandare un link.
+        **Le rotte che usano questo schema rispondono 200 anche quando l'indirizzo
+        non esiste**: la risposta non deve dire se un account c'e'.
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          example: mario.rossi@example.com
+
+    NuovaPasswordRequest:
+      type: object
+      description: >
+        Un token e la password che si vuole impostare.
+        **Serve a due rotte** — l'attivazione di un invito e il reset — perche' sono
+        la stessa operazione guardata da due momenti diversi: in tutti e due i casi
+        un token dimostra chi sei e una password nuova prende il posto di quella che
+        non c'e' o non si ricorda.
+      required:
+        - token
+        - password
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Come su 'TokenRequest'. E' una credenziale.
+          example: 9xQm2K7bV1nR4tYw
+        password:
+          type: string
+          minLength: 8
+          description: >
+            Password in chiaro (verra' salvata come hash BCrypt, mai in chiaro).
+            **Lo stesso minimo della registrazione**: otto caratteri. Il limite e'
+            scritto in tutti e due i posti perche' OpenAPI non sa generarne uno
+            dall'altro, e cambiarne uno solo vorrebbe dire due regole diverse per la
+            stessa cosa.
+          example: PasswordSicura123
+
     RegisterRequest:
       type: object
       description: Dati per la registrazione di un nuovo cliente (frontoffice)
@@ -5040,16 +5334,22 @@ components:
       description: >
         Dati per creare un account del personale. I limiti ricalcano le colonne
         del database, vedi V1__init_schema.sql.
-        **Non e' lo stesso schema dell'aggiornamento**, al contrario di quanto
-        fanno camere e dotazioni: qui c'e' la password, che si sceglie una volta
-        alla nascita dell'account e poi si cambia dal suo endpoint. Un unico
-        schema con la password facoltativa direbbe che ometterla in creazione e'
-        lecito, e non lo e'.
+        **Dal 2026-09-02 non contiene piu' la password**, ed e' il cambiamento da
+        sapere prima di ogni altra cosa: la creazione manda un **invito per email**
+        e la password la sceglie la persona, aprendo il link. Prima la sceglieva
+        l'ADMIN e la comunicava a voce — un ripiego dichiarato, scelto il
+        2026-08-27 **solo** perche' non c'era modo di spedire email, motivo che
+        oggi non esiste piu'. Il risultato e' che nessuna password del personale
+        passa piu' per le mani di qualcun altro, ne' viaggia nel corpo di una
+        richiesta.
+        **Resta diverso dallo schema dell'aggiornamento**, al contrario di quanto
+        fanno camere e dotazioni, ma per un'altra ragione di prima: la creazione
+        fa nascere un account senza credenziali e fa partire un invito, cose che
+        una correzione dell'anagrafica non deve poter fare.
       required:
         - nome
         - cognome
         - email
-        - password
         - ruolo
       properties:
         nome:
@@ -5074,13 +5374,6 @@ components:
             V6__unicita_email_case_insensitive.sql): un indirizzo gia' preso
             e' un 409 anche se scritto con maiuscole diverse.
           example: anna.bianchi@felixhotel.it
-        password:
-          type: string
-          minLength: 8
-          description: >
-            Password in chiaro, scelta da chi crea l'account e da comunicare
-            alla persona (verra' salvata come hash BCrypt, mai in chiaro).
-          example: PasswordSicura123
         telefono:
           type: string
           maxLength: 30

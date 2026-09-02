@@ -38,6 +38,7 @@ public class Autenticatore {
 
     public static final String REGISTER = "/api/auth/register";
     public static final String LOGIN = "/api/auth/login";
+    public static final String VERIFICA = "/api/auth/verifica-email";
 
     private final MockMvc mockMvc;
     private final ObjectMapper objectMapper;
@@ -45,22 +46,57 @@ public class Autenticatore {
     /** Serve a costruire la richiesta di login senza scrivere il body a mano (regola 16). */
     private final TestDataFactory dati;
 
-    public Autenticatore(MockMvc mockMvc, ObjectMapper objectMapper, TestDataFactory dati) {
+    /** Da cui si legge il link di conferma che la registrazione ha appena mandato. */
+    private final PostaDiProva posta;
+
+    public Autenticatore(MockMvc mockMvc, ObjectMapper objectMapper, TestDataFactory dati,
+                         PostaDiProva posta) {
         this.mockMvc = mockMvc;
         this.objectMapper = objectMapper;
         this.dati = dati;
+        this.posta = posta;
     }
 
     /**
-     * Registra un account, fallendo il test se la registrazione non riesce.
-     * "Serve un account che esista" e' il presupposto di qualunque test che
-     * tocchi la sicurezza, non solo di quelli sugli endpoint di auth.
+     * Registra un account <b>e ne conferma l'indirizzo</b>, fallendo il test se uno dei
+     * due passi non riesce. "Serve un account che esista e possa entrare" e' il
+     * presupposto di qualunque test che tocchi la sicurezza, non solo di quelli sugli
+     * endpoint di auth.
+     *
+     * <p><b>I due passi stanno insieme dal 2026-09-02</b>, ed e' la modifica che ha
+     * toccato piu' test di tutto il branch: da quel giorno un account non confermato non
+     * si autentica, quindi ogni IT che registrava e poi faceva login avrebbe smesso di
+     * funzionare. Metterli insieme qui invece che in ognuno di quei test e' esattamente
+     * il motivo per cui questa classe esiste.
+     *
+     * <p><b>La conferma passa dal bordo HTTP e dal link vero</b>, non da una scrittura
+     * diretta nel database: il token si legge dall'email appena mandata, come farebbe
+     * una persona. Costa una chiamata in piu' per test, e in cambio fa girare il flusso
+     * di verifica <b>in ogni singolo IT del progetto</b> — molta piu' copertura di
+     * quanta ne darebbe un test dedicato.
+     *
+     * <p>Chi vuole il caso opposto — un account registrato e <i>non</i> confermato — usa
+     * {@link #registraSenzaConfermare}.
      */
     public void registraAccount(RegisterRequest richiesta) throws Exception {
+        registraSenzaConfermare(richiesta);
+        confermaIndirizzo(richiesta.getEmail());
+    }
+
+    /** Solo la registrazione: l'account resta non confermato e non si autentica. */
+    public void registraSenzaConfermare(RegisterRequest richiesta) throws Exception {
         mockMvc.perform(post(REGISTER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(richiesta)))
                 .andExpect(status().isCreated());
+    }
+
+    /** Apre il link di conferma arrivato a questo indirizzo. */
+    public void confermaIndirizzo(String email) throws Exception {
+        mockMvc.perform(post(VERIFICA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + posta.tokenPer(email) + "\"}"))
+                .andExpect(status().isOk());
     }
 
     /**

@@ -36,7 +36,7 @@ import java.util.List;
 @Configuration
 @EnableMethodSecurity
 @EnableConfigurationProperties({LoginRateLimitProperties.class, RegistrationRateLimitProperties.class,
-        CorsProperties.class})
+        CorsProperties.class, EmailProperties.class})
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -115,11 +115,26 @@ public class SecurityConfig {
                                 "/api/impostazioni/pubbliche"
                         ).permitAll()
                         .requestMatchers(
-                                // Solo questi due endpoint di auth sono pubblici, elencati uno per uno:
-                                // un wildcard "/api/auth/**" renderebbe pubblico anche /api/auth/me e
-                                // qualsiasi endpoint di auth aggiunto in futuro, senza accorgersene.
+                                // Gli endpoint di auth pubblici, elencati uno per uno: un wildcard
+                                // "/api/auth/**" renderebbe pubblico anche /api/auth/me e qualsiasi
+                                // endpoint di auth aggiunto in futuro, senza accorgersene. Erano due
+                                // fino al 2026-09-02, e l'elenco esplicito ha fatto esattamente il suo
+                                // lavoro: i cinque aggiunti dal branch delle email hanno dovuto essere
+                                // scritti qui a mano, uno per uno, invece di diventare pubblici da soli.
                                 "/api/auth/register",
                                 "/api/auth/login",
+                                // Le quattro rotte dei link mandati per email. **Devono essere
+                                // pubbliche per costruzione**: chi conferma il proprio indirizzo non
+                                // puo' ancora autenticarsi (il login rifiuta gli account non
+                                // confermati), chi accetta un invito una password non ce l'ha, e chi
+                                // ha dimenticato la propria non puo' certo usarla per chiedere di
+                                // cambiarla. A difenderle non e' l'autenticazione ma il token, che ha
+                                // 256 bit e una scadenza.
+                                "/api/auth/verifica-email",
+                                "/api/auth/verifica-email/invio",
+                                "/api/auth/attivazione",
+                                "/api/auth/password-dimenticata",
+                                "/api/auth/password-reset",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",

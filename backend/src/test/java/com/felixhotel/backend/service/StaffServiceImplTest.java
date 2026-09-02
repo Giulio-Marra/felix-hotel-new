@@ -78,6 +78,10 @@ class StaffServiceImplTest {
     @Mock
     private ApiResponseMapper apiResponseMapper;
 
+    /** L'invito che parte alla creazione. Mock: qui interessa che parta, non cosa dica. */
+    @Mock
+    private ServizioNotifiche servizioNotifiche;
+
     private StaffServiceImpl staffService;
 
     private TestDataFactory dati;
@@ -86,7 +90,7 @@ class StaffServiceImplTest {
     void inizializza() {
         dati = new TestDataFactory();
         staffService = new StaffServiceImpl(staffRepository, utenteRepository, ruoloRepository,
-                new BCryptPasswordEncoder(), new StaffMapper(), apiResponseMapper);
+                new BCryptPasswordEncoder(), servizioNotifiche, new StaffMapper(), apiResponseMapper);
     }
 
     private Ruolo ruolo(String nome) {
@@ -165,7 +169,7 @@ class StaffServiceImplTest {
     class Crea {
 
         @Test
-        @DisplayName("con dati validi cifra la password, nasce attivo e risponde 201")
+        @DisplayName("con dati validi nasce senza password, attivo, e parte l'invito")
         void crea_conDatiValidi_rispondeCreated() {
             // given: email libera e ruolo esistente
             StaffRequest richiesta = dati.staffRequest();
@@ -176,17 +180,28 @@ class StaffServiceImplTest {
             // when
             staffService.crea(richiesta);
 
-            // then: la password non arriva in chiaro nella riga, e l'account nasce attivo —
-            // si crea un account quando serve che qualcuno entri, non per accenderlo dopo
+            // then: l'account nasce **senza password** e attivo. Fino al 2026-09-02 questo
+            // test verificava che la password fosse arrivata in tabella gia' cifrata; da
+            // quel giorno la password alla creazione non c'e' proprio, e l'assenza e' la
+            // cosa da provare — e' quel che rende l'account non autenticabile finche' la
+            // persona non accetta l'invito.
             ArgumentCaptor<Staff> salvato = ArgumentCaptor.forClass(Staff.class);
             verify(staffRepository).saveAndFlush(salvato.capture());
 
             assertThat(salvato.getValue().getEmail()).isEqualTo(richiesta.getEmail());
             assertThat(salvato.getValue().getPasswordHash())
-                    .isNotEqualTo(TestDataFactory.PASSWORD_VALIDA)
-                    .startsWith("$2");
+                    .as("un account invitato non ha credenziali finche' non accetta")
+                    .isNull();
+            // "Attivo" qui vuol dire "non disattivato", che e' una cosa diversa
+            // dall'essere utilizzabile: il login lo rifiuta comunque.
             assertThat(salvato.getValue().isAttivo()).isTrue();
             assertThat(salvato.getValue().getRuolo().getNome()).isEqualTo("STAFF");
+
+            // e l'invito e' partito, sull'entita' **salvata** e non su quella costruita:
+            // il destinatario del token e' l'id, che prima della scrittura non esiste.
+            // Senza l'invito l'account resterebbe irraggiungibile per sempre, e nessuno
+            // se ne accorgerebbe finche' la persona non prova a entrare.
+            verify(servizioNotifiche).invitoPersonale(any(Staff.class));
 
             verify(apiResponseMapper).toResponse(eq(HttpStatus.CREATED), anyString(), any());
         }

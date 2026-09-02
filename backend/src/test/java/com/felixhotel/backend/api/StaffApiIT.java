@@ -73,7 +73,21 @@ class StaffApiIT extends IntegrationTestBase {
         return auth.ottieniToken(cliente.getEmail());
     }
 
-    /** Crea un account dall'endpoint vero e ne restituisce l'id. */
+    /**
+     * Crea un account dall'endpoint vero, <b>ne accetta l'invito</b> e ne restituisce
+     * l'id. L'account che ne esce e' utilizzabile: puo' fare login.
+     *
+     * <p><b>I due passi stanno insieme dal 2026-09-02</b>, per la stessa ragione per cui
+     * {@code Autenticatore.registraAccount} conferma l'indirizzo: da quel giorno un
+     * account del personale nasce <i>senza password</i>, quindi ogni test che lo creava e
+     * poi ci faceva login ha smesso di funzionare — erano sette. Metterli insieme qui e'
+     * cio' che li rimette in piedi tutti senza toccarli.
+     *
+     * <p>La password scelta e' {@code TestDataFactory.PASSWORD_VALIDA}, cioe' quella che
+     * quei test si aspettano gia'. Chi vuole provare lo stato intermedio — account creato
+     * e invito non ancora accettato — chiama la POST direttamente, come fanno i tre test
+     * dedicati all'invito.
+     */
     private long creaStaff(String tokenAdmin, StaffRequest richiesta) throws Exception {
         String risposta = mockMvc.perform(post(STAFF)
                         .header("Authorization", "Bearer " + tokenAdmin)
@@ -84,7 +98,18 @@ class StaffApiIT extends IntegrationTestBase {
                 .getResponse()
                 .getContentAsString();
 
+        accettaInvito(richiesta.getEmail(), TestDataFactory.PASSWORD_VALIDA);
+
         return objectMapper.readTree(risposta).path("data").path("id").asLong();
+    }
+
+    /** Apre il link dell'invito arrivato a questo indirizzo e imposta la password. */
+    private void accettaInvito(String email, String password) throws Exception {
+        mockMvc.perform(post("/api/auth/attivazione")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + posta.tokenPer(email)
+                                + "\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isOk());
     }
 
     /**
@@ -281,18 +306,75 @@ class StaffApiIT extends IntegrationTestBase {
         }
 
         @Test
-        @DisplayName("con una password troppo corta risponde 400 col campo indicato")
-        void creazione_conPasswordCorta_risponde400() throws Exception {
+        @DisplayName("l'account nasce senza password e riceve un invito")
+        void creazione_mandaLInvito() throws Exception {
+            // given: fino al 2026-09-02 questo test verificava che una password troppo
+            // corta desse 400. Quel campo non esiste piu': la password la sceglie la
+            // persona accettando l'invito, quindi il caso che vale la pena provare e'
+            // diventato un altro
+            StaffRequest richiesta = dati.staffRequest();
+
             // when
             mockMvc.perform(post(STAFF)
                             .header("Authorization", "Bearer " + tokenAdmin())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(json(dati.staffRequest().password("corta"))))
-                    // then: 400 con la mappa campo -> messaggio, che e' l'unica risposta
-                    // d'errore del progetto in cui 'data' non e' null
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.status").value(400))
-                    .andExpect(jsonPath("$.data.password").exists());
+                            .content(json(richiesta)))
+                    .andExpect(status().isCreated());
+
+            // then: l'invito e' partito, e porta un link
+            assertThat(posta.ultimoPer(richiesta.getEmail()))
+                    .as("invito mandato al nuovo membro del personale")
+                    .isPresent();
+            assertThat(posta.tokenPer(richiesta.getEmail())).isNotBlank();
+        }
+
+        @Test
+        @DisplayName("finche' l'invito non e' accettato l'account non entra")
+        void creazione_primaDellAttivazione_nonFaLogin() throws Exception {
+            // given
+            StaffRequest richiesta = dati.staffRequest();
+            mockMvc.perform(post(STAFF)
+                            .header("Authorization", "Bearer " + tokenAdmin())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(richiesta)))
+                    .andExpect(status().isCreated());
+
+            // when / then: l'account esiste, e' attivo e non ha credenziali. Il login lo
+            // rifiuta come rifiuta un account disattivato, e con lo stesso messaggio —
+            // distinguere direbbe a chi prova email a caso quali esistono
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.loginRequest(richiesta.getEmail(),
+                                    TestDataFactory.PASSWORD_VALIDA))))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("accettato l'invito, la persona sceglie la password ed entra")
+        void creazione_dopoLAttivazione_faLogin() throws Exception {
+            // given
+            StaffRequest richiesta = dati.staffRequest();
+            mockMvc.perform(post(STAFF)
+                            .header("Authorization", "Bearer " + tokenAdmin())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(richiesta)))
+                    .andExpect(status().isCreated());
+
+            // when: apre il link e sceglie la sua password
+            mockMvc.perform(post("/api/auth/attivazione")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"token\":\"" + posta.tokenPer(richiesta.getEmail())
+                                    + "\",\"password\":\"" + TestDataFactory.PASSWORD_VALIDA + "\"}"))
+                    .andExpect(status().isOk());
+
+            // then: adesso entra. E' il giro intero — creazione, invito, scelta della
+            // password, login — che e' il motivo per cui questo branch esiste
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.loginRequest(richiesta.getEmail(),
+                                    TestDataFactory.PASSWORD_VALIDA))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.token").isNotEmpty());
         }
 
         @Test

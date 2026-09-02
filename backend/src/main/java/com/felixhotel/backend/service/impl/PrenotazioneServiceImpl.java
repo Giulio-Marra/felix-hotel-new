@@ -31,6 +31,7 @@ import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.PrenotazioneService;
+import com.felixhotel.backend.service.ServizioNotifiche;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
@@ -124,6 +125,9 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      */
     private final PeriodoTariffarioRepository periodoTariffarioRepository;
 
+    /** Manda la conferma al cliente. */
+    private final ServizioNotifiche servizioNotifiche;
+
     private final PrenotazioneMapper prenotazioneMapper;
     private final ApiResponseMapper apiResponseMapper;
 
@@ -152,6 +156,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    StaffRepository staffRepository,
                                    OspiteRepository ospiteRepository,
                                    PeriodoTariffarioRepository periodoTariffarioRepository,
+                                   ServizioNotifiche servizioNotifiche,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente) {
@@ -160,8 +165,8 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         // "oggi" per un albergo e' il giorno che si legge sul calendario alla
         // reception. Con UTC, alle due di notte in Italia sarebbe ancora ieri.
         this(prenotazioneRepository, tipologiaCameraRepository, cameraRepository, utenteRepository,
-                staffRepository, ospiteRepository, periodoTariffarioRepository, prenotazioneMapper,
-                apiResponseMapper, chiamanteCorrente, Clock.systemDefaultZone());
+                staffRepository, ospiteRepository, periodoTariffarioRepository, servizioNotifiche,
+                prenotazioneMapper, apiResponseMapper, chiamanteCorrente, Clock.systemDefaultZone());
     }
 
     /**
@@ -177,6 +182,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    StaffRepository staffRepository,
                                    OspiteRepository ospiteRepository,
                                    PeriodoTariffarioRepository periodoTariffarioRepository,
+                                   ServizioNotifiche servizioNotifiche,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente,
@@ -188,6 +194,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         this.staffRepository = staffRepository;
         this.ospiteRepository = ospiteRepository;
         this.periodoTariffarioRepository = periodoTariffarioRepository;
+        this.servizioNotifiche = servizioNotifiche;
         this.prenotazioneMapper = prenotazioneMapper;
         this.apiResponseMapper = apiResponseMapper;
         this.chiamanteCorrente = chiamanteCorrente;
@@ -347,6 +354,18 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         prenotazione.setStato(StatoPrenotazione.CONFERMATA);
 
         Prenotazione salvata = prenotazioneRepository.save(prenotazione);
+
+        // La conferma al cliente, dal 2026-09-02. Parte dopo il commit e non fa fallire
+        // niente se l'SMTP e' irraggiungibile (vedi ServizioEmail): una prenotazione
+        // confermata resta confermata anche se il fornitore di posta e' giu'.
+        //
+        // **E' l'unica delle quattro email che non si possa farsi rimandare**, ed e' il
+        // motivo per cui il suo fallimento pesa piu' degli altri: chi non riceve la
+        // conferma non ha nessun endpoint per chiederne un'altra. Sta nei gap.
+        //
+        // Dentro la transazione perche' legge relazioni LAZY della prenotazione — il
+        // cliente e la tipologia — come tutti i mapper del progetto (regola 15).
+        servizioNotifiche.confermaPrenotazione(salvata);
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Prenotazione confermata",
                 prenotazioneMapper.toResponse(salvata));

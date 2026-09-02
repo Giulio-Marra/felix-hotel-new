@@ -16,6 +16,7 @@ import com.felixhotel.backend.mapper.StaffMapper;
 import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.service.ServizioNotifiche;
 import com.felixhotel.backend.service.StaffService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -69,6 +70,9 @@ public class StaffServiceImpl implements StaffService {
     private final RuoloRepository ruoloRepository;
 
     private final PasswordEncoder passwordEncoder;
+    /** Manda l'invito con cui la persona sceglie la propria password. */
+    private final ServizioNotifiche servizioNotifiche;
+
     private final StaffMapper staffMapper;
     private final ApiResponseMapper apiResponseMapper;
 
@@ -115,16 +119,21 @@ public class StaffServiceImpl implements StaffService {
         String email = request.getEmail();
         verificaEmailLibera(email, null);
 
-        // Il ruolo si risolve prima di costruire l'account, e non dentro la catena di
-        // setter: cosi' una richiesta che verra' rifiutata comunque non paga anche il
-        // BCrypt, che e' la cosa piu' cara che succede in questo metodo.
+        // Il ruolo si risolve prima di costruire l'account. Il commento che stava qui
+        // diceva che cosi' una richiesta destinata a essere rifiutata non paga anche il
+        // BCrypt: dal 2026-09-02 il BCrypt in questo metodo non c'e' piu' — la password
+        // la sceglie la persona accettando l'invito — ma risolvere prima resta giusto,
+        // perche' un ruolo inesistente e' un 400 che non deve costare una INSERT.
         Ruolo ruolo = trovaRuoloOrElseThrow(request.getRuolo());
 
         Staff staff = new Staff();
         staff.setNome(request.getNome());
         staff.setCognome(request.getCognome());
         staff.setEmail(email);
-        staff.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        // Nessuna password: la scegliera' la persona accettando l'invito. Dal V14 la
+        // colonna e' nullable proprio per rendere rappresentabile questo stato, ed e' il
+        // caso normale fra la creazione e il primo accesso — non un account rotto.
+        // Finche' resta nulla, CustomUserDetailsService non considera l'account abilitato.
         staff.setTelefono(request.getTelefono());
         staff.setDataAssunzione(request.getDataAssunzione());
         staff.setAttivo(true);
@@ -132,7 +141,13 @@ public class StaffServiceImpl implements StaffService {
 
         Staff salvato = salvaGestendoIlDuplicato(staff);
 
-        return apiResponseMapper.toResponse(HttpStatus.CREATED, "Account del personale creato",
+        // L'invito. Parte dopo il commit e non fa fallire la creazione se l'SMTP e'
+        // irraggiungibile (vedi ServizioEmail): l'account resta, e la via di riserva e'
+        // PUT /api/staff/{id}/password.
+        servizioNotifiche.invitoPersonale(salvato);
+
+        return apiResponseMapper.toResponse(HttpStatus.CREATED,
+                "Account del personale creato: la persona ha ricevuto un invito per scegliere la password",
                 staffMapper.toResponse(salvato));
     }
 

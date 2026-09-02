@@ -48,15 +48,41 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException("Nessun account trovato per l'email indicata"));
     }
 
+    /**
+     * <b>Un cliente non verificato non e' abilitato</b>, dal 2026-09-02. La condizione
+     * si somma a {@code attivo} invece di sostituirlo: sono due cose diverse — uno e'
+     * un account chiuso da chi amministra, l'altro un account che non ha ancora provato
+     * di appartenere a chi dice.
+     *
+     * <p><b>Passa da {@code isEnabled()} e non da un controllo dentro il login</b>, ed
+     * e' la ragione per cui costa cosi' poco: questo metodo lo rilegge il filtro JWT ad
+     * <i>ogni</i> richiesta, quindi la condizione non vale solo al momento di entrare —
+     * e' la stessa proprieta' che dal 2026-08-27 fa cadere il token di uno staff
+     * disattivato mentre lo sta usando.
+     */
     private AppUserPrincipal toPrincipal(Utente utente) {
         return new AppUserPrincipal(TipoAccount.CLIENTE, utente.getId(), utente.getEmail(),
                 utente.getPasswordHash(), utente.getNome(), utente.getCognome(),
-                utente.getRuolo().getNome(), utente.isAttivo());
+                utente.getRuolo().getNome(), utente.isAttivo() && utente.isEmailVerificata());
     }
 
+    /**
+     * <b>Un invito non ancora accettato non e' abilitato</b>, dal 2026-09-02: dal V14 un
+     * account del personale puo' esistere senza password, ed e' il caso normale fra la
+     * creazione e il momento in cui la persona sceglie la sua.
+     *
+     * <p>Il controllo e' esplicito e non lasciato al confronto delle password, benche'
+     * BCrypt su un hash nullo non possa combaciare con niente: senza, il valore nullo
+     * arriverebbe dentro l'encoder, che e' un posto in cui nessuno vuole scoprire come
+     * si comporta. Meglio dire qui che quell'account non e' utilizzabile.
+     */
     private AppUserPrincipal toPrincipal(Staff staff) {
         return new AppUserPrincipal(TipoAccount.PERSONALE, staff.getId(), staff.getEmail(),
-                staff.getPasswordHash(), staff.getNome(), staff.getCognome(),
-                staff.getRuolo().getNome(), staff.isAttivo());
+                // La password nulla diventa una stringa vuota per non far uscire un null
+                // dal principal: nessun hash BCrypt e' la stringa vuota, quindi non
+                // combacia con niente, e l'account e' comunque gia' non abilitato.
+                staff.getPasswordHash() == null ? "" : staff.getPasswordHash(),
+                staff.getNome(), staff.getCognome(),
+                staff.getRuolo().getNome(), staff.isAttivo() && staff.getPasswordHash() != null);
     }
 }

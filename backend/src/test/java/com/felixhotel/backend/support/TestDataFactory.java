@@ -416,7 +416,8 @@ public class TestDataFactory {
                 .nome("Anna")
                 .cognome("Bianchi")
                 .email(emailUnivoca())
-                .password(PASSWORD_VALIDA)
+                // Nessuna password: dal 2026-09-02 la creazione manda un invito e la
+                // password la sceglie la persona (POST /api/auth/attivazione).
                 .telefono("+39 333 1234567")
                 .dataAssunzione(LocalDate.of(2024, 3, 1))
                 .ruolo(RuoloStaff.STAFF);

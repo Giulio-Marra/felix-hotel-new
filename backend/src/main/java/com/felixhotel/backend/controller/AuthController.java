@@ -2,8 +2,11 @@ package com.felixhotel.backend.controller;
 
 import com.felixhotel.backend.api.AuthApi;
 import com.felixhotel.backend.dto.ApiBaseResponse;
+import com.felixhotel.backend.dto.EmailRequest;
 import com.felixhotel.backend.dto.LoginRequest;
+import com.felixhotel.backend.dto.NuovaPasswordRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.TokenRequest;
 import com.felixhotel.backend.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -78,6 +81,39 @@ public class AuthController implements AuthApi {
      * configurando {@code ForwardedHeaderFilter} e fidandosi esclusivamente del
      * proxy noto — mai del client.
      */
+    @Override
+    public ResponseEntity<ApiBaseResponse> verificaEmail(TokenRequest request) {
+        ApiBaseResponse response = authService.verificaEmail(request);
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
+
+    @Override
+    public ResponseEntity<ApiBaseResponse> reinviaVerificaEmail(EmailRequest request) {
+        // L'IP serve al limite di frequenza, come per register: questa rotta manda
+        // un'email, quindi senza tetto sarebbe un modo di riempire la casella di
+        // qualcun altro usando il nostro dominio come mittente.
+        ApiBaseResponse response = authService.reinviaVerificaEmail(request, clientIp());
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
+
+    @Override
+    public ResponseEntity<ApiBaseResponse> attivaAccountPersonale(NuovaPasswordRequest request) {
+        ApiBaseResponse response = authService.attivaAccountPersonale(request);
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
+
+    @Override
+    public ResponseEntity<ApiBaseResponse> richiediResetPassword(EmailRequest request) {
+        ApiBaseResponse response = authService.richiediResetPassword(request, clientIp());
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
+
+    @Override
+    public ResponseEntity<ApiBaseResponse> reimpostaPassword(NuovaPasswordRequest request) {
+        ApiBaseResponse response = authService.reimpostaPassword(request);
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
+
     private String clientIp() {
         return httpRequest.getRemoteAddr();
     }

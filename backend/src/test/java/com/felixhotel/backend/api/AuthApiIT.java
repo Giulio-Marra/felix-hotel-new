@@ -1,8 +1,10 @@
 package com.felixhotel.backend.api;
 
+import com.felixhotel.backend.dto.EmailRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.entity.Utente;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.support.Autenticatore;
 import com.felixhotel.backend.support.IntegrationTestBase;
 import com.felixhotel.backend.support.TestDataFactory;
 import io.jsonwebtoken.Jwts;
@@ -42,6 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @DisplayName("API di autenticazione")
 class AuthApiIT extends IntegrationTestBase {
+
+    private static final String VERIFICA = "/api/auth/verifica-email";
 
     // REGISTER e LOGIN si importano da Autenticatore, che e' il posto in cui le rotte
     // di auth sono scritte una volta sola; ME serve solo qui.
@@ -565,6 +569,233 @@ class AuthApiIT extends IntegrationTestBase {
                     .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
                     .compact();
         }
+    }
+
+    @Nested
+    @DisplayName("Verifica dell'indirizzo")
+    class VerificaIndirizzo {
+
+        @Test
+        @DisplayName("chi si registra riceve un link e non entra finche' non lo apre")
+        void registrazione_senzaConferma_nonFaLogin() throws Exception {
+            // given: solo la registrazione, senza la conferma che Autenticatore fa di
+            // suo. E' il caso che dal 2026-09-02 esiste e prima no
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraSenzaConfermare(cliente);
+
+            // then: il link e' arrivato
+            assertThat(posta.ultimoPer(cliente.getEmail()))
+                    .as("email di conferma alla registrazione")
+                    .isPresent();
+
+            // e il login lo rifiuta. **Con lo stesso 401 e lo stesso messaggio di una
+            // password sbagliata**, di proposito: distinguere direbbe a chi prova email
+            // a caso quali sono registrate (decisione gia' presa sul login, 2026-08-05)
+            mockMvc.perform(post(Autenticatore.LOGIN)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.loginRequest(cliente.getEmail(),
+                                    TestDataFactory.PASSWORD_VALIDA))))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.message").value("Credenziali non valide"));
+        }
+
+        @Test
+        @DisplayName("aperto il link, l'account entra")
+        void verifica_conLinkValido_apreLAccesso() throws Exception {
+            // given
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraSenzaConfermare(cliente);
+
+            // when: apre il link, come farebbe una persona
+            mockMvc.perform(post(VERIFICA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoToken(posta.tokenPer(cliente.getEmail()))))
+                    .andExpect(status().isOk());
+
+            // then: adesso entra. E' il giro intero, ed e' il motivo per cui il campo
+            // emailVerificata ha ricominciato a significare qualcosa
+            mockMvc.perform(post(Autenticatore.LOGIN)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.loginRequest(cliente.getEmail(),
+                                    TestDataFactory.PASSWORD_VALIDA))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.token").isNotEmpty());
+        }
+
+        @Test
+        @DisplayName("lo stesso link non vale due volte")
+        void verifica_conLinkGiaUsato_risponde400() throws Exception {
+            // given: capita davvero, perche' i client di posta pre-caricano i link
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraSenzaConfermare(cliente);
+            String token = posta.tokenPer(cliente.getEmail());
+
+            mockMvc.perform(post(VERIFICA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoToken(token)))
+                    .andExpect(status().isOk());
+
+            // when / then
+            mockMvc.perform(post(VERIFICA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoToken(token)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("un link inventato e' 400 e dice la stessa cosa di uno scaduto")
+        void verifica_conLinkInventato_risponde400() throws Exception {
+            mockMvc.perform(post(VERIFICA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoToken("questo-non-esiste")))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("il reinvio manda un link nuovo, e il vecchio smette di valere")
+        void reinvio_invalidaIlLinkPrecedente() throws Exception {
+            // given
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraSenzaConfermare(cliente);
+            String primoLink = posta.tokenPer(cliente.getEmail());
+
+            // when
+            mockMvc.perform(post("/api/auth/verifica-email/invio")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new EmailRequest().email(cliente.getEmail()))))
+                    .andExpect(status().isOk());
+
+            // then: il secondo e' diverso e funziona
+            String secondoLink = posta.tokenPer(cliente.getEmail());
+            assertThat(secondoLink).isNotEqualTo(primoLink);
+
+            // e il primo non vale piu': chi legge la propria posta deve poter usare
+            // l'ultimo messaggio ricevuto senza chiedersi quale sia quello buono
+            mockMvc.perform(post(VERIFICA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoToken(primoLink)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("il reinvio a un indirizzo che non esiste risponde 200 e non manda niente")
+        void reinvio_aIndirizzoInesistente_risponde200() throws Exception {
+            // when / then: la risposta non deve dire se un account c'e'. Su questa rotta
+            // una differenza si otterrebbe senza nemmeno provare una password
+            mockMvc.perform(post("/api/auth/verifica-email/invio")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new EmailRequest().email("nessuno@example.com"))))
+                    .andExpect(status().isOk());
+
+            assertThat(posta.ultimoPer("nessuno@example.com")).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("Reset della password")
+    class ResetPassword {
+
+        private static final String CHIEDI = "/api/auth/password-dimenticata";
+        private static final String REIMPOSTA = "/api/auth/password-reset";
+        private static final String PASSWORD_NUOVA = "PasswordNuova456";
+
+        @Test
+        @DisplayName("il giro intero: chiedo il link, scelgo la password nuova, entro")
+        void reset_giroIntero_cambiaLaPassword() throws Exception {
+            // given: un cliente che la sua password non se la ricorda piu'
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraAccount(cliente);
+            posta.svuota();
+
+            // when: chiede il link
+            mockMvc.perform(post(CHIEDI)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new EmailRequest().email(cliente.getEmail()))))
+                    .andExpect(status().isOk());
+
+            // e sceglie la nuova
+            mockMvc.perform(post(REIMPOSTA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoTokenEPassword(posta.tokenPer(cliente.getEmail()), PASSWORD_NUOVA)))
+                    .andExpect(status().isOk());
+
+            // then: la nuova entra
+            mockMvc.perform(post(Autenticatore.LOGIN)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.loginRequest(cliente.getEmail(), PASSWORD_NUOVA))))
+                    .andExpect(status().isOk());
+
+            // e la vecchia no: e' la meta' del test che conta, perche' senza si potrebbe
+            // aver aggiunto una password invece di averla sostituita
+            mockMvc.perform(post(Autenticatore.LOGIN)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(dati.loginRequest(cliente.getEmail(),
+                                    TestDataFactory.PASSWORD_VALIDA))))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        @DisplayName("il link del reset non vale due volte")
+        void reset_conLinkGiaUsato_risponde400() throws Exception {
+            // given
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraAccount(cliente);
+            posta.svuota();
+            mockMvc.perform(post(CHIEDI)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new EmailRequest().email(cliente.getEmail()))))
+                    .andExpect(status().isOk());
+            String token = posta.tokenPer(cliente.getEmail());
+
+            mockMvc.perform(post(REIMPOSTA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoTokenEPassword(token, PASSWORD_NUOVA)))
+                    .andExpect(status().isOk());
+
+            // when / then: chi vuole cambiarla ancora se ne fa mandare un altro
+            mockMvc.perform(post(REIMPOSTA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoTokenEPassword(token, "AltraAncora789")))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("un token di verifica non vale per il reset")
+        void reset_conTokenDiVerifica_risponde400() throws Exception {
+            // given: e' il controllo di sicurezza che conta di piu' di tutti. Un link di
+            // conferma e' il piu' facile da ottenere — basta registrarsi — e senza il
+            // controllo sul tipo lo si potrebbe presentare qui per prendersi l'account
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraSenzaConfermare(cliente);
+            String tokenDiVerifica = posta.tokenPer(cliente.getEmail());
+
+            // when / then
+            mockMvc.perform(post(REIMPOSTA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoTokenEPassword(tokenDiVerifica, PASSWORD_NUOVA)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("chiederlo per un indirizzo che non esiste risponde 200 e non manda niente")
+        void reset_aIndirizzoInesistente_risponde200() throws Exception {
+            mockMvc.perform(post(CHIEDI)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new EmailRequest().email("nessuno@example.com"))))
+                    .andExpect(status().isOk());
+
+            assertThat(posta.ultimoPer("nessuno@example.com")).isEmpty();
+        }
+    }
+
+    /** Il corpo di una richiesta che porta solo il token. */
+    private String corpoToken(String token) {
+        return "{\"token\":\"" + token + "\"}";
+    }
+
+    /** Il corpo di una richiesta che porta il token e la password scelta. */
+    private String corpoTokenEPassword(String token, String password) {
+        return "{\"token\":\"" + token + "\",\"password\":\"" + password + "\"}";
     }
 
 }

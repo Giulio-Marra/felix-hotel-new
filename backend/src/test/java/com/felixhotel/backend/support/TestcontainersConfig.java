@@ -3,6 +3,7 @@ package com.felixhotel.backend.support;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -41,5 +42,24 @@ public class TestcontainersConfig {
     @ServiceConnection
     PostgreSQLContainer<?> postgresContainer() {
         return new PostgreSQLContainer<>(POSTGRES_IMAGE);
+    }
+
+    /**
+     * La posta dei test, che raccoglie i messaggi invece di spedirli.
+     *
+     * <p><b>{@code @Primary} e non un container SMTP</b>, deciso il 2026-08-28: un
+     * container proverebbe che {@code JavaMailSender} sa parlare SMTP, cioe' codice di
+     * Spring, e in cambio renderebbe la suite piu' lenta. Quel che vale la pena provare
+     * e' che l'applicazione <i>abbia provato</i> a mandare il messaggio giusto alla
+     * persona giusta, ed e' quel che {@link PostaDiProva} registra.
+     *
+     * <p>Prende il posto di {@code ServizioEmailSmtp}, che resta nel contesto e non
+     * viene mai chiamato: cosi' un errore di configurazione dell'SMTP si vedrebbe
+     * comunque all'avvio, invece di restare nascosto fino alla produzione.
+     */
+    @Bean
+    @Primary
+    PostaDiProva postaDiProva() {
+        return new PostaDiProva();
     }
 }

@@ -1,8 +1,11 @@
 package com.felixhotel.backend.service;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
+import com.felixhotel.backend.dto.EmailRequest;
 import com.felixhotel.backend.dto.LoginRequest;
+import com.felixhotel.backend.dto.NuovaPasswordRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
+import com.felixhotel.backend.dto.TokenRequest;
 
 /**
  * Logica di business per registrazione e login. Il Controller resta sottile
@@ -50,4 +53,32 @@ public interface AuthService {
      * non e' scelto da chi chiama, e' quello del token.
      */
     ApiBaseResponse me();
+    /**
+     * Conferma l'indirizzo di un cliente consumando il token del link ricevuto.
+     * Non restituisce nessun token di accesso: confermare e accedere restano due
+     * operazioni, come registrazione e login.
+     */
+    ApiBaseResponse verificaEmail(TokenRequest request);
+
+    /**
+     * Rimanda il link di conferma. <b>Risponde sempre allo stesso modo</b>, esista o no
+     * quell'indirizzo: distinguere direbbe a chiunque quali sono registrati.
+     *
+     * @param clientIp serve al limite di frequenza — questa rotta manda un'email, quindi
+     *                 senza un tetto sarebbe un modo di riempire la casella altrui
+     */
+    ApiBaseResponse reinviaVerificaEmail(EmailRequest request, String clientIp);
+
+    /** Accetta un invito del personale e imposta la password che la persona ha scelto. */
+    ApiBaseResponse attivaAccountPersonale(NuovaPasswordRequest request);
+
+    /**
+     * Manda il link per reimpostare la password, cercando in tutte e due le popolazioni.
+     * Risponde sempre allo stesso modo, per la stessa ragione del reinvio.
+     */
+    ApiBaseResponse richiediResetPassword(EmailRequest request, String clientIp);
+
+    /** Scrive la nuova password consumando il token di reset. */
+    ApiBaseResponse reimpostaPassword(NuovaPasswordRequest request);
+
 }

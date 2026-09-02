@@ -131,6 +131,14 @@ class PrenotazioneServiceImplTest {
     @Mock
     private ApiResponseMapper apiResponseMapper;
 
+    /**
+     * La conferma manda un'email al cliente. E' un mock e non la posta di prova perche'
+     * qui non si guarda il contenuto — quello lo prova {@code AuthApiIT} dal bordo — ma
+     * solo che la conferma non dipenda dal suo esito.
+     */
+    @Mock
+    private ServizioNotifiche servizioNotifiche;
+
     private PrenotazioneServiceImpl prenotazioneService;
 
     private TestDataFactory dati;
@@ -151,7 +159,8 @@ class PrenotazioneServiceImplTest {
         // pretende ruolo e tipo insieme non verrebbe esercitata da nessuno di loro.
         prenotazioneService = new PrenotazioneServiceImpl(prenotazioneRepository, tipologiaCameraRepository,
                 cameraRepository, utenteRepository, staffRepository, ospiteRepository,
-                periodoTariffarioRepository, prenotazioneMapper, apiResponseMapper, new ChiamanteCorrente(),
+                periodoTariffarioRepository, servizioNotifiche, prenotazioneMapper, apiResponseMapper,
+                new ChiamanteCorrente(),
                 new OrologioPilotato(OGGI.atStartOfDay().toInstant(ZoneOffset.UTC)));
 
         // Il preventivo di default: tre notti a 120, nessun soggiorno minimo. E'
