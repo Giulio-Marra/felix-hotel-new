@@ -14,6 +14,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -178,6 +179,31 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiBaseResponse> handleTipoParametro(MethodArgumentTypeMismatchException ex) {
         return build(HttpStatus.BAD_REQUEST,
                 "Parametro '" + ex.getName() + "' non valido", null);
+    }
+
+    /**
+     * Parametro obbligatorio non mandato affatto (es. {@code GET /api/disponibilita}
+     * senza {@code dataCheckIn}).
+     *
+     * <p><b>E' il gemello mancante di {@link #handleTipoParametro}</b>, e la coppia
+     * andava chiusa: quello copre il parametro <i>scritto storto</i>, questo il
+     * parametro <i>assente</i>. Senza, l'assenza cadeva nel gestore generico e
+     * diventava un <b>500</b> — cioe' l'applicazione dichiarava un guasto proprio
+     * quando era il chiamante ad aver sbagliato, che e' il difetto che la regola 21
+     * esiste per evitare.
+     *
+     * <p><b>Non e' un difetto nato con l'export delle schedine</b>, e vale la pena
+     * dirlo: c'era da sempre su {@code GET /api/disponibilita}, che ha due parametri
+     * obbligatori ed e' per giunta <b>pubblica</b> — quindi il 500 lo poteva
+     * provocare chiunque, senza autenticarsi. Nessun test lo vedeva perche' un test
+     * scritto a mano i parametri obbligatori li manda sempre: l'ha trovato il punto 2
+     * della checklist della regola 17, come i tre branch precedenti.
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiBaseResponse> handleParametroMancante(
+            MissingServletRequestParameterException ex) {
+        return build(HttpStatus.BAD_REQUEST,
+                "Parametro '" + ex.getParameterName() + "' obbligatorio", null);
     }
 
     /**

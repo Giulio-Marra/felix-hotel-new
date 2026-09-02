@@ -4,6 +4,7 @@ import com.felixhotel.backend.entity.Ospite;
 import com.felixhotel.backend.entity.TipoDocumento;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,6 +52,27 @@ public interface OspiteRepository extends JpaRepository<Ospite, Long> {
      * nel Service, cioe' una riga che qualcuno un domani puo' non scrivere.
      */
     Optional<Ospite> findByIdAndPrenotazioneId(Long id, Long prenotazioneId);
+
+    /**
+     * Gli ospiti di piu' prenotazioni insieme, per l'export delle schedine.
+     *
+     * <p><b>Esiste per non fare N+1</b>, ed e' l'unica ragione per cui non si riusa
+     * {@code findByPrenotazioneIdOrderByIdAsc} in un ciclo: gli arrivi di una
+     * giornata piena sono decine di prenotazioni, e una query per ognuna
+     * moltiplicherebbe per venti il costo di un'operazione che si fa ogni mattina.
+     *
+     * <p>L'ordine e' <b>prima per prenotazione e poi per registrazione</b>, e non e'
+     * indifferente: sul file le persone di uno stesso gruppo devono stare vicine, e
+     * dentro il gruppo l'ordine e' quello in cui sono state registrate — cioe' lo
+     * stesso che {@code GET .../ospiti} mostra a chi sta al banco. Un file che
+     * mescolasse i gruppi sarebbe accettato lo stesso dal portale, ma nessuno
+     * potrebbe piu' rileggerlo accanto al registro.
+     *
+     * <p>Con una collezione vuota restituisce una lista vuota senza toccare il
+     * database: e' Spring Data a saperlo, e vale la pena dirlo perche' e'
+     * esattamente il caso di un giorno senza arrivi.
+     */
+    List<Ospite> findByPrenotazioneIdInOrderByPrenotazioneIdAscIdAsc(Collection<Long> prenotazioneIds);
 
     /**
      * Quanti ospiti sono gia' registrati: serve a far rispettare il tetto di

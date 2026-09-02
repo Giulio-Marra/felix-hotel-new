@@ -29,6 +29,12 @@ import java.util.List;
  * piedi questa riga e nient'altro. E' il motivo per cui i test unitari dei
  * Service usano un mapper vero e non un finto.
  *
+ * <p><b>Dal 2026-09-02 escono anche i sei campi della schedina alloggiati</b>, e
+ * sono tutti facoltativi: {@code null} li' vuol dire "non ancora dichiarato", che e'
+ * uno stato legittimo e non un difetto — il perche' sta sull'entita' e nel V13. I
+ * quattro che portano un codice ministeriale escono <b>senza la descrizione</b>: chi
+ * la vuole la cerca in {@code GET /api/codifiche/&#123;tipo&#125;}.
+ *
  * <p><b>Il documento puo' non esserci</b>, dal V10: un minorenne si registra senza,
  * e le due colonne restano vuote. Quindi la conversione dell'enum passa da
  * {@link #tipoDocumento(Ospite)} invece di stare in linea — la versione precedente,
@@ -46,7 +52,41 @@ public class OspiteMapper {
                 .tipoDocumento(tipoDocumento(ospite))
                 .numeroDocumento(ospite.getNumeroDocumento())
                 .dataNascita(ospite.getDataNascita())
-                .motivoEsenzione(motivoEsenzione(ospite));
+                .motivoEsenzione(motivoEsenzione(ospite))
+                .tipoAlloggiato(tipoAlloggiato(ospite))
+                .sesso(sesso(ospite))
+                // I quattro codici escono cosi' come sono scritti, senza la descrizione
+                // che gli corrisponde: chi vuole leggere "MILANO" invece di "058091" la
+                // cerca in GET /api/codifiche/COMUNE. Rispedirla qui sarebbe una seconda
+                // copia di un dato che quella rotta gia' serve, e che l'import del
+                // Ministero puo' cambiare sotto i piedi.
+                .comuneNascita(ospite.getComuneNascita())
+                .statoNascita(ospite.getStatoNascita())
+                .cittadinanza(ospite.getCittadinanza())
+                .luogoRilascioDocumento(ospite.getLuogoRilascioDocumento());
+    }
+
+    /**
+     * Il tipo di alloggiato nel tipo del contratto, oppure {@code null} finche'
+     * nessuno l'ha dichiarato.
+     *
+     * <p>Stessa forma delle altre due conversioni di enum, e {@code null} vuol dire
+     * la stessa cosa che vuol dire li': l'assenza del campo, non un valore in piu'.
+     * La differenza e' cosa quel {@code null} racconta — qui che la schedina di
+     * questa persona non e' ancora compilabile, il che e' un'informazione utile a chi
+     * sta al banco e non un difetto.
+     */
+    private com.felixhotel.backend.dto.TipoAlloggiato tipoAlloggiato(Ospite ospite) {
+        return ospite.getTipoAlloggiato() == null
+                ? null
+                : com.felixhotel.backend.dto.TipoAlloggiato.fromValue(ospite.getTipoAlloggiato().name());
+    }
+
+    /** Il sesso nel tipo del contratto, oppure {@code null} finche' non e' dichiarato. */
+    private com.felixhotel.backend.dto.Sesso sesso(Ospite ospite) {
+        return ospite.getSesso() == null
+                ? null
+                : com.felixhotel.backend.dto.Sesso.fromValue(ospite.getSesso().name());
     }
 
     /**

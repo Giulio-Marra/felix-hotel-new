@@ -3302,6 +3302,96 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/alloggiati/schedine:
+
+    get:
+      tags:
+        - Alloggiati Web
+      operationId: esportaSchedineAlloggiati
+      summary: Le schedine alloggiati degli arrivi di un giorno
+      description: >
+        Produce il file che il portale **Alloggiati Web** della Polizia di Stato
+        accetta: una riga a lunghezza fissa per ogni persona arrivata nella data
+        chiesta. Riservato a **STAFF** e **ADMIN** — e' il gesto di ogni mattina
+        alla reception, e il contenuto sono documenti d'identita'.
+        **Ci si ferma al file, l'invio non c'e'.** Questa rotta restituisce il
+        contenuto da caricare a mano sul portale, che e' come lavora oggi la
+        maggior parte delle strutture piccole. L'invio automatico pretenderebbe le
+        credenziali che la Questura da' all'albergatore, e con loro la cifratura a
+        riposo: e' una decisione indipendente da questa e avra' un branch suo.
+        **Il taglio e' la data di arrivo e non la prenotazione**, perche' e' cosi'
+        che l'obbligo e' scritto: entro ventiquattro ore dall'arrivo si comunicano
+        *gli arrivi di quel giorno*. Un file per prenotazione obbligherebbe chi sta
+        al banco a scaricarne N e a incollarli fra loro.
+        **Entrano solo le prenotazioni per cui il check-in e' stato fatto**
+        (CHECK_IN o CHECK_OUT): una prenotazione confermata e mai arrivata non e'
+        un arrivo, e comunicarla sarebbe dichiarare alla Questura che qualcuno
+        dorme qui quando non c'e'.
+        **La data e' quella prevista dalla prenotazione**, non l'ora in cui il
+        check-in e' stato battuto: e' l'unica data che il sistema conosce come
+        fatto. Chi registra un arrivo il giorno dopo lo trova quindi nel file del
+        giorno prenotato — vedi i limiti noti in CLAUDE.md.
+        **Un giorno senza arrivi e' 200 con zero schedine**, non 404: "oggi non e'
+        arrivato nessuno" e' una risposta legittima, e chi automatizza il download
+        non deve distinguere un errore da una giornata vuota.
+        **409 se una schedina non e' compilabile**, e il messaggio dice **chi** e
+        **cosa** manca. I campi che il tracciato pretende sono facoltativi
+        sull'ospite di proposito (vedi V13__schedina_alloggiati.sql): il registro
+        si scrive al banco anche di notte, la schedina si manda entro ventiquattro
+        ore, e un dato mancante deve fermare la seconda e non la prima. Meglio un
+        errore che nomina la persona di un file che il portale rifiuta senza dire
+        di chi.
+        **409 anche se le codifiche ministeriali non sono state importate**: i
+        codici che finiscono nel file vengono da 'GET /api/codifiche/{tipo}', che
+        all'installazione e' vuota di proposito. Senza, si spedirebbero codici
+        inventati — il difetto che la quarta riga della regola 24 esiste per
+        evitare.
+        Risposta: busta ApiBaseResponse con **SchedineAlloggiatiResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: data
+          in: query
+          required: true
+          description: >
+            Il giorno di arrivo di cui si vogliono le schedine, quasi sempre
+            **ieri**: l'obbligo si assolve entro ventiquattro ore.
+            **Nessun limite sul passato e nessuno sul futuro**, ed e' voluto in
+            tutte e due i versi: si rigenera il file di un giorno vecchio quando il
+            portale ne rifiuta uno, e una data futura restituisce semplicemente
+            zero schedine, perche' nessuno ha ancora fatto il check-in.
+          schema:
+            type: string
+            format: date
+          example: 2026-09-01
+      responses:
+        '200':
+          description: Schedine del giorno ('data' = SchedineAlloggiatiResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: 2 schedine per gli arrivi del 2026-09-01
+                timestamp: 2026-09-02T08:12:00Z
+                data:
+                  data: 2026-09-01
+                  numeroSchedine: 2
+                  nomeFile: schedine_20260901.txt
+                  contenuto: "16..."
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -4459,6 +4549,52 @@ components:
         - RICOVERO
       example: RESIDENTE
 
+    TipoAlloggiato:
+      type: string
+      description: >
+        Che ruolo ha una persona nel gruppo con cui soggiorna. **La schedina non
+        chiede solo chi sei, chiede con chi sei**, ed e' il primo campo del
+        tracciato: il valore decide quanto del resto della riga va compilato.
+        **Chi risponde di se' porta il documento, chi e' accompagnato no.** Ospite
+        singolo, capofamiglia e capogruppo hanno sulla schedina i dati del proprio
+        documento; familiare e membro del gruppo li lasciano in bianco, perche' il
+        documento l'ha esibito chi li accompagna. E' l'unica differenza di forma
+        fra i due gruppi di valori, ed e' tutto il motivo per cui questo campo
+        esiste.
+        **Questi valori sono nostri, i codici del Ministero no.** I codici veri
+        stanno nella famiglia TIPO_ALLOGGIATO di 'GET /api/codifiche/{tipo}', e la
+        corrispondenza fra i due elenchi e' **logica di questa applicazione**: che
+        a un familiare il documento non si chieda non e' scritto in nessun file
+        ministeriale — un elenco di codici dice come si chiamano le cose, non come
+        ci si comporta davanti a ognuna.
+        **Nessun vincolo pretende un capo per prenotazione qui**: la coerenza del
+        gruppo si guarda tutta insieme, cioe' all'export, non mentre si registra la
+        seconda persona di quattro.
+      enum:
+        - OSPITE_SINGOLO
+        - CAPOFAMIGLIA
+        - CAPOGRUPPO
+        - FAMILIARE
+        - MEMBRO_GRUPPO
+      example: OSPITE_SINGOLO
+
+    Sesso:
+      type: string
+      description: >
+        Il sesso dell'ospite come lo chiede la schedina alloggiati.
+        **Due valori e non tre**, e non e' una posizione di questo contratto su
+        cosa sia il sesso di una persona: e' la casella di un modulo di legge che
+        ne accetta due e rifiuta ogni altra cosa. Inventarne un terzo non renderebbe
+        la schedina piu' giusta, la renderebbe **scartata al caricamento** — e la
+        persona resterebbe non registrata, che fra i due e' il danno peggiore.
+        **Si scrive la lettera, il tracciato vuole il numero**: sul file diventano
+        1 e 2, e la traduzione la fa il server. In tabella e qui resta M/F, perche'
+        e' quel che si legge senza avere sotto mano il tracciato.
+      enum:
+        - M
+        - F
+      example: M
+
     OspiteRequest:
       type: object
       description: >
@@ -4474,6 +4610,14 @@ components:
         perche' la regola dipende dalla data di check-in della prenotazione, che
         sta nell'URL e non nel corpo. Chi la applica e' il server, e chi non la
         rispetta prende un **400** — vedi la descrizione di 'tipoDocumento'.
+        **Gli ultimi sei campi sono quelli della schedina alloggiati** —
+        tipoAlloggiato, sesso, comuneNascita, statoNascita, cittadinanza,
+        luogoRilascioDocumento — e sono tutti **facoltativi qui e obbligatori
+        all'export**. Non e' un lavoro lasciato a meta': il registro e la schedina
+        sono due obblighi con due momenti, e il perche' esteso sta nella
+        descrizione di 'comuneNascita'. Quando ci sono pero' devono essere
+        **esatti**: i quattro che portano un codice sono validati contro le
+        codifiche ministeriali importate, e un codice che non esiste e' 400.
       required:
         - nome
         - cognome
@@ -4556,6 +4700,85 @@ components:
             sbaglia dalla parte severa.
           example: 1985-04-17
 
+        tipoAlloggiato:
+          allOf:
+            - $ref: '#/components/schemas/TipoAlloggiato'
+          description: >
+            Con chi soggiorna questa persona. **Facoltativo qui e obbligatorio
+            all'export**, come i cinque campi che seguono: il perche' della
+            divisione sta nella descrizione di 'comuneNascita', ed e' lo stesso per
+            tutti e sei.
+            **Il gruppo lo si guarda tutto insieme altrove**: questo schema non
+            pretende che su una prenotazione da quattro persone ci sia esattamente
+            un capo, perche' pretenderlo vorrebbe dire rifiutare la seconda riga di
+            un modulo che si sta ancora compilando. Il controllo lo fa l'export.
+          example: OSPITE_SINGOLO
+        sesso:
+          allOf:
+            - $ref: '#/components/schemas/Sesso'
+          description: >
+            **Facoltativo qui e obbligatorio all'export**, come gli altri cinque.
+          example: M
+        comuneNascita:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: >
+            Il codice del comune italiano di nascita, preso dalla famiglia COMUNE
+            di 'GET /api/codifiche/{tipo}'. **Si sceglie da una tendina, non si
+            digita**: e' un codice che deve essere esatto, e un valore che non
+            esiste in quella famiglia e' **400**.
+            **Esclusivo rispetto a 'statoNascita'**: chi e' nato in Italia da'
+            questo, chi e' nato all'estero da' quello, e darli tutti e due e'
+            **400** — nessuno nasce in due posti. La **provincia** non si manda: sta
+            gia' sulla riga della codifica di questo comune, e il server la legge
+            di li' quando compila il tracciato.
+            **Perche' questo campo e' facoltativo, e vale per tutti e sei i campi
+            della schedina** (tipoAlloggiato, sesso, comuneNascita, statoNascita,
+            cittadinanza, luogoRilascioDocumento): il registro degli ospiti e la
+            schedina sono **due obblighi con due momenti**. Al banco si scrive chi e'
+            arrivato, anche alle due di notte; la schedina si manda entro
+            ventiquattro ore. Se questi campi fossero obbligatori qui, un dato
+            mancante fermerebbe la registrazione — cioe' l'adempimento piu' urgente
+            dei due — e su un'installazione appena fatta la fermerebbe **sempre**,
+            perche' le codifiche ministeriali nascono vuote di proposito e vanno
+            importate. A pretenderli e' quindi l'export, che risponde 409 nominando
+            la persona e il campo che manca.
+          example: "058091"
+        statoNascita:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: >
+            Il codice dello stato estero di nascita, dalla famiglia STATO. Si da'
+            **al posto di 'comuneNascita'** per chi in Italia non e' nato; darli
+            insieme e' 400.
+          example: "100000100"
+        cittadinanza:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: >
+            Il codice dello stato di cittadinanza, dalla famiglia STATO.
+            **Non e' il luogo di nascita e non si deduce da lui**: chi e' nato a
+            Milano da genitori stranieri puo' non essere cittadino italiano, e chi
+            e' nato all'estero puo' esserlo. Il modulo chiede due cose perche' sono
+            due, e questa e' l'unica delle due che il server non puo' indovinare.
+          example: "100000100"
+        luogoRilascioDocumento:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: >
+            Dove e' stato rilasciato il documento: il codice di un comune italiano
+            **oppure** di uno stato estero, in un campo solo perche' il tracciato ha
+            una casella sola. E' l'unico campo del contratto validato contro **due**
+            famiglie di codifica: vale se esiste in COMUNE o in STATO.
+            Ha senso solo insieme al documento: darlo senza 'tipoDocumento' e
+            'numeroDocumento' e' **400**, per la stessa ragione per cui quei due
+            viaggiano in coppia — mezzo dato non si distingue da un modulo lasciato
+            a meta'.
+          example: "058091"
     OspiteResponse:
       type: object
       description: >
@@ -4611,6 +4834,95 @@ components:
             legge diversamente dagli altri per una differenza che il client non
             usa.
           example: 1985-04-17
+
+        tipoAlloggiato:
+          allOf:
+            - $ref: '#/components/schemas/TipoAlloggiato'
+          description: >
+            Null finche' nessuno l'ha dichiarato. Null qui vuol dire che la schedina
+            di questa persona non e' ancora compilabile, non che ci sia un difetto:
+            vedi la descrizione di 'comuneNascita' su OspiteRequest.
+        sesso:
+          allOf:
+            - $ref: '#/components/schemas/Sesso'
+          description: Null finche' nessuno l'ha dichiarato.
+        comuneNascita:
+          type: string
+          description: >
+            Il codice del comune di nascita, **non la sua descrizione**: chi vuole
+            leggere "MILANO" invece di "058091" cerca il codice in
+            'GET /api/codifiche/COMUNE'. Restituire qui anche il nome vorrebbe dire
+            una seconda copia di un dato che quella rotta gia' serve, e che l'import
+            del Ministero puo' cambiare sotto i piedi.
+            Null per chi e' nato all'estero, che ha invece 'statoNascita', e null
+            per chi non l'ha ancora dichiarato: i due casi da qui **non si
+            distinguono**, e a distinguerli e' 'statoNascita' — se e' valorizzato,
+            l'ospite e' nato fuori.
+          example: "058091"
+        statoNascita:
+          type: string
+          description: Null per chi e' nato in Italia, che ha invece 'comuneNascita'.
+          example: "100000100"
+        cittadinanza:
+          type: string
+          description: Il codice dello stato di cittadinanza. Null finche' non e' stato dichiarato.
+          example: "100000100"
+        luogoRilascioDocumento:
+          type: string
+          description: >
+            Null per chi non ha un documento registrato, e null finche' non e' stato
+            dichiarato.
+          example: "058091"
+
+    SchedineAlloggiatiResponse:
+      type: object
+      description: >
+        Il file delle schedine di un giorno, pronto da caricare sul portale
+        Alloggiati Web.
+        **E' il file e non un modo di ricostruirlo**, ed e' la decisione da leggere
+        prima delle altre: 'contenuto' e' il testo esatto, riga per riga e
+        terminatori compresi, non un array che il chiamante deve unire. La ragione
+        e' quella che il progetto applica al prezzo — *una cosa si calcola in un
+        posto solo*: se il formato del file fosse per meta' qui e per meta' nel
+        client, due client lo scriverebbero diverso e il portale ne rifiuterebbe
+        uno. Chi lo scarica salva dei byte, non compone niente.
+        **Non e' un download**, ed e' l'altra faccia della stessa scelta: la
+        risposta resta la busta JSON di tutto il progetto (regola 10) invece di
+        essere un 'text/plain' con Content-Disposition. Il precedente e' l'import
+        delle codifiche, che prende un array JSON e non un CSV per la stessa
+        ragione — questo backend non ha nessuna rotta che scambi file, e
+        introdurne una per un endpoint solo sarebbe una decisione grossa presa per
+        un motivo piccolo.
+      properties:
+        data:
+          type: string
+          format: date
+          description: Il giorno di arrivo richiesto, ripetuto per chi archivia la risposta.
+          example: 2026-09-01
+        numeroSchedine:
+          type: integer
+          description: >
+            Quante righe ha il file, cioe' quante persone sono arrivate quel giorno.
+            **Zero e' un valore legittimo** e vuol dire giornata senza arrivi, non
+            errore: 'contenuto' e' allora la stringa vuota.
+          example: 2
+        nomeFile:
+          type: string
+          description: >
+            Come conviene chiamare il file salvandolo. **Un suggerimento e non un
+            vincolo**: il portale non guarda il nome. Serve perche' un client che
+            scarica gli arrivi di trenta giorni non si ritrovi trenta file uguali.
+          example: schedine_20260901.txt
+        contenuto:
+          type: string
+          description: >
+            Il file, per intero. Una riga di **168 caratteri** per ogni persona,
+            terminate da CRLF, terminatore finale compreso — cioe' esattamente quel
+            che il portale accetta.
+            **Solo ASCII maiuscolo**: accenti e lettere fuori alfabeto vengono
+            traslitterati dal server, perche' il tracciato non le accetta e un
+            'NICCOLO'' scritto giusto vale piu' di una schedina scartata.
+          example: "16..."
 
     DisponibilitaTipologia:
       type: object

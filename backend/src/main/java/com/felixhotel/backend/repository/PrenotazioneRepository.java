@@ -96,6 +96,44 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
             @Param("dataCheckOut") LocalDate dataCheckOut);
 
     /**
+     * Gli arrivi di un giorno, per l'export delle schedine alloggiati.
+     *
+     * <p><b>La data e' quella prevista dalla prenotazione</b> e non l'istante in cui
+     * il check-in e' stato battuto, per la ragione semplice che il secondo il
+     * progetto non lo registra: {@code BaseAuditableEntity} tiene un
+     * {@code updatedAt} che qualunque altra modifica sposta. La conseguenza va
+     * saputa — chi registra alle otto di mattina un ospite arrivato la sera prima lo
+     * trova nel file del giorno prenotato — ed e' scritta fra i limiti noti in
+     * CLAUDE.md.
+     *
+     * <p><b>Lo stato lo passa chi chiama</b> invece di essere scritto qui dentro: la
+     * domanda "quali stati vogliono dire che questa persona e' arrivata davvero" e'
+     * una decisione di dominio, e le decisioni di dominio non stanno nei repository.
+     * E' la stessa forma gia' usata da {@code cerca}.
+     *
+     * <p>L'ordine per id e' quello di creazione, cioe' l'ordine in cui le
+     * prenotazioni sono nate: sul file non conta a nessuno, ma un export che
+     * cambiasse ordine fra due chiamate renderebbe impossibile confrontare due
+     * versioni dello stesso giorno.
+     *
+     * <p><b>Una query scritta e non un nome derivato</b>, e la ragione vale la pena
+     * saperla perche' e' una trappola che ricapitera': il nome
+     * {@code findByDataCheckInAndStatoIn...} non si puo' scrivere, perche' chi
+     * interpreta i nomi dei metodi lo spezza in {@code dataCheck} piu' la parola
+     * chiave {@code In} e cerca una proprieta' che non esiste. Con un campo che
+     * <i>finisce</i> come una parola chiave il nome derivato e' ambiguo per
+     * costruzione, e nessuna convenzione di scrittura lo salva.
+     */
+    @Query("""
+            select p from Prenotazione p
+            where p.dataCheckIn = :dataCheckIn
+              and p.stato in :stati
+            order by p.id
+            """)
+    List<Prenotazione> arriviDelGiorno(@Param("dataCheckIn") LocalDate dataCheckIn,
+                                       @Param("stati") Collection<StatoPrenotazione> stati);
+
+    /**
      * Quante camere di ogni tipologia risultano impegnate <b>nella notte
      * peggiore</b> del periodo richiesto.
      *

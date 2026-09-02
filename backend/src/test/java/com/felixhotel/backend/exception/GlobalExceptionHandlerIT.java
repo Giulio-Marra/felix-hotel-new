@@ -269,6 +269,40 @@ class GlobalExceptionHandlerIT extends IntegrationTestBase {
         }
     }
 
+    @Nested
+    @DisplayName("parametri di query")
+    class ParametriDiQuery {
+
+        @Test
+        @DisplayName("un parametro obbligatorio non mandato e' 400, non 500")
+        void parametroObbligatorioAssente_risponde400() throws Exception {
+            // given: la ricerca di disponibilita', che ha due parametri obbligatori ed e'
+            // **pubblica** — cioe' il posto in cui questo difetto pesava di piu': fino al
+            // 2026-09-02 chiunque poteva ottenere un 500 senza nemmeno autenticarsi
+
+            // when / then: 400, perche' a sbagliare e' chi chiama. Un 500 vorrebbe dire
+            // che l'applicazione dichiara un guasto proprio quando non ne ha nessuno
+            mockMvc.perform(get("/api/disponibilita"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message").value(
+                            org.hamcrest.Matchers.containsString("dataCheckIn")));
+        }
+
+        @Test
+        @DisplayName("un parametro scritto storto e' 400, e lo era gia'")
+        void parametroDiTipoSbagliato_risponde400() throws Exception {
+            // then: il gemello del test qui sopra. Sono due casi diversi — assente e
+            // illeggibile — gestiti da due handler diversi, e il primo mancava: tenerli
+            // vicini e' cio' che rende visibile che la coppia adesso e' chiusa
+            mockMvc.perform(get("/api/disponibilita")
+                            .param("dataCheckIn", "non-una-data")
+                            .param("dataCheckOut", "2026-09-10"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400));
+        }
+    }
+
     /**
      * Un cliente qualsiasi, autenticato. Le rotte {@code /test-only} non sono fra
      * i {@code permitAll}, quindi da anonimo darebbero 401 prima ancora di

@@ -5,7 +5,10 @@ import com.felixhotel.backend.dto.OspiteRequest;
 import com.felixhotel.backend.entity.MotivoEsenzione;
 import com.felixhotel.backend.entity.Ospite;
 import com.felixhotel.backend.entity.Prenotazione;
+import com.felixhotel.backend.entity.Sesso;
 import com.felixhotel.backend.entity.StatoPrenotazione;
+import com.felixhotel.backend.entity.TipoAlloggiato;
+import com.felixhotel.backend.entity.TipoCodifica;
 import com.felixhotel.backend.entity.TipoDocumento;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
@@ -15,6 +18,7 @@ import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.OspiteMapper;
 import com.felixhotel.backend.repository.OspiteRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.repository.VoceCodificaRepository;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.service.OspiteService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Implementazione del registro degli ospiti.
@@ -63,6 +68,15 @@ import java.util.List;
  * bordo puo' vederla. E l'obbligo di legge non si allenta di un millimetro — un
  * minorenne un documento proprio non ce l'ha, e pretenderlo lo farebbe inventare al
  * banco, riempiendo di numeri falsi il registro che esiste apposta per essere vero.
+ *
+ * <p><b>La quarta, dal 2026-09-02: i campi della schedina si accettano vuoti ma non
+ * sbagliati.</b> {@link #verificaSchedina(OspiteRequest)} non pretende che i sei campi
+ * ci siano — a pretenderli e' l'export, e il perche' sta nel V13 — ma se ci sono
+ * pretende che siano <i>esatti</i>: un codice che il Ministero non ha pubblicato non
+ * darebbe nessun errore al salvataggio, darebbe schedine rifiutate dalla Questura e
+ * scoperte al controllo. Sono due cose diverse e vale la pena tenerle distinte: un
+ * campo assente e' un modulo a meta', un codice inventato e' un dato falso in un
+ * registro di legge.
  *
  * <p><b>Perche' il conteggio e' esatto e non un massimo.</b> Il tetto qui e' il
  * pavimento del check-in: si rifiuta l'ospite oltre {@code numeroOspiti} perche'
@@ -102,6 +116,16 @@ public class OspiteServiceImpl implements OspiteService {
     /** Serve a risolvere la prenotazione del percorso, e a leggerne stato e numero di ospiti. */
     private final PrenotazioneRepository prenotazioneRepository;
 
+    /**
+     * Serve a un controllo solo, ed e' il motivo per cui non e' entrato prima: i
+     * quattro codici della schedina devono esistere nella codifica che il Ministero
+     * pubblica. E' anche l'unico punto in cui questa risorsa guarda una tabella che
+     * non e' sua — un dato di riferimento, non una relazione: vedi il commento sul
+     * campo {@code comuneNascita} di {@code Ospite} per il perche' non ci sia una
+     * chiave esterna.
+     */
+    private final VoceCodificaRepository voceCodificaRepository;
+
     private final OspiteMapper ospiteMapper;
     private final ApiResponseMapper apiResponseMapper;
     private final ChiamanteCorrente chiamanteCorrente;
@@ -120,13 +144,14 @@ public class OspiteServiceImpl implements OspiteService {
     @Autowired
     public OspiteServiceImpl(OspiteRepository ospiteRepository,
                              PrenotazioneRepository prenotazioneRepository,
+                             VoceCodificaRepository voceCodificaRepository,
                              OspiteMapper ospiteMapper,
                              ApiResponseMapper apiResponseMapper,
                              ChiamanteCorrente chiamanteCorrente) {
         // Fuso di sistema e non UTC, come per le prenotazioni: "oggi" e' il giorno
         // che si legge sul calendario alla reception.
-        this(ospiteRepository, prenotazioneRepository, ospiteMapper, apiResponseMapper,
-                chiamanteCorrente, Clock.systemDefaultZone());
+        this(ospiteRepository, prenotazioneRepository, voceCodificaRepository, ospiteMapper,
+                apiResponseMapper, chiamanteCorrente, Clock.systemDefaultZone());
     }
 
     /**
@@ -136,12 +161,14 @@ public class OspiteServiceImpl implements OspiteService {
      */
     public OspiteServiceImpl(OspiteRepository ospiteRepository,
                              PrenotazioneRepository prenotazioneRepository,
+                             VoceCodificaRepository voceCodificaRepository,
                              OspiteMapper ospiteMapper,
                              ApiResponseMapper apiResponseMapper,
                              ChiamanteCorrente chiamanteCorrente,
                              Clock clock) {
         this.ospiteRepository = ospiteRepository;
         this.prenotazioneRepository = prenotazioneRepository;
+        this.voceCodificaRepository = voceCodificaRepository;
         this.ospiteMapper = ospiteMapper;
         this.apiResponseMapper = apiResponseMapper;
         this.chiamanteCorrente = chiamanteCorrente;
@@ -192,6 +219,7 @@ public class OspiteServiceImpl implements OspiteService {
 
         verificaDataNascita(request.getDataNascita());
         TipoDocumento tipoDocumento = verificaDocumento(request, prenotazione);
+        verificaSchedina(request);
 
         // Il controllo del duplicato si salta per chi non ha un documento: dove non
         // c'e' un documento non c'e' niente da confrontare, e due minorenni sulla
@@ -243,6 +271,7 @@ public class OspiteServiceImpl implements OspiteService {
 
         verificaDataNascita(request.getDataNascita());
         TipoDocumento tipoDocumento = verificaDocumento(request, prenotazione);
+        verificaSchedina(request);
 
         // Saltato per chi non ha documento, per la stessa ragione scritta in aggiungi().
         if (tipoDocumento != null
@@ -471,6 +500,109 @@ public class OspiteServiceImpl implements OspiteService {
         // cui verificarlo: lo dichiara chi ha guardato il tesserino. Vedi
         // MotivoEsenzione per il perche' l'eta' non passa di qui.
         ospite.setMotivoEsenzione(motivoEsenzione(request));
+        // I sei campi della schedina. Tutti facoltativi, e un null qui vuol dire "non
+        // ancora dichiarato" e non "difetto": e' l'export a pretenderli, per la ragione
+        // scritta nel V13 — il registro si scrive al banco anche di notte, la schedina
+        // si manda entro ventiquattro ore. Che siano coerenti ed esistenti lo ha gia'
+        // verificato verificaSchedina().
+        ospite.setTipoAlloggiato(tipoAlloggiato(request));
+        ospite.setSesso(sesso(request));
+        ospite.setComuneNascita(request.getComuneNascita());
+        ospite.setStatoNascita(request.getStatoNascita());
+        ospite.setCittadinanza(request.getCittadinanza());
+        ospite.setLuogoRilascioDocumento(request.getLuogoRilascioDocumento());
+    }
+
+    /**
+     * Il tipo di alloggiato dell'entita' a partire da quello del contratto. Stessa
+     * forma delle altre conversioni di enum di questa classe, e stessa ragione: due
+     * tipi diversi che si somigliano, con questa riga sola a tenerne allineati gli
+     * elenchi.
+     */
+    private TipoAlloggiato tipoAlloggiato(OspiteRequest request) {
+        // Letto in una variabile e non chiesto due volte al DTO, come gli altri campi
+        // facoltativi di questa classe: il tipo dichiara di poter essere null, e due
+        // accessi separati sono due valori per chi legge il flusso, SpotBugs compreso.
+        com.felixhotel.backend.dto.TipoAlloggiato tipo = request.getTipoAlloggiato();
+        return tipo == null ? null : TipoAlloggiato.valueOf(tipo.getValue());
+    }
+
+    /** Il sesso dell'entita' a partire da quello del contratto. */
+    private Sesso sesso(OspiteRequest request) {
+        com.felixhotel.backend.dto.Sesso valore = request.getSesso();
+        return valore == null ? null : Sesso.valueOf(valore.getValue());
+    }
+
+    /**
+     * Che i campi della schedina, se ci sono, stiano in piedi e siano esatti.
+     *
+     * <p><b>Non pretende che ci siano</b>, ed e' la riga di confine di tutto il
+     * branch: obbligarli qui fermerebbe la registrazione di un ospite — l'adempimento
+     * piu' urgente dei due — per un dato che serve alla schedina, e su
+     * un'installazione appena fatta la fermerebbe <i>sempre</i>, perche' le codifiche
+     * ministeriali nascono vuote di proposito (V12) e vanno importate. Il perche'
+     * esteso sta nel V13; a pretenderli e' l'export.
+     *
+     * <p><b>Quel che invece controlla e' che siano esatti</b>, e sono due cose diverse:
+     * un campo assente e' un modulo a meta', un codice inventato e' un dato falso in un
+     * registro di legge. Il secondo non si accetta nemmeno per un momento, perche' al
+     * salvataggio non darebbe nessun errore: darebbe schedine rifiutate dalla Questura,
+     * scoperte al controllo. E' letteralmente il caso che la quarta riga della regola 24
+     * nomina.
+     *
+     * <p>400 e non 409, come per il documento a meta': non c'e' nessun conflitto con
+     * qualcosa che esiste gia', e' il corpo a non stare in piedi.
+     */
+    private void verificaSchedina(OspiteRequest request) {
+        String comuneNascita = request.getComuneNascita();
+        String statoNascita = request.getStatoNascita();
+
+        if (comuneNascita != null && statoNascita != null) {
+            throw new BadRequestException(
+                    "Il comune e lo stato di nascita si escludono: nessuno nasce in due posti");
+        }
+
+        String luogoRilascio = request.getLuogoRilascioDocumento();
+        if (luogoRilascio != null && request.getTipoDocumento() == null) {
+            // Stesso criterio della coppia tipo/numero: mezzo dato non si distingue da un
+            // modulo lasciato a meta'. Un luogo di rilascio senza documento non e' un
+            // dato in piu', e' la traccia di una correzione fatta a meta'.
+            throw new BadRequestException(
+                    "Il luogo di rilascio si indica solo insieme al documento");
+        }
+
+        assicuraCodiceEsistente(comuneNascita, TipoCodifica.COMUNE, "comune di nascita");
+        assicuraCodiceEsistente(statoNascita, TipoCodifica.STATO, "stato di nascita");
+        assicuraCodiceEsistente(request.getCittadinanza(), TipoCodifica.STATO, "cittadinanza");
+
+        if (luogoRilascio != null
+                && !esiste(luogoRilascio, TipoCodifica.COMUNE)
+                && !esiste(luogoRilascio, TipoCodifica.STATO)) {
+            // L'unico campo cercato in due famiglie, perche' il tracciato ha una casella
+            // sola per "comune italiano oppure stato estero". Vedi il commento sul campo
+            // luogoRilascioDocumento di Ospite per cosa questo comporta.
+            throw new BadRequestException("Il luogo di rilascio " + luogoRilascio
+                    + " non esiste ne' fra i comuni ne' fra gli stati: si sceglie da"
+                    + " GET /api/codifiche/COMUNE o GET /api/codifiche/STATO");
+        }
+    }
+
+    private void assicuraCodiceEsistente(String codice, TipoCodifica famiglia, String campo) {
+        if (codice != null && !esiste(codice, famiglia)) {
+            throw new BadRequestException("Il codice " + codice + " indicato come " + campo
+                    + " non esiste nella codifica " + famiglia.name()
+                    + ": si sceglie da GET /api/codifiche/" + famiglia.name());
+        }
+    }
+
+    /**
+     * Se un codice esiste nella famiglia. Una query per codice, e qui va bene: si
+     * registra un ospite per volta e i codici da guardare sono al massimo quattro.
+     * L'export, che ne guarda centinaia, li chiede invece tutti insieme — vedi
+     * {@code AlloggiatiServiceImpl}.
+     */
+    private boolean esiste(String codice, TipoCodifica famiglia) {
+        return !voceCodificaRepository.findByTipoAndCodiceIn(famiglia, Set.of(codice)).isEmpty();
     }
 
     /**

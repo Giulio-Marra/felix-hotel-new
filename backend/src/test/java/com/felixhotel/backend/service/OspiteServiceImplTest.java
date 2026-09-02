@@ -3,7 +3,9 @@ package com.felixhotel.backend.service;
 import com.felixhotel.backend.dto.OspiteRequest;
 import com.felixhotel.backend.entity.Ospite;
 import com.felixhotel.backend.entity.Prenotazione;
+import com.felixhotel.backend.entity.Sesso;
 import com.felixhotel.backend.entity.StatoPrenotazione;
+import com.felixhotel.backend.entity.TipoAlloggiato;
 import com.felixhotel.backend.entity.TipoDocumento;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
@@ -13,6 +15,7 @@ import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.OspiteMapper;
 import com.felixhotel.backend.repository.OspiteRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.repository.VoceCodificaRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
@@ -73,6 +76,13 @@ class OspiteServiceImplTest {
 
     private static final String NUMERO_DOCUMENTO = "CA12345AB";
 
+    /**
+     * Un codice di codifica ministeriale qualunque. <b>Lo stesso per tutte le
+     * famiglie</b>, ed e' legittimo: l'indice unico del V12 e' su (tipo, codice),
+     * quindi fra famiglie diverse coincidere e' il caso normale.
+     */
+    private static final String CODICE = "058091";
+
     /** Un mercoledi' qualunque: e' l'"oggi" di tutti i test di questa classe. */
     private static final LocalDate OGGI = LocalDate.of(2026, 9, 2);
 
@@ -94,13 +104,21 @@ class OspiteServiceImplTest {
     private PrenotazioneRepository prenotazioneRepository;
     @Mock
     private ApiResponseMapper apiResponseMapper;
+    /**
+     * Le codifiche ministeriali. Serve a un controllo solo — che i codici della
+     * schedina esistano — e nella maggior parte di questi test resta muto, perche' i
+     * sei campi della schedina sono facoltativi e chi non li manda non lo interroga.
+     */
+    @Mock
+    private VoceCodificaRepository voceCodificaRepository;
 
     private OspiteServiceImpl ospiteService;
 
     @BeforeEach
     void inizializza() {
         ospiteService = new OspiteServiceImpl(ospiteRepository, prenotazioneRepository,
-                new OspiteMapper(), apiResponseMapper, new ChiamanteCorrente(),
+                voceCodificaRepository, new OspiteMapper(), apiResponseMapper,
+                new ChiamanteCorrente(),
                 new OrologioPilotato(OGGI.atStartOfDay().toInstant(ZoneOffset.UTC)));
     }
 
@@ -647,6 +665,121 @@ class OspiteServiceImplTest {
                     richiestaSenzaDocumento(10).numeroDocumento(NUMERO_DOCUMENTO)))
                     .isInstanceOf(BadRequestException.class)
                     .hasMessageContaining("insieme");
+        }
+    }
+
+    @Nested
+    @DisplayName("campi della schedina alloggiati")
+    class Schedina {
+
+        @Test
+        @DisplayName("si registra un ospite senza nessuno dei sei campi: e' il caso normale")
+        void aggiungi_senzaCampiSchedina_passa() {
+            // given
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            when(ospiteRepository.saveAndFlush(any(Ospite.class))).thenAnswer(i -> i.getArgument(0));
+
+            // when
+            ospiteService.aggiungi(ID_PRENOTAZIONE, richiesta());
+
+            // then: e' la riga di confine di tutto il branch. Pretenderli qui fermerebbe
+            // la registrazione — l'adempimento piu' urgente dei due — per un dato che
+            // serve alla schedina, e su un'installazione appena fatta la fermerebbe
+            // sempre, perche' le codifiche nascono vuote di proposito
+            ArgumentCaptor<Ospite> salvato = ArgumentCaptor.forClass(Ospite.class);
+            verify(ospiteRepository).saveAndFlush(salvato.capture());
+            assertThat(salvato.getValue().getTipoAlloggiato()).isNull();
+            assertThat(salvato.getValue().getSesso()).isNull();
+            // e non ha nemmeno interrogato le codifiche: senza codici non c'e' niente
+            // da verificare
+            verifyNoInteractions(voceCodificaRepository);
+        }
+
+        @Test
+        @DisplayName("i sei campi arrivano sull'entita' quando ci sono")
+        void aggiungi_conCampiSchedina_liScrive() {
+            // given
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            codiceEsistente();
+            when(ospiteRepository.saveAndFlush(any(Ospite.class))).thenAnswer(i -> i.getArgument(0));
+
+            // when
+            ospiteService.aggiungi(ID_PRENOTAZIONE, richiesta()
+                    .tipoAlloggiato(com.felixhotel.backend.dto.TipoAlloggiato.CAPOFAMIGLIA)
+                    .sesso(com.felixhotel.backend.dto.Sesso.F)
+                    .comuneNascita(CODICE)
+                    .cittadinanza(CODICE)
+                    .luogoRilascioDocumento(CODICE));
+
+            // then: la conversione fra i due TipoAlloggiato e i due Sesso e' logica e
+            // non copia, ed e' questa riga a tenerne allineati gli elenchi
+            ArgumentCaptor<Ospite> salvato = ArgumentCaptor.forClass(Ospite.class);
+            verify(ospiteRepository).saveAndFlush(salvato.capture());
+            assertThat(salvato.getValue().getTipoAlloggiato()).isEqualTo(TipoAlloggiato.CAPOFAMIGLIA);
+            assertThat(salvato.getValue().getSesso()).isEqualTo(Sesso.F);
+            assertThat(salvato.getValue().getComuneNascita()).isEqualTo(CODICE);
+            assertThat(salvato.getValue().getLuogoRilascioDocumento()).isEqualTo(CODICE);
+        }
+
+        @Test
+        @DisplayName("un codice che il Ministero non ha pubblicato e' 400")
+        void aggiungi_conCodiceIgnoto_sollevaBadRequest() {
+            // given: la codifica non contiene quel codice
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+            when(voceCodificaRepository.findByTipoAndCodiceIn(any(), any())).thenReturn(List.of());
+
+            // when/then: un codice inventato non darebbe nessun errore al salvataggio.
+            // Darebbe schedine rifiutate dalla Questura, scoperte al controllo — che e'
+            // letteralmente il caso che la quarta riga della regola 24 nomina
+            assertThatThrownBy(() -> ospiteService.aggiungi(ID_PRENOTAZIONE,
+                    richiesta().comuneNascita("999999")))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("COMUNE");
+        }
+
+        @Test
+        @DisplayName("comune e stato di nascita insieme sono 400: nessuno nasce in due posti")
+        void aggiungi_conComuneEStato_sollevaBadRequest() {
+            // given
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+
+            // when/then: e' vietato anche dal CHECK del V13, ma il 400 arriva prima e
+            // dice cosa non va, invece di un 500 tradotto da una violazione di vincolo
+            assertThatThrownBy(() -> ospiteService.aggiungi(ID_PRENOTAZIONE,
+                    richiesta().comuneNascita(CODICE).statoNascita(CODICE)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("due posti");
+
+            // e non ha nemmeno guardato le codifiche: la richiesta non sta in piedi da
+            // sola, quindi non c'e' niente da andare a cercare
+            verifyNoInteractions(voceCodificaRepository);
+        }
+
+        @Test
+        @DisplayName("il luogo di rilascio senza documento e' 400")
+        void aggiungi_conLuogoRilascioSenzaDocumento_sollevaBadRequest() {
+            // given: un minorenne senza documento a cui si e' dato un luogo di rilascio
+            autenticaStaff();
+            prenotazione(StatoPrenotazione.CONFERMATA);
+
+            // when/then: stesso criterio della coppia tipo/numero — mezzo dato non si
+            // distingue da un modulo lasciato a meta'
+            assertThatThrownBy(() -> ospiteService.aggiungi(ID_PRENOTAZIONE,
+                    richiestaSenzaDocumento(10).luogoRilascioDocumento(CODICE)))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("insieme al documento");
+        }
+
+        /** La codifica risponde che il codice c'e', qualunque famiglia le si chieda. */
+        private void codiceEsistente() {
+            com.felixhotel.backend.entity.VoceCodifica voce =
+                    new com.felixhotel.backend.entity.VoceCodifica();
+            voce.setCodice(CODICE);
+            when(voceCodificaRepository.findByTipoAndCodiceIn(any(), any())).thenReturn(List.of(voce));
         }
     }
 

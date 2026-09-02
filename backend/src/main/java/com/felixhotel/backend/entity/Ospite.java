@@ -163,4 +163,92 @@ public class Ospite extends BaseAuditableEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "motivo_esenzione", length = 40)
     private MotivoEsenzione motivoEsenzione;
+
+    /**
+     * Che ruolo ha questa persona nel gruppo che soggiorna: e' il primo campo della
+     * schedina alloggiati e decide quanto del resto va compilato.
+     *
+     * <p><b>Facoltativo, come le cinque colonne che seguono</b>, e per una ragione
+     * che vale per tutte e sei — scritta per esteso nel
+     * V13__schedina_alloggiati.sql e riassunta qui perche' e' la cosa da sapere
+     * prima di toccarle: <i>il registro e la schedina sono due obblighi con due
+     * momenti</i>. Al banco si scrive chi e' arrivato, anche alle due di notte; la
+     * schedina si manda entro ventiquattro ore. Un campo mancante deve fermare la
+     * seconda, non la prima — quindi a pretenderlo non e' ne' il database ne'
+     * {@code OspiteServiceImpl}, ma l'export, che risponde 409 nominando la persona
+     * e il campo.
+     *
+     * <p>{@code EnumType.STRING} come ovunque, e con in piu' un {@code CHECK} in
+     * database che {@link #tipoDocumento} non ha: la differenza e' la stessa gia'
+     * scritta su {@link TipoCodifica} — questo elenco lo scrive l'applicazione,
+     * quello lo cambia la Questura.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_alloggiato", length = 30)
+    private TipoAlloggiato tipoAlloggiato;
+
+    /** {@code M} o {@code F}. Il perche' siano due sta su {@link Sesso}. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 1)
+    private Sesso sesso;
+
+    /**
+     * Il codice del comune italiano di nascita, nella codifica del Ministero
+     * ({@link TipoCodifica#COMUNE}). Vuoto per chi e' nato all'estero, che ha
+     * invece {@link #statoNascita}.
+     *
+     * <p><b>E' una stringa e non una relazione verso {@link VoceCodifica}</b>, ed
+     * e' la decisione da capire prima delle altre perche' contraddice l'istinto.
+     * Una chiave esterna legherebbe questa riga alla tabella dei comuni, che
+     * l'import del Ministero <b>sostituisce per intero</b> (V12): il giorno di una
+     * fusione di comuni, l'aggiornamento fallirebbe per colpa di ospiti registrati
+     * anni prima, oppure — con un cascade — riscriverebbe schedine gia' mandate.
+     * Il codice qui e' <b>una fotografia</b>, come {@code importoTotale} sulla
+     * prenotazione: dice cosa e' stato dichiarato quel giorno, e non deve muoversi
+     * piu'. Che il codice esistesse lo ha verificato il Service quando l'ha scritto.
+     *
+     * <p>La <b>provincia</b> non e' una colonna, benche' il tracciato la chieda: sta
+     * gia' sulla riga di {@link VoceCodifica} di questo comune, e copiarla qui
+     * sarebbe una seconda fonte per lo stesso fatto. La legge l'export.
+     */
+    @Column(name = "comune_nascita", length = 20)
+    private String comuneNascita;
+
+    /**
+     * Il codice dello stato estero di nascita ({@link TipoCodifica#STATO}), per chi
+     * in Italia non e' nato. <b>Esclusivo rispetto a {@link #comuneNascita}</b>: il
+     * tracciato ha due caselle e ne vuole compilata esattamente una, e che non siano
+     * valorizzate tutte e due lo vieta un {@code CHECK} del V13 — nessuno nasce in
+     * due posti, in nessun momento della vita della riga.
+     */
+    @Column(name = "stato_nascita", length = 20)
+    private String statoNascita;
+
+    /**
+     * Il codice dello stato di cittadinanza ({@link TipoCodifica#STATO}).
+     *
+     * <p><b>Non si deduce dal luogo di nascita</b>, ed e' il motivo per cui e' una
+     * colonna sua invece di un calcolo: chi e' nato a Milano da genitori stranieri
+     * puo' non essere cittadino italiano, e chi e' nato all'estero puo' esserlo. Il
+     * modulo chiede due cose perche' sono due.
+     */
+    @Column(length = 20)
+    private String cittadinanza;
+
+    /**
+     * Dove e' stato rilasciato il documento: il codice di un comune italiano
+     * <b>oppure</b> di uno stato estero, in una colonna sola perche' il tracciato ha
+     * una casella sola.
+     *
+     * <p>E' l'unico campo del progetto che puo' contenere un codice di due famiglie
+     * diverse, e la conseguenza va saputa: a validarlo si guarda in tutte e due, e
+     * un codice che per caso esiste in entrambe passa senza che nessuno sappia quale
+     * dei due era. Nel tracciato non fa differenza — e' la stessa casella — ma se un
+     * giorno qualcosa dovesse distinguerli, e' qui che manca l'informazione.
+     *
+     * <p>Vuoto per chi un documento non ce l'ha: i minorenni registrati senza (V10) e
+     * chi e' {@link TipoAlloggiato#FAMILIARE} o {@link TipoAlloggiato#MEMBRO_GRUPPO}.
+     */
+    @Column(name = "luogo_rilascio_documento", length = 20)
+    private String luogoRilascioDocumento;
 }
