@@ -363,24 +363,42 @@ class BloccoDisponibilitaApiIT extends IntegrationTestBase {
 
     // ---------------------------------------------------------------- supporto
 
-    /** Quante camere la ricerca dichiara libere per quella tipologia in quelle notti. */
+    /**
+     * Quante camere la ricerca dichiara libere per quella tipologia in quelle notti.
+     *
+     * <p><b>Scorre tutte le pagine, e non e' pignoleria.</b> La ricerca di disponibilita'
+     * restituisce <i>tutte</i> le tipologie dell'albergo, venti per pagina, e la suite ne
+     * crea qualche centinaio: la prima stesura di questo metodo guardava solo la prima
+     * pagina, passava sulla mia macchina e falliva in CI con "la tipologia 193 non compare
+     * nella disponibilita'". E' il difetto che la CI esiste per prendere — cio' che
+     * funziona solo dove e' stato scritto — e la differenza era l'ordine con cui i test
+     * erano girati, cioe' quante tipologie esistevano prima di questa.
+     */
     private void disponibiliAtteso(long tipologia, LocalDate arrivo, int atteso) throws Exception {
-        String risposta = mockMvc.perform(get(DISPONIBILITA)
-                        .param("dataCheckIn", arrivo.toString())
-                        .param("dataCheckOut", arrivo.plusDays(2).toString()))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
+        for (int pagina = 0; ; pagina++) {
+            String risposta = mockMvc.perform(get(DISPONIBILITA)
+                            .param("dataCheckIn", arrivo.toString())
+                            .param("dataCheckOut", arrivo.plusDays(2).toString())
+                            .param("page", String.valueOf(pagina))
+                            .param("size", "100"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
 
-        var righe = objectMapper.readTree(risposta).path("data");
-        for (var riga : righe) {
-            if (riga.path("tipologia").path("id").asLong() == tipologia) {
-                org.assertj.core.api.Assertions.assertThat(riga.path("camereDisponibili").asInt())
-                        .as("camere disponibili della tipologia %d", tipologia)
-                        .isEqualTo(atteso);
-                return;
+            var corpo = objectMapper.readTree(risposta);
+            for (var riga : corpo.path("data")) {
+                if (riga.path("tipologia").path("id").asLong() == tipologia) {
+                    org.assertj.core.api.Assertions.assertThat(
+                                    riga.path("camereDisponibili").asInt())
+                            .as("camere disponibili della tipologia %d", tipologia)
+                            .isEqualTo(atteso);
+                    return;
+                }
+            }
+            if (pagina + 1 >= corpo.path("page").path("totalPages").asInt()) {
+                throw new AssertionError(
+                        "la tipologia " + tipologia + " non compare in nessuna pagina della disponibilita'");
             }
         }
-        throw new AssertionError("la tipologia " + tipologia + " non compare nella disponibilita'");
     }
 
     private long creaBlocco(String token, java.util.function.UnaryOperator<BloccoRequest> costruisci)
