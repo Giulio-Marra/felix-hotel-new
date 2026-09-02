@@ -1,4 +1,4 @@
-package com.felixhotel.backend.entity;
+package com.felixhotel.backend.entity.enums;
 
 /**
  * Il motivo per cui un ospite non paga la tassa di soggiorno, fra quelli che

@@ -1,4 +1,4 @@
-package com.felixhotel.backend.entity;
+package com.felixhotel.backend.entity.enums;
 
 /**
  * Che ruolo ha un {@link Ospite} nel gruppo con cui soggiorna.

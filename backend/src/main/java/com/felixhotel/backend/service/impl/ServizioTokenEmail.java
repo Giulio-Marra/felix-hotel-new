@@ -1,7 +1,7 @@
 package com.felixhotel.backend.service.impl;
 
-import com.felixhotel.backend.entity.TipoTokenEmail;
 import com.felixhotel.backend.entity.TokenEmail;
+import com.felixhotel.backend.entity.enums.TipoTokenEmail;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.repository.TokenEmailRepository;
 import com.felixhotel.backend.security.TipoAccount;

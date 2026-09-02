@@ -202,7 +202,7 @@ public class CameraServiceImpl implements CameraService {
         StatoCamera statoRichiesto = request.getStato();
 
         camera.setStato(statoRichiesto == null
-                ? com.felixhotel.backend.entity.StatoCamera.LIBERA
+                ? com.felixhotel.backend.entity.enums.StatoCamera.LIBERA
                 : cameraMapper.toStatoEntity(statoRichiesto));
     }
 

@@ -1,4 +1,4 @@
-package com.felixhotel.backend.entity;
+package com.felixhotel.backend.entity.enums;
 
 /**
  * Il sesso di un {@link Ospite} come lo chiede la schedina alloggiati.

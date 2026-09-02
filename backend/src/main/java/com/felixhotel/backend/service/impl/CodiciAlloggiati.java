@@ -1,8 +1,8 @@
 package com.felixhotel.backend.service.impl;
 
-import com.felixhotel.backend.entity.Sesso;
-import com.felixhotel.backend.entity.TipoAlloggiato;
-import com.felixhotel.backend.entity.TipoDocumento;
+import com.felixhotel.backend.entity.enums.Sesso;
+import com.felixhotel.backend.entity.enums.TipoAlloggiato;
+import com.felixhotel.backend.entity.enums.TipoDocumento;
 
 import java.util.EnumMap;
 import java.util.Map;

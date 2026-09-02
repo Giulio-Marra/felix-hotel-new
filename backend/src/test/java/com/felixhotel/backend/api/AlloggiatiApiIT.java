@@ -138,7 +138,7 @@ class AlloggiatiApiIT extends IntegrationTestBase {
         // e' l'unica differenza di forma fra i due gruppi di valori, ed e' tutto il
         // motivo per cui il tipo di alloggiato esiste
         assertThat(contenuto)
-                .startsWith(CodiciAlloggiati.codice(com.felixhotel.backend.entity.TipoAlloggiato.CAPOFAMIGLIA))
+                .startsWith(CodiciAlloggiati.codice(com.felixhotel.backend.entity.enums.TipoAlloggiato.CAPOFAMIGLIA))
                 .contains("CA12345AB")
                 .endsWith("\r\n");
         String rigaFiglio = contenuto.substring(170, 170 + 168);
@@ -308,15 +308,15 @@ class AlloggiatiApiIT extends IntegrationTestBase {
         importa(tokenAdmin, TipoCodifica.TIPO_DOCUMENTO, List.of(
                 new VoceCodifica()
                         .codice(CodiciAlloggiati.codice(
-                                com.felixhotel.backend.entity.TipoDocumento.CARTA_IDENTITA))
+                                com.felixhotel.backend.entity.enums.TipoDocumento.CARTA_IDENTITA))
                         .descrizione("CARTA DI IDENTITA")));
         importa(tokenAdmin, TipoCodifica.TIPO_ALLOGGIATO, List.of(
-                voceAlloggiato(com.felixhotel.backend.entity.TipoAlloggiato.OSPITE_SINGOLO),
-                voceAlloggiato(com.felixhotel.backend.entity.TipoAlloggiato.CAPOFAMIGLIA),
-                voceAlloggiato(com.felixhotel.backend.entity.TipoAlloggiato.FAMILIARE)));
+                voceAlloggiato(com.felixhotel.backend.entity.enums.TipoAlloggiato.OSPITE_SINGOLO),
+                voceAlloggiato(com.felixhotel.backend.entity.enums.TipoAlloggiato.CAPOFAMIGLIA),
+                voceAlloggiato(com.felixhotel.backend.entity.enums.TipoAlloggiato.FAMILIARE)));
     }
 
-    private VoceCodifica voceAlloggiato(com.felixhotel.backend.entity.TipoAlloggiato tipo) {
+    private VoceCodifica voceAlloggiato(com.felixhotel.backend.entity.enums.TipoAlloggiato tipo) {
         return new VoceCodifica().codice(CodiciAlloggiati.codice(tipo)).descrizione(tipo.name());
     }
 

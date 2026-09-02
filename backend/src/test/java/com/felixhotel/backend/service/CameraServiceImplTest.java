@@ -97,7 +97,7 @@ class CameraServiceImplTest {
         camera.setNumero("101");
         camera.setPiano(1);
         camera.setTipologiaCamera(tipologiaEsistente());
-        camera.setStato(com.felixhotel.backend.entity.StatoCamera.LIBERA);
+        camera.setStato(com.felixhotel.backend.entity.enums.StatoCamera.LIBERA);
         return camera;
     }
 
@@ -130,7 +130,7 @@ class CameraServiceImplTest {
         void elenca_conStato_traduceEnum() {
             // given: si filtra per camere in manutenzione
             when(cameraRepository.cerca(eq(ID_TIPOLOGIA),
-                    eq(com.felixhotel.backend.entity.StatoCamera.MANUTENZIONE), any(Pageable.class)))
+                    eq(com.felixhotel.backend.entity.enums.StatoCamera.MANUTENZIONE), any(Pageable.class)))
                     .thenReturn(new PageImpl<>(List.of()));
 
             // when
@@ -141,7 +141,7 @@ class CameraServiceImplTest {
             // compilerebbe nemmeno — il test serve a fissare che la traduzione avvenga
             // qui e non venga spostata dentro la query
             verify(cameraRepository).cerca(ID_TIPOLOGIA,
-                    com.felixhotel.backend.entity.StatoCamera.MANUTENZIONE,
+                    com.felixhotel.backend.entity.enums.StatoCamera.MANUTENZIONE,
                     PageRequest.of(0, 20, Sort.by(Sort.Direction.ASC, "numero")));
         }
     }
@@ -171,7 +171,7 @@ class CameraServiceImplTest {
 
             assertThat(salvata.getValue().getNumero()).isEqualTo(richiesta.getNumero());
             assertThat(salvata.getValue().getStato())
-                    .isEqualTo(com.felixhotel.backend.entity.StatoCamera.LIBERA);
+                    .isEqualTo(com.felixhotel.backend.entity.enums.StatoCamera.LIBERA);
             assertThat(salvata.getValue().getTipologiaCamera().getId()).isEqualTo(ID_TIPOLOGIA);
 
             verify(apiResponseMapper).toResponse(eq(HttpStatus.CREATED), anyString(), any());
@@ -257,7 +257,7 @@ class CameraServiceImplTest {
         void aggiorna_senzaStato_riportaALibera() {
             // given: una camera in manutenzione
             Camera esistente = cameraEsistente();
-            esistente.setStato(com.felixhotel.backend.entity.StatoCamera.MANUTENZIONE);
+            esistente.setStato(com.felixhotel.backend.entity.enums.StatoCamera.MANUTENZIONE);
 
             CameraRequest richiesta = dati.cameraRequest(ID_TIPOLOGIA).numero(esistente.getNumero());
 
@@ -278,7 +278,7 @@ class CameraServiceImplTest {
             verify(cameraRepository).saveAndFlush(salvata.capture());
 
             assertThat(salvata.getValue().getStato())
-                    .isEqualTo(com.felixhotel.backend.entity.StatoCamera.LIBERA);
+                    .isEqualTo(com.felixhotel.backend.entity.enums.StatoCamera.LIBERA);
         }
     }
 
@@ -340,7 +340,7 @@ class CameraServiceImplTest {
             verify(cameraRepository).save(salvata.capture());
 
             assertThat(salvata.getValue().getStato())
-                    .isEqualTo(com.felixhotel.backend.entity.StatoCamera.PULIZIA);
+                    .isEqualTo(com.felixhotel.backend.entity.enums.StatoCamera.PULIZIA);
             assertThat(salvata.getValue().getNumero()).isEqualTo("101");
             assertThat(salvata.getValue().getPiano()).isEqualTo(1);
             assertThat(salvata.getValue().getTipologiaCamera().getId()).isEqualTo(ID_TIPOLOGIA);

@@ -1,4 +1,4 @@
-package com.felixhotel.backend.entity;
+package com.felixhotel.backend.entity.enums;
 
 import java.time.Duration;
 

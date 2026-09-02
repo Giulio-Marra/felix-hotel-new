@@ -78,23 +78,23 @@ public class PrenotazioneMapper {
      * {@code IllegalArgumentException} rumorosa in fase di test, invece di uno
      * stato sbagliato restituito in silenzio.
      */
-    private StatoPrenotazione toStatoDto(com.felixhotel.backend.entity.StatoPrenotazione stato) {
+    private StatoPrenotazione toStatoDto(com.felixhotel.backend.entity.enums.StatoPrenotazione stato) {
         return StatoPrenotazione.fromValue(stato.name());
     }
 
     /** Il verso opposto, per gli stati che arrivano come filtro dalla query string. */
-    public com.felixhotel.backend.entity.StatoPrenotazione toStatoEntity(StatoPrenotazione stato) {
-        return com.felixhotel.backend.entity.StatoPrenotazione.valueOf(stato.getValue());
+    public com.felixhotel.backend.entity.enums.StatoPrenotazione toStatoEntity(StatoPrenotazione stato) {
+        return com.felixhotel.backend.entity.enums.StatoPrenotazione.valueOf(stato.getValue());
     }
 
     /** Stessa traduzione per nome, sull'altro enum. */
-    private CanalePrenotazione toCanaleDto(com.felixhotel.backend.entity.CanalePrenotazione canale) {
+    private CanalePrenotazione toCanaleDto(com.felixhotel.backend.entity.enums.CanalePrenotazione canale) {
         return CanalePrenotazione.fromValue(canale.name());
     }
 
     /** Il verso opposto, per il canale che il personale indica nella richiesta. */
-    public com.felixhotel.backend.entity.CanalePrenotazione toCanaleEntity(CanalePrenotazione canale) {
-        return com.felixhotel.backend.entity.CanalePrenotazione.valueOf(canale.getValue());
+    public com.felixhotel.backend.entity.enums.CanalePrenotazione toCanaleEntity(CanalePrenotazione canale) {
+        return com.felixhotel.backend.entity.enums.CanalePrenotazione.valueOf(canale.getValue());
     }
 
     /**

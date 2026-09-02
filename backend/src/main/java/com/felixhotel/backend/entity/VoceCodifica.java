@@ -1,5 +1,7 @@
 package com.felixhotel.backend.entity;
 
+import com.felixhotel.backend.entity.enums.TipoCodifica;
+import com.felixhotel.backend.entity.enums.TipoDocumento;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

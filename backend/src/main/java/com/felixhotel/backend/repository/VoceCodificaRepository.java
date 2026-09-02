@@ -1,7 +1,7 @@
 package com.felixhotel.backend.repository;
 
-import com.felixhotel.backend.entity.TipoCodifica;
 import com.felixhotel.backend.entity.VoceCodifica;
+import com.felixhotel.backend.entity.enums.TipoCodifica;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

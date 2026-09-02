@@ -2,8 +2,8 @@ package com.felixhotel.backend.service.impl;
 
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
 import com.felixhotel.backend.dto.DisponibilitaTipologia;
-import com.felixhotel.backend.entity.StatoPrenotazione;
 import com.felixhotel.backend.entity.TipologiaCamera;
+import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.DisponibilitaMapper;

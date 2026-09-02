@@ -1,7 +1,7 @@
 package com.felixhotel.backend.repository;
 
 import com.felixhotel.backend.entity.Prenotazione;
-import com.felixhotel.backend.entity.StatoPrenotazione;
+import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;

@@ -1,4 +1,4 @@
-package com.felixhotel.backend.entity;
+package com.felixhotel.backend.entity.enums;
 
 /**
  * Stato operativo di una camera fisica, cioe' com'e' messa <b>adesso</b>.

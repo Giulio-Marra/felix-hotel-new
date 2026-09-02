@@ -63,7 +63,7 @@ class VoceCodificaServiceImplTest {
         @DisplayName("passa il filtro alla query e restituisce le voci convertite")
         void elenca_conFiltro_loPassaAllaQuery() {
             // given
-            when(voceCodificaRepository.cerca(eq(com.felixhotel.backend.entity.TipoCodifica.COMUNE),
+            when(voceCodificaRepository.cerca(eq(com.felixhotel.backend.entity.enums.TipoCodifica.COMUNE),
                     eq("reggio"), any(Pageable.class)))
                     .thenReturn(pagina(voce("035033", "REGGIO NELL'EMILIA", "RE")));
 
@@ -72,7 +72,7 @@ class VoceCodificaServiceImplTest {
 
             // then
             verify(voceCodificaRepository).cerca(
-                    eq(com.felixhotel.backend.entity.TipoCodifica.COMUNE), eq("reggio"),
+                    eq(com.felixhotel.backend.entity.enums.TipoCodifica.COMUNE), eq("reggio"),
                     any(Pageable.class));
         }
 
@@ -125,7 +125,7 @@ class VoceCodificaServiceImplTest {
         void importa_conElencoValido_cancellaPoiScrive() {
             // given
             when(voceCodificaRepository.cancellaPerTipo(
-                    com.felixhotel.backend.entity.TipoCodifica.STATO)).thenReturn(3);
+                    com.felixhotel.backend.entity.enums.TipoCodifica.STATO)).thenReturn(3);
 
             // when
             voceCodificaService.importa(TipoCodifica.STATO,
@@ -136,7 +136,7 @@ class VoceCodificaServiceImplTest {
             // sostituendo — ed e' il motivo per cui in mezzo c'e' un flush esplicito
             var ordine = inOrder(voceCodificaRepository);
             ordine.verify(voceCodificaRepository)
-                    .cancellaPerTipo(com.felixhotel.backend.entity.TipoCodifica.STATO);
+                    .cancellaPerTipo(com.felixhotel.backend.entity.enums.TipoCodifica.STATO);
             ordine.verify(voceCodificaRepository).flush();
             ordine.verify(voceCodificaRepository).saveAll(any());
         }
@@ -159,7 +159,7 @@ class VoceCodificaServiceImplTest {
             verify(voceCodificaRepository).saveAll(salvate.capture());
             assertThat(salvate.getValue()).allSatisfy(voce ->
                     assertThat(voce.getTipo())
-                            .isEqualTo(com.felixhotel.backend.entity.TipoCodifica.TIPO_ALLOGGIATO));
+                            .isEqualTo(com.felixhotel.backend.entity.enums.TipoCodifica.TIPO_ALLOGGIATO));
         }
 
         @Test
@@ -228,7 +228,7 @@ class VoceCodificaServiceImplTest {
 
     private VoceCodifica voce(String codice, String descrizione, String provincia) {
         VoceCodifica voce = new VoceCodifica();
-        voce.setTipo(com.felixhotel.backend.entity.TipoCodifica.COMUNE);
+        voce.setTipo(com.felixhotel.backend.entity.enums.TipoCodifica.COMUNE);
         voce.setCodice(codice);
         voce.setDescrizione(descrizione);
         voce.setProvincia(provincia);

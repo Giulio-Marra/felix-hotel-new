@@ -7,10 +7,10 @@ import com.felixhotel.backend.entity.Camera;
 import com.felixhotel.backend.entity.Prenotazione;
 import com.felixhotel.backend.entity.Ruolo;
 import com.felixhotel.backend.entity.Staff;
-import com.felixhotel.backend.entity.StatoCamera;
-import com.felixhotel.backend.entity.StatoPrenotazione;
 import com.felixhotel.backend.entity.TipologiaCamera;
 import com.felixhotel.backend.entity.Utente;
+import com.felixhotel.backend.entity.enums.StatoCamera;
+import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
 import com.felixhotel.backend.exception.NotFoundException;
@@ -263,7 +263,7 @@ class PrenotazioneServiceImplTest {
         prenotazione.setDataCheckOut(OGGI.plusDays(10));
         prenotazione.setNumeroOspiti(2);
         prenotazione.setStato(stato);
-        prenotazione.setCanale(com.felixhotel.backend.entity.CanalePrenotazione.ONLINE);
+        prenotazione.setCanale(com.felixhotel.backend.entity.enums.CanalePrenotazione.ONLINE);
         prenotazione.setImportoTotale(new BigDecimal("360.00"));
         return prenotazione;
     }
@@ -422,7 +422,7 @@ class PrenotazioneServiceImplTest {
 
             assertThat(salvata.getValue().getUtente().getId()).isEqualTo(ID_CLIENTE);
             assertThat(salvata.getValue().getCanale())
-                    .isEqualTo(com.felixhotel.backend.entity.CanalePrenotazione.ONLINE);
+                    .isEqualTo(com.felixhotel.backend.entity.enums.CanalePrenotazione.ONLINE);
             assertThat(salvata.getValue().getGestitaDaStaff()).isNull();
             assertThat(salvata.getValue().getStato()).isEqualTo(StatoPrenotazione.IN_ATTESA);
             assertThat(salvata.getValue().getImportoTotale()).isEqualByComparingTo("360.00");
@@ -486,7 +486,7 @@ class PrenotazioneServiceImplTest {
             assertThat(salvata.getValue().getUtente().getId()).isEqualTo(ID_CLIENTE);
             assertThat(salvata.getValue().getGestitaDaStaff().getId()).isEqualTo(ID_STAFF);
             assertThat(salvata.getValue().getCanale())
-                    .isEqualTo(com.felixhotel.backend.entity.CanalePrenotazione.TELEFONO);
+                    .isEqualTo(com.felixhotel.backend.entity.enums.CanalePrenotazione.TELEFONO);
         }
 
         @Test

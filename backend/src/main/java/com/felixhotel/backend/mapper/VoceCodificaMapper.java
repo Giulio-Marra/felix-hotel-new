@@ -1,7 +1,7 @@
 package com.felixhotel.backend.mapper;
 
-import com.felixhotel.backend.entity.TipoCodifica;
 import com.felixhotel.backend.entity.VoceCodifica;
+import com.felixhotel.backend.entity.enums.TipoCodifica;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

@@ -6,7 +6,7 @@ import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.PrezzoGiorno;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.entity.Prenotazione;
-import com.felixhotel.backend.entity.StatoPrenotazione;
+import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
 import com.felixhotel.backend.service.impl.DurataSoggiorno;
 import com.felixhotel.backend.support.CreatoreStaff;

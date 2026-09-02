@@ -1,5 +1,8 @@
 package com.felixhotel.backend.entity;
 
+import com.felixhotel.backend.entity.enums.TipoCodifica;
+import com.felixhotel.backend.entity.enums.TipoDocumento;
+import com.felixhotel.backend.entity.enums.TipoTokenEmail;
 import com.felixhotel.backend.security.TipoAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

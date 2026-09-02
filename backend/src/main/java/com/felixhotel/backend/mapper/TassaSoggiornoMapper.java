@@ -4,8 +4,8 @@ import com.felixhotel.backend.dto.AliquotaTassaSoggiornoResponse;
 import com.felixhotel.backend.dto.TassaSoggiornoOspite;
 import com.felixhotel.backend.dto.TassaSoggiornoResponse;
 import com.felixhotel.backend.entity.AliquotaTassaSoggiorno;
-import com.felixhotel.backend.entity.MotivoEsenzione;
 import com.felixhotel.backend.entity.Ospite;
+import com.felixhotel.backend.entity.enums.MotivoEsenzione;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;

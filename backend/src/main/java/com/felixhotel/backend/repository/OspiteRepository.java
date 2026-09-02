@@ -1,7 +1,7 @@
 package com.felixhotel.backend.repository;
 
 import com.felixhotel.backend.entity.Ospite;
-import com.felixhotel.backend.entity.TipoDocumento;
+import com.felixhotel.backend.entity.enums.TipoDocumento;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;

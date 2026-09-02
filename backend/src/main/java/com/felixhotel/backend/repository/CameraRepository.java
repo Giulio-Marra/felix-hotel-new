@@ -1,8 +1,8 @@
 package com.felixhotel.backend.repository;
 
 import com.felixhotel.backend.entity.Camera;
-import com.felixhotel.backend.entity.StatoCamera;
-import com.felixhotel.backend.entity.StatoPrenotazione;
+import com.felixhotel.backend.entity.enums.StatoCamera;
+import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

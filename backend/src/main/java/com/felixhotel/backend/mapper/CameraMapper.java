@@ -5,6 +5,8 @@ import com.felixhotel.backend.dto.CameraSintesi;
 // Lo stato esiste in due enum omonimi: quello di dominio e quello generato dallo
 // spec. Qui si importa il secondo e si scrive per esteso il primo — uno dei due
 // deve restare qualificato comunque, e in questa classe il DTO ricorre di piu'.
+// Dal 2026-09-02 quello di dominio sta in entity.enums, quindi il nome qualificato
+// e' piu' lungo ma la scelta di quale dei due importare non cambia.
 import com.felixhotel.backend.dto.StatoCamera;
 import com.felixhotel.backend.entity.Camera;
 import lombok.RequiredArgsConstructor;
@@ -88,12 +90,12 @@ public class CameraMapper {
      * {@code IllegalArgumentException} rumorosa in fase di test, invece di uno
      * stato sbagliato restituito in silenzio.
      */
-    private StatoCamera toStatoDto(com.felixhotel.backend.entity.StatoCamera stato) {
+    private StatoCamera toStatoDto(com.felixhotel.backend.entity.enums.StatoCamera stato) {
         return StatoCamera.fromValue(stato.name());
     }
 
     /** Il verso opposto, per gli stati che arrivano dalle richieste. */
-    public com.felixhotel.backend.entity.StatoCamera toStatoEntity(StatoCamera stato) {
-        return com.felixhotel.backend.entity.StatoCamera.valueOf(stato.getValue());
+    public com.felixhotel.backend.entity.enums.StatoCamera toStatoEntity(StatoCamera stato) {
+        return com.felixhotel.backend.entity.enums.StatoCamera.valueOf(stato.getValue());
     }
 }

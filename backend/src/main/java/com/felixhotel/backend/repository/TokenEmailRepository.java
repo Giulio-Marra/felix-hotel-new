@@ -1,7 +1,7 @@
 package com.felixhotel.backend.repository;
 
-import com.felixhotel.backend.entity.TipoTokenEmail;
 import com.felixhotel.backend.entity.TokenEmail;
+import com.felixhotel.backend.entity.enums.TipoTokenEmail;
 import com.felixhotel.backend.security.TipoAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

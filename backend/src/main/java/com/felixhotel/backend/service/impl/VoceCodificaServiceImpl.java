@@ -2,8 +2,8 @@ package com.felixhotel.backend.service.impl;
 
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ApiBaseResponsePaginated;
-import com.felixhotel.backend.entity.TipoCodifica;
 import com.felixhotel.backend.entity.VoceCodifica;
+import com.felixhotel.backend.entity.enums.TipoCodifica;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.VoceCodificaMapper;

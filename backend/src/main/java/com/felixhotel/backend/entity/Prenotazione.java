@@ -1,5 +1,8 @@
 package com.felixhotel.backend.entity;
 
+import com.felixhotel.backend.entity.enums.CanalePrenotazione;
+import com.felixhotel.backend.entity.enums.StatoCamera;
+import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
