@@ -196,4 +196,24 @@ public interface CameraRepository extends JpaRepository<Camera, Long> {
             """)
     List<ConteggioCamere> contaPerTipologia(
             @Param("tipologiaCameraIds") Collection<Long> tipologiaCameraIds);
+    /**
+     * La camera a cui appartiene un indirizzo di calendario.
+     *
+     * <p>E' l'unica lettura della rotta pubblica del feed, e l'unica difesa di quella
+     * rotta: il token ha 256 bit, quindi non trovarlo vuol dire che chi chiama lo ha
+     * inventato. L'indice unico parziale del V16 la serve per intero.
+     */
+    Optional<Camera> findByTokenCalendario(String tokenCalendario);
+
+    /**
+     * Le camere di una tipologia, <b>in ordine stabile</b>.
+     *
+     * <p>L'ordine non e' estetico: e' la scelta con cui si distribuisce l'occupazione fra
+     * le camere quando si sa quante ma non quali. Se cambiasse fra due generazioni del
+     * feed, un canale vedrebbe una camera liberarsi e un'altra occuparsi senza che sia
+     * successo niente — e in mezzo potrebbe rivendere. L'id e' l'unica cosa che non
+     * cambia mai; il numero invece si corregge.
+     */
+    List<Camera> findByTipologiaCameraIdOrderByIdAsc(Long tipologiaCameraId);
+
 }

@@ -3802,6 +3802,127 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/calendario/{token}.ics:
+
+    get:
+      tags:
+        - Calendario
+      operationId: feedCalendarioCamera
+      summary: Il calendario iCal di una camera
+      description: >
+        Restituisce le notti in cui una camera non e' vendibile, nel formato
+        iCalendar (RFC 5545) che Booking, Airbnb e i calendari di sistema sanno
+        leggere.
+        **E' l'unica rotta del progetto che non restituisce la busta standard**, ed
+        e' un'eccezione dichiarata alla regola 10 e non una svista: qui il formato
+        non lo scegliamo noi, e un JSON con dentro un iCal non lo saprebbe usare
+        nessuno. Il tipo di contenuto e' 'text/calendar'.
+        **E' pubblica per costruzione**: il file lo scarica un servizio esterno, che
+        non ha modo di autenticarsi. A difenderla c'e' **solo il token**, che ha 256
+        bit — quindi non si indovina — e che si puo' rigenerare se finisce dove non
+        doveva.
+        **Un feed per camera fisica, non per tipologia.** iCal non sa esprimere le
+        quantita': un calendario dice "occupato dal 3 al 5", non "due unita' su tre
+        occupate". Un feed per tipologia verrebbe letto come *tutta la tipologia e'
+        piena* al primo soggiorno venduto, e farebbe risultare esaurite camere
+        libere.
+        **Quale camera risulti occupata e' un calcolo**, perche' da noi una
+        prenotazione e' per tipologia finche' il check-in non le assegna una stanza.
+        Per ogni notte le camere gia' fissate — una bloccata per manutenzione, una
+        assegnata da un check-in — restano dove sono, e le altre occupazioni si
+        distribuiscono sulle rimanenti in ordine stabile. Il totale che il canale
+        vede e' quindi sempre giusto, anche quando la singola stanza non e' quella
+        su cui dormira' davvero qualcuno.
+        **L'orizzonte e' dodici mesi** dal giorno della richiesta: e' quanto avanti
+        un albergo vende davvero.
+        **404 se il token non corrisponde a niente**, ed e' l'unica risposta che non
+        dica se quel token sia mai esistito.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: >
+            L'indirizzo segreto della camera, generato da
+            'PUT /api/camere/{id}/calendario'. **E' l'unica difesa di questa rotta**:
+            256 bit di casualita', quindi non si indovina, e si rigenera se finisce
+            dove non doveva.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        '200':
+          description: Il calendario, in formato iCalendar
+          content:
+            text/calendar:
+              schema:
+                type: string
+              example: |
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                PRODID:-//Felix Hotel//Calendario camere//IT
+                BEGIN:VEVENT
+                UID:20260910-20260913-1@felix-hotel
+                DTSTART;VALUE=DATE:20260910
+                DTEND;VALUE=DATE:20260913
+                SUMMARY:Camera 12
+                TRANSP:OPAQUE
+                END:VEVENT
+                END:VCALENDAR
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/camere/{id}/calendario:
+
+    put:
+      tags:
+        - Calendario
+      operationId: generaIndirizzoCalendario
+      summary: Genera l'indirizzo del calendario di una camera
+      description: >
+        Assegna alla camera un indirizzo segreto da cui un canale esterno puo'
+        leggerne il calendario, e lo restituisce. Riservato agli **ADMIN**:
+        pubblicare la disponibilita' di una camera verso l'esterno non e'
+        un'operazione di turno.
+        **Chiamarla di nuovo rigenera il token e invalida il precedente.** E' tutto
+        il motivo per cui l'indirizzo e' un valore salvato e non qualcosa di
+        derivato dall'id: se finisce dove non doveva, si cambia. Il canale che lo
+        stava leggendo smette di ricevere aggiornamenti e va riconfigurato — che e'
+        esattamente quel che si vuole revocando un accesso, ma va saputo prima di
+        premere il pulsante.
+        **Una camera senza indirizzo non ha nessun feed**: il calendario esiste solo
+        per le camere che qualcuno ha deciso di pubblicare.
+        Risposta: busta ApiBaseResponse con **CalendarioCameraResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdCamera'
+      responses:
+        '200':
+          description: Indirizzo generato ('data' = CalendarioCameraResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Indirizzo del calendario generato
+                timestamp: 2026-09-02T16:30:00Z
+                data:
+                  cameraId: 12
+                  numero: "101"
+                  url: http://localhost:8080/api/calendario/9xQm2K7bV1nR4tYw.ics
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -4811,6 +4932,31 @@ components:
         note:
           type: string
           example: Bagno in rifacimento
+
+    CalendarioCameraResponse:
+      type: object
+      description: >
+        L'indirizzo da cui un canale esterno legge il calendario di una camera.
+        **L'URL e' un segreto**: chi ce l'ha vede quando quella camera e' occupata, e
+        non serve nessuna autenticazione per leggerlo. Va trattato come una password
+        — si incolla nella configurazione del canale e non si mette in mezzo ad
+        altro.
+      properties:
+        cameraId:
+          type: integer
+          format: int64
+          example: 12
+        numero:
+          type: string
+          description: Il numero della camera, per riconoscerla senza rileggere l'id.
+          example: "101"
+        url:
+          type: string
+          description: >
+            L'indirizzo completo del feed. Si compone con l'indirizzo pubblico
+            dell'applicazione ('felix.email.base-url'), quindi in un'installazione
+            configurata male sarebbe giusto il token e sbagliato il dominio.
+          example: http://localhost:8080/api/calendario/9xQm2K7bV1nR4tYw.ics
 
     CameraSintesi:
       type: object

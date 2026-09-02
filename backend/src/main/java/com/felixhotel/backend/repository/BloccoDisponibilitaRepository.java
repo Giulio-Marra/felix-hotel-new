@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Accesso ai blocchi di disponibilita'.
@@ -99,4 +100,20 @@ public interface BloccoDisponibilitaRepository extends JpaRepository<BloccoDispo
                                           @Param("dataInizio") LocalDate dataInizio,
                                           @Param("dataFine") LocalDate dataFine,
                                           @Param("esclusa") Long esclusa);
+    /**
+     * I blocchi di una tipologia che toccano un orizzonte, per il calendario.
+     *
+     * <p>Nessun parametro facoltativo qui, quindi nessun booleano di accompagnamento
+     * (regola 25): tutti e tre servono sempre.
+     */
+    @Query("""
+            select b from BloccoDisponibilita b
+            where b.tipologiaCamera.id = :tipologiaCameraId
+              and b.dataInizio < :a
+              and b.dataFine   > :da
+            """)
+    List<BloccoDisponibilita> occupazioniNellOrizzonte(@Param("tipologiaCameraId") Long tipologiaCameraId,
+                                                       @Param("da") LocalDate da,
+                                                       @Param("a") LocalDate a);
+
 }

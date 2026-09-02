@@ -279,6 +279,31 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
      * ha nessuna prenotazione — e vale zero. Il ramo vuoto resta per la tipologia
      * che non esiste, che pero' il service ha gia' risolto prima di arrivare qui.
      */
+    /**
+     * Le prenotazioni di una tipologia che toccano un orizzonte, per il calendario.
+     *
+     * <p><b>Restituisce le entita' e non un conteggio</b>, al contrario di
+     * {@code occupazioneMassima}: qui non serve sapere <i>quante</i> unita' sono occupate
+     * in una notte, ma <i>quali periodi</i> e — dove c'e' — <i>su quale camera</i>. Una
+     * prenotazione a cui il check-in ha gia' assegnato una stanza va sul calendario di
+     * quella stanza, non su una qualunque.
+     *
+     * <p>Gli stati li passa chi chiama, come per {@code cerca} e per gli arrivi del
+     * giorno: quali stati occupino una camera e' una decisione di dominio, e le decisioni
+     * di dominio non stanno nei repository.
+     */
+    @Query("""
+            select p from Prenotazione p
+            where p.tipologiaCamera.id = :tipologiaCameraId
+              and p.stato in :stati
+              and p.dataCheckIn  < :a
+              and p.dataCheckOut > :da
+            """)
+    List<Prenotazione> occupazioniNellOrizzonte(@Param("tipologiaCameraId") Long tipologiaCameraId,
+                                                @Param("stati") Collection<StatoPrenotazione> stati,
+                                                @Param("da") LocalDate da,
+                                                @Param("a") LocalDate a);
+
     default long occupazioneMassimaDi(Long tipologiaCameraId, LocalDate dataCheckIn,
                                       LocalDate dataCheckOut, Collection<String> statiCheOccupano,
                                       Long esclusa) {

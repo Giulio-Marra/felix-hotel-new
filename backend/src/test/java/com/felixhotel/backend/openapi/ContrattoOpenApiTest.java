@@ -190,9 +190,13 @@ class ContrattoOpenApiTest {
         @Test
         @DisplayName("ogni operazione dice cosa contiene 'data'")
         void operazioni_dichiaranoIlTipoDentroLaBusta() {
-            // when: si cerca la menzione di 'data' nella descrizione
+            // when: si cerca la menzione di 'data' nella descrizione, ma solo nelle
+            // operazioni che la busta la restituiscono davvero
             List<String> mute = new ArrayList<>();
             for (var op : operazioni()) {
+                if (!restituisceLaBusta(op.getValue())) {
+                    continue;
+                }
                 String testo = String.valueOf(op.getValue().get("description"));
                 if (!testo.contains("'data'") && !testo.contains("\"data\"")) {
                     mute.add(op.getKey());
@@ -207,6 +211,36 @@ class ContrattoOpenApiTest {
             // prezzo di non essere pagato: senza, chi legge Swagger vede 'data: object'
             // e non sa cosa aspettarsi
             assertThat(mute).as("operazioni che non dicono cosa c'e' in 'data'").isEmpty();
+        }
+
+        /**
+         * Se un'operazione risponda con la busta del progetto.
+         *
+         * <p><b>Non tutte lo fanno, dal 2026-09-02</b>, ed e' il motivo per cui questo
+         * controllo esiste: il feed iCal di una camera restituisce {@code text/calendar},
+         * perche' a leggerlo e' Booking e un JSON con dentro un iCal non lo saprebbe usare
+         * nessuno. E' l'unica eccezione dichiarata alla regola 10.
+         *
+         * <p><b>Il filtro guarda il tipo di contenuto e non un elenco di rotte</b>: un
+         * elenco andrebbe aggiornato a mano e prima o poi non lo sarebbe, mentre questo
+         * distingue da solo le due famiglie. Una rotta nuova che risponde JSON resta
+         * obbligata a dire cosa c'e' in 'data'.
+         */
+        @SuppressWarnings("unchecked")
+        private boolean restituisceLaBusta(Map<String, Object> operazione) {
+            Map<String, Object> risposte = (Map<String, Object>) operazione.get("responses");
+            if (risposte == null) {
+                return false;
+            }
+            Map<String, Object> ok = (Map<String, Object>) risposte.get("200");
+            if (ok == null) {
+                ok = (Map<String, Object>) risposte.get("201");
+            }
+            if (ok == null) {
+                return false;
+            }
+            Map<String, Object> contenuto = (Map<String, Object>) ok.get("content");
+            return contenuto != null && contenuto.containsKey("application/json");
         }
     }
 

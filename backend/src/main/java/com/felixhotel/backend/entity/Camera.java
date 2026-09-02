@@ -94,4 +94,27 @@ public class Camera extends BaseAuditableEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StatoCamera stato = StatoCamera.LIBERA;
+
+    /**
+     * L'indirizzo segreto da cui un canale esterno legge il calendario di questa camera,
+     * oppure {@code null} se nessuno ha deciso di pubblicarla.
+     *
+     * <p><b>Sta sulla camera e non sulla tipologia</b>, ed e' una conseguenza del formato
+     * e non una preferenza: iCal non sa esprimere le quantita' — un calendario dice
+     * "occupato dal 3 al 5", non "due unita' su tre" — quindi un calendario corrisponde a
+     * <b>una unita' vendibile</b>, che da noi e' la camera fisica. Un feed per tipologia
+     * verrebbe letto come <i>tutta la tipologia e' piena</i> al primo soggiorno venduto.
+     *
+     * <p><b>E' un segreto, e va trattato come tale</b>: chi lo ha vede quando la camera e'
+     * occupata, e la rotta che lo consuma e' pubblica per costruzione — il file lo scarica
+     * un servizio esterno, che non ha modo di autenticarsi. Con un indirizzo costruito
+     * sull'id, chiunque leggerebbe il riempimento dell'albergo provando i numeri da uno in
+     * su. Non compare in nessuna risposta tranne quella che lo genera.
+     *
+     * <p><b>Si rigenera</b>, ed e' il motivo per cui e' una colonna e non un valore
+     * derivato: se un indirizzo finisce dove non doveva, si cambia e i vecchi link
+     * smettono di valere.
+     */
+    @Column(name = "token_calendario", length = 64)
+    private String tokenCalendario;
 }

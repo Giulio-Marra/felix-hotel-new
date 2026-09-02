@@ -112,7 +112,16 @@ public class SecurityConfig {
                                 // il CIN e il codice per Alloggiati Web vivono sull'altra rotta e
                                 // non hanno modo di finire qui, perche' il DTO pubblico quei campi
                                 // non li ha proprio (vedi ImpostazioniHotelMapper).
-                                "/api/impostazioni/pubbliche"
+                                "/api/impostazioni/pubbliche",
+                                // Il calendario iCal di una camera. **Pubblico per
+                                // costruzione**: lo scarica Booking, che non ha modo di
+                                // autenticarsi — a difenderlo c'e' il token nell'indirizzo,
+                                // che ha 256 bit e si rigenera se finisce dove non doveva.
+                                // E' anche l'unica rotta del progetto che non restituisce
+                                // la busta standard, perche' il formato lo pretende chi
+                                // legge. Solo questo sottopercorso e solo in GET: generare
+                                // l'indirizzo resta agli ADMIN via @PreAuthorize.
+                                "/api/calendario/*"
                         ).permitAll()
                         .requestMatchers(
                                 // Gli endpoint di auth pubblici, elencati uno per uno: un wildcard
