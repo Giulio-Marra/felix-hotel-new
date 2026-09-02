@@ -197,6 +197,25 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
      *                           prenotazione che gia' esiste: senza, una
      *                           CONFERMATA riesaminata conterebbe se stessa fra
      *                           quelle che le tolgono il posto
+     *
+     * <p><b>Dal 2026-09-02 conta anche i blocchi</b> ({@code BloccoDisponibilita}), cioe'
+     * le camere non vendibili senza che nessuno le abbia prenotate: una manutenzione,
+     * oppure — col branch dell'iCal — una unita' che un canale esterno ha gia' venduto.
+     * Entrano in tutte e due le meta' del calcolo: fra le <b>notti candidate</b>, perche'
+     * un blocco che comincia dentro il periodo crea una notte peggiore che prima non
+     * c'era, e nel <b>conteggio</b>, perche' tolgono una unita' esattamente come una
+     * prenotazione.
+     *
+     * <p><b>I due conteggi sono due sottoquery e non due join</b>, ed e' l'unica cosa che
+     * e' cambiata nella forma della query. Con due {@code left join} sulla stessa riga di
+     * {@code giorni} le righe si moltiplicherebbero fra loro — tre prenotazioni e due
+     * blocchi darebbero sei righe — e il {@code count} conterebbe il prodotto invece
+     * della somma. E' un errore che non si vede sui casi piccoli: con zero blocchi, o con
+     * zero prenotazioni, il risultato resta giusto.
+     *
+     * <p><b>I blocchi non guardano lo stato ne' l'esclusione</b>: uno stato non ce l'hanno,
+     * e {@code esclusa} serve a non far competere una prenotazione con se stessa quando si
+     * riconferma — un blocco con quella domanda non c'entra niente.
      */
     @Query(nativeQuery = true, value = """
             with giorni as (
@@ -211,19 +230,31 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
                    and p.data_check_in > cast(:dataCheckIn as date)
                    and p.data_check_in < cast(:dataCheckOut as date)
                    and (cast(:esclusa as bigint) is null or p.id <> cast(:esclusa as bigint))
+                union
+                select b.tipologia_camera_id, b.data_inizio
+                  from blocco_disponibilita b
+                 where b.tipologia_camera_id in (:tipologiaCameraIds)
+                   and b.data_inizio > cast(:dataCheckIn as date)
+                   and b.data_inizio < cast(:dataCheckOut as date)
             ),
             occupazione as (
                 select g.tipologia as tipologia,
                        g.giorno    as giorno,
-                       count(p.id) as occupate
+                       (select count(*)
+                          from prenotazione p
+                         where p.tipologia_camera_id = g.tipologia
+                           and p.stato in (:statiCheOccupano)
+                           and p.data_check_in  <= g.giorno
+                           and p.data_check_out >  g.giorno
+                           and (cast(:esclusa as bigint) is null
+                                or p.id <> cast(:esclusa as bigint)))
+                       +
+                       (select count(*)
+                          from blocco_disponibilita b
+                         where b.tipologia_camera_id = g.tipologia
+                           and b.data_inizio <= g.giorno
+                           and b.data_fine   >  g.giorno) as occupate
                   from giorni g
-                  left join prenotazione p
-                         on p.tipologia_camera_id = g.tipologia
-                        and p.stato in (:statiCheOccupano)
-                        and p.data_check_in  <= g.giorno
-                        and p.data_check_out >  g.giorno
-                        and (cast(:esclusa as bigint) is null or p.id <> cast(:esclusa as bigint))
-                 group by g.tipologia, g.giorno
             )
             select o.tipologia     as "tipologiaCameraId",
                    max(o.occupate) as "occupate"

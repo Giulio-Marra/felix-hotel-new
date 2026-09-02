@@ -41,6 +41,18 @@ public interface CameraRepository extends JpaRepository<Camera, Long> {
      *
      * @param tipologiaCameraId se null, non filtra per tipologia
      * @param stato             se null, non filtra per stato
+     *
+     * <p><b>Dal 2026-09-02 salta anche le camere bloccate.</b> Un blocco nominale — la
+     * camera 12 col bagno rotto — la rende non assegnabile per quelle notti esattamente
+     * come la renderebbe un ospite che ci dorme. Senza questa condizione il check-in
+     * avrebbe assegnato con tutta calma proprio la stanza che qualcuno aveva chiuso, e
+     * l'errore si sarebbe visto solo al banco.
+     *
+     * <p><b>I blocchi senza camera non entrano qui</b>, ed e' giusto: quelli dicono che
+     * *una* unita' della tipologia non e' vendibile, non *quale*. La loro parte l'hanno
+     * gia' fatta nella disponibilita', che ha impedito di vendere la camera in piu'; qui
+     * la domanda e' un'altra — <i>questa stanza precisa e' libera?</i> — e a quella un
+     * blocco anonimo non risponde.
      */
     @EntityGraph(attributePaths = "tipologiaCamera")
     @Query("""
@@ -129,6 +141,12 @@ public interface CameraRepository extends JpaRepository<Camera, Long> {
                     and p.stato = :statoOccupante
                     and p.dataCheckIn  <  :dataCheckOut
                     and p.dataCheckOut >  :dataCheckIn
+              )
+              and not exists (
+                  select b.id from BloccoDisponibilita b
+                  where b.camera = c
+                    and b.dataInizio <  :dataCheckOut
+                    and b.dataFine   >  :dataCheckIn
               )
             order by c.numero
             """)

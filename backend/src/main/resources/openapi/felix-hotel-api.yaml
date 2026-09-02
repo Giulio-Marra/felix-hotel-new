@@ -3620,6 +3620,188 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/blocchi:
+
+    get:
+      tags:
+        - Blocchi
+      operationId: elencaBlocchi
+      summary: Le camere non vendibili, e da quando a quando
+      description: >
+        L'elenco delle indisponibilita': camere ferme per manutenzione, e — col
+        branch della sincronia — unita' che un canale esterno ha gia' venduto.
+        **STAFF o ADMIN**, niente di pubblico: quante camere restino lo dice gia'
+        'GET /api/disponibilita', mentre **perche'** non siano vendibili e' un fatto
+        interno che a un cliente non riguarda.
+        **Il filtro sul periodo prende le sovrapposizioni**, non i contenimenti: chi
+        chiede cosa sia bloccato a settembre vuole vedere anche il blocco che
+        comincia il 28 agosto, perche' e' proprio quello che gli impedisce di
+        vendere il primo del mese.
+        L'ordine e' per data di inizio: un elenco di indisponibilita' si legge come
+        un calendario, non come un archivio.
+        Risposta: busta ApiBaseResponsePaginated con un array di **BloccoResponse**
+        in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tipologiaCameraId
+          in: query
+          required: false
+          description: Solo i blocchi di questa tipologia.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: cameraId
+          in: query
+          required: false
+          description: >
+            Solo i blocchi di questa camera. **Non restituisce quelli anonimi**
+            della sua tipologia, che pure la riguardano: quelli dicono che *una*
+            unita' non e' vendibile, non quale.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: da
+          in: query
+          required: false
+          description: Inizio del periodo di interesse. Omesso, non limita indietro.
+          schema:
+            type: string
+            format: date
+        - name: a
+          in: query
+          required: false
+          description: Fine del periodo di interesse, esclusa. Omessa, non limita avanti.
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+      responses:
+        '200':
+          description: Pagina di blocchi ('data' = array di BloccoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Blocchi
+      operationId: creaBlocco
+      summary: Rendi non vendibile una camera per un periodo
+      description: >
+        Toglie una unita' alla disponibilita' di una tipologia senza che ci sia
+        nessuna prenotazione. **STAFF o ADMIN**: chiudere una camera e' una
+        decisione di turno, non un'operazione amministrativa.
+        **Un blocco vale una unita', sempre.** Indicando 'cameraId' si dice *quale*
+        stanza — il caso della manutenzione — e in cambio si ottiene l'unica cosa
+        che nominarla serve a fare: **il check-in non la assegna piu'**. Omettendolo
+        si dice solo che *una* camera di quella tipologia non e' vendibile, che e'
+        quel che serve quando l'informazione arriva da fuori. In tutti e due i casi
+        la disponibilita' scende di uno.
+        **409 se quella camera e' gia' bloccata in quelle notti**, e a dirlo e' il
+        database con un vincolo di esclusione: due blocchi sovrapposti sulla stessa
+        stanza toglierebbero **due** camere mentre la stanza e' una, e l'albergo
+        risulterebbe pieno prima di esserlo. Due blocchi *anonimi* della stessa
+        tipologia negli stessi giorni sono invece legittimi — vogliono dire due
+        unita' vendute altrove.
+        **400 se la camera non e' di quella tipologia**: quel blocco toglierebbe
+        l'unita' a quella sbagliata.
+        **Non impedisce di bloccare notti gia' vendute**, ed e' voluto: se una
+        camera si rompe stanotte, il fatto che ci dorma qualcuno non la ripara. Il
+        blocco si crea, la disponibilita' scende e chi sta al banco vede il
+        conflitto — che e' un problema di dominio, non un dato incoerente.
+        **Le date si leggono come quelle di una prenotazione**: si entra il giorno
+        di inizio e si libera quello di fine, quindi dal 3 al 5 sono due notti.
+        Risposta: busta ApiBaseResponse con BloccoResponse in 'data'.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BloccoRequest'
+      responses:
+        '201':
+          description: Blocco creato ('data' = BloccoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/blocchi/{bloccoId}:
+
+    delete:
+      tags:
+        - Blocchi
+      operationId: eliminaBlocco
+      summary: Rimetti in vendita una camera
+      description: >
+        Toglie il blocco: da quel momento la camera torna a contare nella
+        disponibilita' e il check-in puo' assegnarla. **STAFF o ADMIN**.
+        **Non c'e' una PUT, ed e' una scelta.** Un blocco e' fatto di una camera e
+        due date, e non c'e' niente da correggere che non sia piu' semplice
+        cancellare e rifare. Al contrario di un ospite — dove la correzione esiste
+        perche' un registro di legge non deve attraversare un istante in cui la
+        persona non risulta — qui l'istante in cui la camera torna vendibile non fa
+        danno a nessuno.
+        **Un blocco arrivato da un canale esterno si puo' cancellare**, ma torna
+        alla sincronizzazione successiva se quell'occupazione c'e' ancora: quei
+        blocchi vivono quanto il calendario da cui vengono.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bloccoId
+          in: path
+          required: true
+          description: Identificativo del blocco
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: Blocco rimosso ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -4528,6 +4710,107 @@ components:
           $ref: '#/components/schemas/StatoCamera'
         tipologia:
           $ref: '#/components/schemas/TipologiaCameraSintesi'
+
+    OrigineBlocco:
+      type: string
+      description: >
+        Chi ha scritto un blocco. **Dice chi, non perche'**: il perche' sta nelle
+        note, che sono testo libero.
+        Serve a una decisione sola e molto concreta: **la sincronia con un canale
+        esterno rifa' i propri blocchi ad ogni giro e non deve toccare quelli
+        scritti a mano**. Senza questa distinzione la prima sincronizzazione
+        porterebbe via la manutenzione inserita alla reception.
+        **Due valori e non quattro**: manutenzione, chiusura stagionale e camera
+        riservata alla direzione sono *ragioni*, cambiano da albergo ad albergo, si
+        scrivono nelle note e nessun codice le guarda. Un valore in piu' qui vuol
+        dire un ramo in piu' da provare in cambio di niente.
+      enum:
+        - MANUALE
+        - CANALE_ESTERNO
+      example: MANUALE
+
+    BloccoRequest:
+      type: object
+      description: >
+        Un periodo in cui una camera non e' vendibile. I limiti ricalcano le colonne
+        del database, vedi V15__blocchi_disponibilita.sql.
+        **Non c'e' 'origine'**: un blocco creato da questa rotta e' MANUALE per
+        definizione, e lasciarlo scegliere a chi chiama vorrebbe dire permettergli
+        di scrivere un blocco che la sincronia si sentira' in diritto di cancellare.
+      required:
+        - tipologiaCameraId
+        - dataInizio
+        - dataFine
+      properties:
+        tipologiaCameraId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: La tipologia a cui il blocco toglie una unita'.
+          example: 3
+        cameraId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            **Quale** camera, se lo si sa. Omesso vuol dire "una qualunque di quella
+            tipologia": alla disponibilita' toglie uno lo stesso, ma il check-in non
+            sa quale saltare.
+            Deve essere **della tipologia indicata**, altrimenti e' 400: un blocco
+            su una camera di un'altra tipologia toglierebbe l'unita' a quella
+            sbagliata.
+          example: 12
+        dataInizio:
+          type: string
+          format: date
+          description: Primo giorno non vendibile.
+          example: 2026-09-10
+        dataFine:
+          type: string
+          format: date
+          description: >
+            Giorno in cui la camera torna vendibile, **escluso**, come la partenza
+            di una prenotazione. Deve essere successiva a 'dataInizio', altrimenti
+            e' 400: un blocco di zero notti e' una riga che non fa niente.
+          example: 2026-09-12
+        note:
+          type: string
+          maxLength: 500
+          description: Perche' la camera non e' vendibile, in parole. Facoltativo.
+          example: Bagno in rifacimento
+
+    BloccoResponse:
+      type: object
+      description: >
+        Un blocco come viene restituito. **Tipologia e camera escono in sintesi e non
+        per esteso**: chi guarda l'elenco delle indisponibilita' vuole riconoscerle,
+        non leggerne la scheda — e la scheda ha gia' le sue rotte.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 4
+        tipologiaCamera:
+          $ref: '#/components/schemas/TipologiaCameraSintesi'
+        camera:
+          allOf:
+            - $ref: '#/components/schemas/CameraSintesi'
+          description: >
+            Null per i blocchi anonimi, cioe' quelli che dicono che *una* unita' non
+            e' vendibile senza dire quale.
+        dataInizio:
+          type: string
+          format: date
+          example: 2026-09-10
+        dataFine:
+          type: string
+          format: date
+          example: 2026-09-12
+        origine:
+          $ref: '#/components/schemas/OrigineBlocco'
+        note:
+          type: string
+          example: Bagno in rifacimento
 
     CameraSintesi:
       type: object
