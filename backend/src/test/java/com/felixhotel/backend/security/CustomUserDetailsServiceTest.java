@@ -111,7 +111,7 @@ class CustomUserDetailsServiceTest {
         Utente utente = new Utente();
         utente.setId(ID_CONDIVISO);
         utente.setEmail(EMAIL);
-        utente.setPasswordHash("hash");
+        utente.impostaPassword("hash", IstanteRevoca.adesso());
         utente.setNome("Mario");
         utente.setCognome("Rossi");
         utente.setAttivo(true);
@@ -123,7 +123,7 @@ class CustomUserDetailsServiceTest {
         Staff staff = new Staff();
         staff.setId(ID_CONDIVISO);
         staff.setEmail(EMAIL);
-        staff.setPasswordHash("hash");
+        staff.impostaPassword("hash", IstanteRevoca.adesso());
         staff.setNome("Anna");
         staff.setCognome("Bianchi");
         staff.setAttivo(true);

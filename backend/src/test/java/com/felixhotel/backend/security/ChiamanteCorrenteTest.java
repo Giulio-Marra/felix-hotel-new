@@ -147,7 +147,7 @@ class ChiamanteCorrenteTest {
     }
 
     private AppUserPrincipal principal(TipoAccount tipo, String ruolo) {
-        return new AppUserPrincipal(tipo, 7L, EMAIL, "hash", "Mario", "Rossi", ruolo, true);
+        return new AppUserPrincipal(tipo, 7L, EMAIL, "hash", "Mario", "Rossi", ruolo, true, null);
     }
 
     private void autentica(AppUserPrincipal principal) {

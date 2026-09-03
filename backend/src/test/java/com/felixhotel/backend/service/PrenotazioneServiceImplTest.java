@@ -207,7 +207,7 @@ class PrenotazioneServiceImplTest {
 
     private void autentica(TipoAccount tipo, Long id, String email, String ruolo) {
         AppUserPrincipal principal =
-                new AppUserPrincipal(tipo, id, email, "hash", "Mario", "Rossi", ruolo, true);
+                new AppUserPrincipal(tipo, id, email, "hash", "Mario", "Rossi", ruolo, true, null);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

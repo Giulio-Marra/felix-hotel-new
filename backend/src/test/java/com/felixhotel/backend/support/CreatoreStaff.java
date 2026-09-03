@@ -4,6 +4,7 @@ import com.felixhotel.backend.entity.Ruolo;
 import com.felixhotel.backend.entity.Staff;
 import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
+import com.felixhotel.backend.security.IstanteRevoca;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -76,7 +77,7 @@ public class CreatoreStaff {
         staff.setNome("Anna");
         staff.setCognome("Bianchi");
         staff.setEmail(email);
-        staff.setPasswordHash(passwordEncoder.encode(TestDataFactory.PASSWORD_VALIDA));
+        staff.impostaPassword(passwordEncoder.encode(TestDataFactory.PASSWORD_VALIDA), IstanteRevoca.adesso());
         staff.setAttivo(true);
         staff.setRuolo(ruolo);
 

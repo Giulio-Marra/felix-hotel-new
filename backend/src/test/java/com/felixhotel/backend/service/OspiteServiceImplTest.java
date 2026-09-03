@@ -868,7 +868,7 @@ class OspiteServiceImplTest {
 
     private void autentica(TipoAccount tipo, String ruolo) {
         AppUserPrincipal principal = new AppUserPrincipal(
-                tipo, ID_STAFF, "anna.bianchi@example.com", "hash", "Anna", "Bianchi", ruolo, true);
+                tipo, ID_STAFF, "anna.bianchi@example.com", "hash", "Anna", "Bianchi", ruolo, true, null);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

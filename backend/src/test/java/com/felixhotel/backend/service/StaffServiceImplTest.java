@@ -12,6 +12,7 @@ import com.felixhotel.backend.mapper.StaffMapper;
 import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.security.IstanteRevoca;
 import com.felixhotel.backend.service.impl.StaffServiceImpl;
 import com.felixhotel.backend.support.TestDataFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -105,7 +106,7 @@ class StaffServiceImplTest {
         staff.setNome("Anna");
         staff.setCognome("Bianchi");
         staff.setEmail("anna.bianchi@felixhotel.it");
-        staff.setPasswordHash("hash-di-prima");
+        staff.impostaPassword("hash-di-prima", IstanteRevoca.adesso());
         staff.setTelefono("+39 333 1234567");
         staff.setDataAssunzione(LocalDate.of(2024, 3, 1));
         staff.setAttivo(attivo);

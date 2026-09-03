@@ -584,7 +584,7 @@ class TassaSoggiornoServiceImplTest {
 
     private void autentica(TipoAccount tipo, String ruolo, Long userId) {
         AppUserPrincipal principal = new AppUserPrincipal(
-                tipo, userId, "mario.rossi@example.com", "hash", "Mario", "Rossi", ruolo, true);
+                tipo, userId, "mario.rossi@example.com", "hash", "Mario", "Rossi", ruolo, true, null);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }

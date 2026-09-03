@@ -23,6 +23,7 @@ import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
+import com.felixhotel.backend.security.IstanteRevoca;
 import com.felixhotel.backend.security.JwtService;
 import com.felixhotel.backend.security.TipoAccount;
 import com.felixhotel.backend.service.AuthService;
@@ -133,7 +134,7 @@ public class AuthServiceImpl implements AuthService {
         utente.setNome(request.getNome());
         utente.setCognome(request.getCognome());
         utente.setEmail(email);
-        utente.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        utente.impostaPassword(passwordEncoder.encode(request.getPassword()), IstanteRevoca.adesso());
         utente.setTelefono(request.getTelefono());
         utente.setDataNascita(request.getDataNascita());
         utente.setDataRegistrazione(LocalDateTime.now());
@@ -317,7 +318,7 @@ public class AuthServiceImpl implements AuthService {
         Staff staff = staffRepository.findById(token.getSoggettoId())
                 .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
 
-        staff.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        staff.impostaPassword(passwordEncoder.encode(request.getPassword()), IstanteRevoca.adesso());
         staffRepository.save(staff);
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Password impostata, ora puoi accedere", null);
@@ -378,12 +379,12 @@ public class AuthServiceImpl implements AuthService {
         if (token.getTipoAccount() == TipoAccount.CLIENTE) {
             Utente utente = utenteRepository.findById(token.getSoggettoId())
                     .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
-            utente.setPasswordHash(hash);
+            utente.impostaPassword(hash, IstanteRevoca.adesso());
             utenteRepository.save(utente);
         } else {
             Staff staff = staffRepository.findById(token.getSoggettoId())
                     .orElseThrow(() -> new BadRequestException("Il link non e' valido"));
-            staff.setPasswordHash(hash);
+            staff.impostaPassword(hash, IstanteRevoca.adesso());
             staffRepository.save(staff);
         }
 

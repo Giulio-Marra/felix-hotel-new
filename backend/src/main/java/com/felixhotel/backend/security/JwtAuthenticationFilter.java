@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 
 /**
  * Filtro eseguito una volta per richiesta: se e' presente un header
@@ -52,7 +53,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     // al login: altrimenti un account disattivato continuerebbe ad accedere con il
                     // token gia' emesso fino alla sua scadenza. L'utente e' gia' caricato da DB qui,
                     // quindi il controllo non costa una query in piu'.
-                    if (userDetails.isEnabled() && jwtService.isTokenValid(token, userDetails.getUsername())) {
+                    // La revoca si controlla qui accanto ad 'attivo', e per la stessa ragione:
+                    // sono le due cose che possono cambiare **dopo** che il token e' stato
+                    // emesso, e un token si verifica con la firma, che non sa niente di
+                    // quel che e' successo dopo. L'account e' gia' caricato, quindi nessuna
+                    // delle due costa una query.
+                    if (userDetails.isEnabled()
+                            && jwtService.isTokenValid(token, userDetails.getUsername())
+                            && !jwtService.emessoPrimaDella(token, revocaDi(userDetails))) {
                         var authToken = new UsernamePasswordAuthenticationToken(
                                 userDetails, null, userDetails.getAuthorities());
                         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -71,5 +79,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * La soglia di revoca dell'account, se e' uno dei nostri.
+     *
+     * <p>Il {@code instanceof} c'e' perche' {@code UserDetailsService} promette un
+     * {@code UserDetails} qualunque, non il nostro. Oggi ne arriva uno solo — questo
+     * progetto ha un solo {@link CustomUserDetailsService} — e il ramo negativo vuol dire
+     * "nessuna revoca", che e' la risposta giusta per un principal che non sa cosa sia.
+     */
+    private static LocalDateTime revocaDi(UserDetails userDetails) {
+        return userDetails instanceof AppUserPrincipal principal
+                ? principal.getTokenNonValidiPrimaDi()
+                : null;
     }
 }

@@ -4,6 +4,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -30,9 +31,11 @@ public class AppUserPrincipal implements UserDetails {
     private final String cognome;
     private final String ruoloNome;
     private final boolean attivo;
+    private final LocalDateTime tokenNonValidiPrimaDi;
 
     public AppUserPrincipal(TipoAccount tipo, Long userId, String email, String passwordHash, String nome,
-                             String cognome, String ruoloNome, boolean attivo) {
+                             String cognome, String ruoloNome, boolean attivo,
+                             LocalDateTime tokenNonValidiPrimaDi) {
         this.tipo = tipo;
         this.userId = userId;
         this.email = email;
@@ -41,6 +44,19 @@ public class AppUserPrincipal implements UserDetails {
         this.cognome = cognome;
         this.ruoloNome = ruoloNome;
         this.attivo = attivo;
+        this.tokenNonValidiPrimaDi = tokenNonValidiPrimaDi;
+    }
+
+    /**
+     * Da quando i token di questo account non valgono piu'. {@code null} se non e' mai
+     * stato revocato niente.
+     *
+     * <p><b>Viaggia nel principal e non si va a rileggere</b>: il filtro carica gia'
+     * l'account ad ogni richiesta per sapere se sia attivo, quindi questo valore e' li'
+     * insieme e la revoca non costa nessuna query.
+     */
+    public LocalDateTime getTokenNonValidiPrimaDi() {
+        return tokenNonValidiPrimaDi;
     }
 
     /** Su quale tabella vale {@link #getUserId()}. Non e' il ruolo: vedi {@link TipoAccount}. */

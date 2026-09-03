@@ -777,6 +777,47 @@ class AuthApiIT extends IntegrationTestBase {
         }
 
         @Test
+        @DisplayName("il reset butta fuori chi era gia' entrato")
+        void reset_invalidaITokenGiaEmessi() throws Exception {
+            // given: e' il caso che questa funzionalita' esiste per servire. Chi si accorge
+            // che qualcuno gli e' entrato nell'account cambia la password **proprio per
+            // buttarlo fuori**, e fino al 2026-09-03 non succedeva: il ladro restava dentro
+            // fino alla scadenza del token, cioe' un'ora
+            RegisterRequest cliente = dati.registerRequest();
+            auth.registraAccount(cliente);
+            String tokenDelLadro = auth.ottieniToken(cliente.getEmail());
+
+            // quel token funziona
+            mockMvc.perform(get(ME)
+                            .header("Authorization", "Bearer " + tokenDelLadro))
+                    .andExpect(status().isOk());
+
+            // when: il proprietario reimposta la password
+            posta.svuota();
+            mockMvc.perform(post(CHIEDI)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(new EmailRequest().email(cliente.getEmail()))))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post(REIMPOSTA)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(corpoTokenEPassword(posta.tokenPer(cliente.getEmail()), PASSWORD_NUOVA)))
+                    .andExpect(status().isOk());
+
+            // then: il token di prima non vale piu'
+            mockMvc.perform(get(ME)
+                            .header("Authorization", "Bearer " + tokenDelLadro))
+                    .andExpect(status().isUnauthorized());
+
+            // ...e quello nuovo si'. E' la meta' che impedisce di "risolvere" il problema
+            // rifiutando tutto: una revoca che butta fuori anche chi arriva dopo non e' una
+            // revoca, e' un account chiuso
+            mockMvc.perform(get(ME)
+                            .header("Authorization", "Bearer "
+                                    + auth.ottieniToken(cliente.getEmail(), PASSWORD_NUOVA)))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
         @DisplayName("chiederlo per un indirizzo che non esiste risponde 200 e non manda niente")
         void reset_aIndirizzoInesistente_risponde200() throws Exception {
             mockMvc.perform(post(CHIEDI)

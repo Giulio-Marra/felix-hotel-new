@@ -16,6 +16,7 @@ import com.felixhotel.backend.mapper.StaffMapper;
 import com.felixhotel.backend.repository.RuoloRepository;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.security.IstanteRevoca;
 import com.felixhotel.backend.service.ServizioNotifiche;
 import com.felixhotel.backend.service.StaffService;
 import lombok.RequiredArgsConstructor;
@@ -238,7 +239,7 @@ public class StaffServiceImpl implements StaffService {
     public ApiBaseResponse impostaPassword(Long id, StaffPasswordRequest request) {
         Staff staff = trovaOrElseThrow(id);
 
-        staff.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        staff.impostaPassword(passwordEncoder.encode(request.getPassword()), IstanteRevoca.adesso());
 
         staffRepository.save(staff);
 

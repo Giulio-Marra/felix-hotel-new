@@ -63,7 +63,8 @@ public class CustomUserDetailsService implements UserDetailsService {
     private AppUserPrincipal toPrincipal(Utente utente) {
         return new AppUserPrincipal(TipoAccount.CLIENTE, utente.getId(), utente.getEmail(),
                 utente.getPasswordHash(), utente.getNome(), utente.getCognome(),
-                utente.getRuolo().getNome(), utente.isAttivo() && utente.isEmailVerificata());
+                utente.getRuolo().getNome(), utente.isAttivo() && utente.isEmailVerificata(),
+                utente.getTokenNonValidiPrimaDi());
     }
 
     /**
@@ -83,6 +84,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 // combacia con niente, e l'account e' comunque gia' non abilitato.
                 staff.getPasswordHash() == null ? "" : staff.getPasswordHash(),
                 staff.getNome(), staff.getCognome(),
-                staff.getRuolo().getNome(), staff.isAttivo() && staff.getPasswordHash() != null);
+                staff.getRuolo().getNome(), staff.isAttivo() && staff.getPasswordHash() != null,
+                staff.getTokenNonValidiPrimaDi());
     }
 }
