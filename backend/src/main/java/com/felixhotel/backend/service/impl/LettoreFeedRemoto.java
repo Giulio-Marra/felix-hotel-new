@@ -1,5 +1,6 @@
 package com.felixhotel.backend.service.impl;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -33,6 +34,7 @@ import java.time.Duration;
  * gia' in {@code application.properties}, e per la stessa ragione: un'operazione di
  * sfondo che non finisce e' peggio di una che fallisce.
  */
+@Slf4j
 @Component
 public class LettoreFeedRemoto {
 
@@ -51,11 +53,30 @@ public class LettoreFeedRemoto {
      */
     private static final int DIMENSIONE_MASSIMA = 2 * 1024 * 1024;
 
+    /**
+     * Quanti redirect si seguono prima di arrendersi. I canali spostano questi indirizzi
+     * dietro un redirect piu' spesso di quanto si direbbe, ma cinque salti sono gia' molti
+     * piu' del necessario: oltre, non e' uno spostamento, e' un anello.
+     */
+    private static final int SALTI_MASSIMI = 5;
+
+    /**
+     * <b>I redirect NON si seguono da soli</b>, ed e' la differenza che rende utile il
+     * controllo sull'indirizzo. Con {@code Redirect.NORMAL} il client seguirebbe il
+     * {@code Location} senza chiedere niente a nessuno, e un canale — o chiunque ne
+     * controlli il dominio — potrebbe rimandarci su {@code http://169.254.169.254},
+     * scavalcando in un salto la verifica fatta sull'indirizzo di partenza. Seguendoli a
+     * mano, <b>ogni</b> salto passa dallo stesso controllo.
+     */
+    private final IndirizzoConsentito indirizzoConsentito;
+
+    public LettoreFeedRemoto(IndirizzoConsentito indirizzoConsentito) {
+        this.indirizzoConsentito = indirizzoConsentito;
+    }
+
     private final HttpClient client = HttpClient.newBuilder()
             .connectTimeout(ATTESA_CONNESSIONE)
-            // I canali spostano questi indirizzi dietro un redirect piu' spesso di quanto
-            // si direbbe. NORMAL e non ALWAYS: da https non si torna indietro a http.
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
 
     /**
@@ -65,6 +86,34 @@ public class LettoreFeedRemoto {
      *                                       rete, stato HTTP, dimensione
      */
     public String scarica(String url) {
+        String corrente = url;
+
+        for (int salto = 0; salto <= SALTI_MASSIMI; salto++) {
+            // Ad **ogni** salto, non solo al primo: il controllo fatto quando la sorgente
+            // e' stata salvata non dice niente su dove un redirect stia portando adesso.
+            indirizzoConsentito.verifica(corrente);
+
+            HttpResponse<InputStream> risposta = chiedi(corrente);
+            int stato = risposta.statusCode();
+
+            if (stato >= 300 && stato < 400) {
+                corrente = prossimoSalto(risposta, corrente);
+                continue;
+            }
+            if (stato < 200 || stato >= 300) {
+                // Il corpo non si legge: davanti a un errore e' una pagina HTML che non
+                // dice niente di piu' del numero, e finirebbe in un messaggio salvato.
+                chiudi(risposta.body());
+                throw new FeedNonRaggiungibileException("Il canale ha risposto " + stato);
+            }
+            return leggiConTetto(risposta.body());
+        }
+
+        throw new FeedNonRaggiungibileException(
+                "L'indirizzo rimbalza da piu' di " + SALTI_MASSIMI + " redirect");
+    }
+
+    private HttpResponse<InputStream> chiedi(String url) {
         HttpRequest richiesta = HttpRequest.newBuilder(URI.create(url))
                 .timeout(ATTESA_RISPOSTA)
                 .header("Accept", "text/calendar")
@@ -72,17 +121,7 @@ public class LettoreFeedRemoto {
                 .build();
 
         try {
-            HttpResponse<InputStream> risposta =
-                    client.send(richiesta, HttpResponse.BodyHandlers.ofInputStream());
-
-            if (risposta.statusCode() < 200 || risposta.statusCode() >= 300) {
-                // Il corpo non si legge: davanti a un errore e' una pagina HTML che non
-                // dice niente di piu' del numero, e finirebbe in un messaggio salvato.
-                throw new FeedNonRaggiungibileException(
-                        "Il canale ha risposto " + risposta.statusCode());
-            }
-            return leggiConTetto(risposta.body());
-
+            return client.send(richiesta, HttpResponse.BodyHandlers.ofInputStream());
         } catch (IOException ex) {
             throw new FeedNonRaggiungibileException("Indirizzo non raggiungibile: " + descrivi(ex), ex);
         } catch (InterruptedException ex) {
@@ -90,6 +129,39 @@ public class LettoreFeedRemoto {
             // non ha piu' modo di accorgersene, ed e' il rilievo che SpotBugs solleva.
             Thread.currentThread().interrupt();
             throw new FeedNonRaggiungibileException("Lettura interrotta", ex);
+        }
+    }
+
+    /**
+     * Dove porta un redirect.
+     *
+     * <p>Il {@code Location} puo' essere relativo — la specifica lo consente e i server lo
+     * fanno — quindi si risolve contro l'indirizzo da cui si viene. Risolverlo e' anche
+     * cio' che impedisce a un {@code Location} vuoto o storto di diventare una richiesta
+     * verso un posto imprevisto: se non si compone, il giro finisce qui.
+     */
+    private static String prossimoSalto(HttpResponse<InputStream> risposta, String provenienza) {
+        chiudi(risposta.body());
+
+        String destinazione = risposta.headers().firstValue("Location")
+                .orElseThrow(() -> new FeedNonRaggiungibileException(
+                        "Il canale ha risposto " + risposta.statusCode() + " senza dire dove andare"));
+
+        try {
+            return URI.create(provenienza).resolve(destinazione).toString();
+        } catch (IllegalArgumentException ex) {
+            throw new FeedNonRaggiungibileException("Il redirect porta a un indirizzo non valido", ex);
+        }
+    }
+
+    /** Il corpo che non si legge va comunque chiuso, o la connessione resta appesa. */
+    private static void chiudi(InputStream corpo) {
+        try {
+            corpo.close();
+        } catch (IOException ex) {
+            // Chiudere un corpo che non ci interessa non ha nessun modo utile di fallire,
+            // e sollevare qui coprirebbe il motivo vero per cui siamo arrivati fin qui.
+            log.debug("Corpo della risposta non chiuso: {}", ex.getMessage());
         }
     }
 
@@ -114,7 +186,7 @@ public class LettoreFeedRemoto {
      * in vendita senza che nessuno se ne accorga. Si legge un byte in piu' del tetto
      * proprio per poter distinguere "esattamente pieno" da "troppo grande".
      */
-    private String leggiConTetto(InputStream flusso) throws IOException {
+    private String leggiConTetto(InputStream flusso) {
         try (InputStream corpo = flusso) {
             byte[] contenuto = corpo.readNBytes(DIMENSIONE_MASSIMA + 1);
 
@@ -123,6 +195,13 @@ public class LettoreFeedRemoto {
                         "Il calendario supera i " + (DIMENSIONE_MASSIMA / 1024 / 1024) + " MB consentiti");
             }
             return new String(contenuto, StandardCharsets.UTF_8);
+
+        } catch (IOException ex) {
+            // La connessione caduta a meta' della lettura e' un caso a se' rispetto a
+            // quella mai aperta, ed e' quello piu' insidioso: senza questo ramo darebbe un
+            // calendario troncato, cioe' camere che tornano in vendita.
+            throw new FeedNonRaggiungibileException(
+                    "Lettura interrotta a meta': " + descrivi(ex), ex);
         }
     }
 

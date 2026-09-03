@@ -15,6 +15,7 @@ import com.felixhotel.backend.mapper.SorgenteCalendarioMapper;
 import com.felixhotel.backend.repository.CameraRepository;
 import com.felixhotel.backend.repository.SorgenteCalendarioRepository;
 import com.felixhotel.backend.service.SorgenteCalendarioService;
+import com.felixhotel.backend.service.impl.IndirizzoConsentito.IndirizzoNonConsentitoException;
 import com.felixhotel.backend.service.impl.SincronizzatoreSorgente.EsitoSorgente;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,10 +27,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * I calendari esterni: registrarli, toglierli, e farli rileggere.
@@ -51,14 +49,12 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class SorgenteCalendarioServiceImpl implements SorgenteCalendarioService {
 
-    /** Gli unici schemi che ha senso scaricare. Vedi {@link #verificaIndirizzo}. */
-    private static final List<String> SCHEMI_AMMESSI = List.of("http", "https");
-
     private final SorgenteCalendarioRepository sorgenteRepository;
     private final CameraRepository cameraRepository;
     private final SincronizzatoreSorgente sincronizzatore;
     private final SorgenteCalendarioMapper sorgenteMapper;
     private final ApiResponseMapper apiResponseMapper;
+    private final IndirizzoConsentito indirizzoConsentito;
 
     @Override
     @Transactional(readOnly = true)
@@ -211,22 +207,24 @@ public class SorgenteCalendarioServiceImpl implements SorgenteCalendarioService 
     }
 
     /**
-     * Che l'indirizzo sia scaricabile, e che sia http o https.
+     * Che l'indirizzo si possa interrogare: schema ammesso e destinazione fuori dalla
+     * nostra rete.
      *
-     * <p><b>Non e' una formalita' sul formato</b>: quel valore diventa una richiesta che
-     * parte dal nostro server, e gli altri schemi — {@code file:}, {@code jar:} — servirebbero
-     * solo a fargli leggere qualcosa che non e' il calendario di un canale.
+     * <p><b>Non e' la difesa, e' la comodita'.</b> La difesa e' la stessa verifica fatta
+     * da {@code LettoreFeedRemoto} ad ogni scarico e ad ogni redirect, perche' e' li' che
+     * conta: un nome puo' risolversi altrove domani. Questa serve a dire <b>subito</b> a
+     * chi sta incollando un indirizzo che quello non va bene, invece di lasciarglielo
+     * salvare per farglielo scoprire da un esito {@code ERRORE} un quarto d'ora dopo.
+     *
+     * <p>La traduzione in 400 avviene qui e non dentro {@link IndirizzoConsentito}: le due
+     * rotte che incontrano quell'eccezione ne fanno due cose diverse, e legarla a uno
+     * status vorrebbe dire dare ragione a una delle due.
      */
     private void verificaIndirizzo(String url) {
-        String schema;
         try {
-            schema = new URI(url).getScheme();
-        } catch (URISyntaxException ex) {
-            throw new BadRequestException("L'indirizzo non e' scritto in modo valido", ex);
-        }
-
-        if (schema == null || !SCHEMI_AMMESSI.contains(schema.toLowerCase(Locale.ROOT))) {
-            throw new BadRequestException("L'indirizzo del calendario deve essere http o https");
+            indirizzoConsentito.verifica(url);
+        } catch (IndirizzoNonConsentitoException ex) {
+            throw new BadRequestException(ex.getMessage(), ex);
         }
     }
 

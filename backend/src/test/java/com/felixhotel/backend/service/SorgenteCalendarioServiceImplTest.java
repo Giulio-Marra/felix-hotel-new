@@ -13,6 +13,7 @@ import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.SorgenteCalendarioMapper;
 import com.felixhotel.backend.repository.CameraRepository;
 import com.felixhotel.backend.repository.SorgenteCalendarioRepository;
+import com.felixhotel.backend.service.impl.IndirizzoConsentito;
 import com.felixhotel.backend.service.impl.LettoreFeedRemoto.FeedNonRaggiungibileException;
 import com.felixhotel.backend.service.impl.SincronizzatoreSorgente;
 import com.felixhotel.backend.service.impl.SincronizzatoreSorgente.EsitoSorgente;
@@ -55,7 +56,13 @@ import static org.mockito.Mockito.when;
 class SorgenteCalendarioServiceImplTest {
 
     private static final Long ID_CAMERA = 12L;
-    private static final String URL = "https://esempio.invalid/calendario.ics";
+    /**
+     * <b>Numerico e pubblico, non un nome</b>: dal 2026-09-03 la registrazione risolve il
+     * nome per rifiutare gli indirizzi interni, e un {@code .invalid} — che per specifica
+     * non si risolve mai — verrebbe rifiutato prima di arrivare a quel che questi test
+     * vogliono provare. Nessuno lo interroga: {@code crea} non scarica niente.
+     */
+    private static final String URL = "https://8.8.8.8/calendario.ics";
 
     @Mock
     private SorgenteCalendarioRepository sorgenteRepository;
@@ -72,8 +79,10 @@ class SorgenteCalendarioServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        // Chiuso come in produzione: il test dello schema rifiutato non proverebbe niente
+        // con la configurazione aperta dei profili dev e test
         sorgenteService = new SorgenteCalendarioServiceImpl(sorgenteRepository, cameraRepository,
-                sincronizzatore, sorgenteMapper, apiResponseMapper);
+                sincronizzatore, sorgenteMapper, apiResponseMapper, new IndirizzoConsentito(false));
     }
 
     @Nested

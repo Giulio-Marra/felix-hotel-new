@@ -1,5 +1,7 @@
 package com.felixhotel.backend.service;
 
+import com.felixhotel.backend.service.impl.IndirizzoConsentito;
+import com.felixhotel.backend.service.impl.IndirizzoConsentito.IndirizzoNonConsentitoException;
 import com.felixhotel.backend.service.impl.LettoreFeedRemoto;
 import com.felixhotel.backend.service.impl.LettoreFeedRemoto.FeedNonRaggiungibileException;
 import com.sun.net.httpserver.HttpExchange;
@@ -51,7 +53,7 @@ class LettoreFeedRemotoTest {
         // stessa macchina non si contendono un numero fisso
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.start();
-        lettore = new LettoreFeedRemoto();
+        lettore = new LettoreFeedRemoto(new IndirizzoConsentito(true));
     }
 
     @AfterEach
@@ -89,6 +91,76 @@ class LettoreFeedRemotoTest {
         assertThatThrownBy(() -> lettore.scarica(indirizzo()))
                 .isInstanceOf(FeedNonRaggiungibileException.class)
                 .hasMessageContaining("MB consentiti");
+    }
+
+    @Test
+    @DisplayName("segue un redirect")
+    void scarica_conRedirect_seguo() {
+        // I canali spostano questi indirizzi dietro un redirect piu' spesso di quanto si
+        // direbbe: smettere di seguirli per difendersi vorrebbe dire rompere il caso normale
+        server.createContext("/spostato", scambio -> {
+            scambio.getResponseHeaders().add("Location", "/calendario.ics");
+            scambio.sendResponseHeaders(302, -1);
+            scambio.close();
+        });
+        rispondi(200, CALENDARIO);
+
+        assertThat(lettore.scarica("http://127.0.0.1:" + server.getAddress().getPort() + "/spostato"))
+                .isEqualTo(CALENDARIO);
+    }
+
+    @Test
+    @DisplayName("un redirect verso l'interno non scavalca il controllo sull'indirizzo")
+    void scarica_redirectVersoLInterno_rifiutato() {
+        // **E' il test che giustifica di seguire i redirect a mano.** Con
+        // Redirect.NORMAL il client seguirebbe il Location senza chiedere niente a
+        // nessuno, e il controllo fatto sull'indirizzo di partenza varrebbe zero: basta
+        // che il canale — o chi ne controlla il dominio — risponda 302 verso
+        // 169.254.169.254 per farci bussare li' dentro
+        LettoreFeedRemoto chiuso = new LettoreFeedRemoto(new IndirizzoConsentito(false));
+        server.createContext("/rimbalza", scambio -> {
+            scambio.getResponseHeaders().add("Location", "http://169.254.169.254/latest/meta-data/");
+            scambio.sendResponseHeaders(302, -1);
+            scambio.close();
+        });
+
+        // Il primo salto e' gia' interno, quindi con il lettore chiuso si ferma subito:
+        // e' il motivo per cui il caso del redirect si prova con quello aperto qui sotto
+        assertThatThrownBy(() -> chiuso.scarica(indirizzo()))
+                .isInstanceOf(IndirizzoNonConsentitoException.class);
+    }
+
+    @Test
+    @DisplayName("nemmeno con l'apertura di sviluppo si finisce su un indirizzo di rete altrui")
+    void scarica_redirectFuoriDallApertura_rifiutato() {
+        // L'apertura dei profili dev e test riguarda il loopback, non il resto: un
+        // redirect verso 169.254.169.254 resta rifiutato anche li', e questo e' il caso che
+        // prova davvero il controllo **ad ogni salto** invece che solo al primo
+        server.createContext("/rimbalza", scambio -> {
+            scambio.getResponseHeaders().add("Location", "http://169.254.169.254/latest/meta-data/");
+            scambio.sendResponseHeaders(302, -1);
+            scambio.close();
+        });
+
+        assertThatThrownBy(() ->
+                lettore.scarica("http://127.0.0.1:" + server.getAddress().getPort() + "/rimbalza"))
+                .isInstanceOf(IndirizzoNonConsentitoException.class)
+                .hasMessageContaining("punta dentro la rete");
+    }
+
+    @Test
+    @DisplayName("un anello di redirect finisce, non gira per sempre")
+    void scarica_anelloDiRedirect_solleva() {
+        server.createContext("/anello", scambio -> {
+            scambio.getResponseHeaders().add("Location", "/anello");
+            scambio.sendResponseHeaders(302, -1);
+            scambio.close();
+        });
+
+        assertThatThrownBy(() ->
+                lettore.scarica("http://127.0.0.1:" + server.getAddress().getPort() + "/anello"))
+                .isInstanceOf(FeedNonRaggiungibileException.class)
+                .hasMessageContaining("rimbalza");
     }
 
     @Test
