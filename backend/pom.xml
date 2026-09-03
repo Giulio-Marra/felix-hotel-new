@@ -108,6 +108,23 @@
 			<version>0.2.6</version>
 		</dependency>
 
+		<!--
+			Lettura dei calendari iCal altrui (RFC 5545). Il feed che pubblichiamo noi e'
+			scritto a mano in CalendarioIcs, ed e' una scelta coerente e non
+			un'incoerenza: in scrittura produciamo un sottoinsieme che decidiamo noi,
+			in lettura arriva quel che manda Booking — righe piegate a settantacinque
+			caratteri, valori protetti, fusi orari, ricorrenze. Scriverne un lettore a
+			mano vorrebbe dire riscrivere questa libreria peggio.
+			Scelta biweekly e non ical4j perche' si porta dietro solo vinnie (il suo
+			lettore di righe) e jackson-core, che c'e' gia': una dipendenza che entra
+			per una rotta sola deve pesare poco.
+		-->
+		<dependency>
+			<groupId>net.sf.biweekly</groupId>
+			<artifactId>biweekly</artifactId>
+			<version>0.6.8</version>
+		</dependency>
+
 		<!-- Generazione e validazione JWT: emettiamo e validiamo i token nella stessa app -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>

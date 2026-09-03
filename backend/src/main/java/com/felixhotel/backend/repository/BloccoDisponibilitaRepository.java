@@ -4,6 +4,7 @@ import com.felixhotel.backend.entity.BloccoDisponibilita;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -115,5 +116,29 @@ public interface BloccoDisponibilitaRepository extends JpaRepository<BloccoDispo
     List<BloccoDisponibilita> occupazioniNellOrizzonte(@Param("tipologiaCameraId") Long tipologiaCameraId,
                                                        @Param("da") LocalDate da,
                                                        @Param("a") LocalDate a);
+
+    /**
+     * Cancella i blocchi che una sorgente aveva scritto l'ultima volta.
+     *
+     * <p><b>E' il primo passo di ogni sincronizzazione</b>, e la ragione per cui e' una
+     * cancellazione e non un confronto: il calendario di un canale dice quel che vale
+     * <i>adesso</i>, e riscriverlo da capo non puo' sbagliarsi, mentre confrontare gli UID
+     * uno per uno vorrebbe dire tre casi (nuovo, cambiato, sparito) e la possibilita' di
+     * sbagliarne uno. Costa qualche INSERT in piu' ogni quarto d'ora su una tabella di
+     * poche righe.
+     *
+     * <p><b>Filtra per sorgente e non per origine</b>: con Booking e Airbnb sulla stessa
+     * camera, un filtro sull'origine farebbe portare via a ognuno i blocchi dell'altro.
+     *
+     * <p>{@code flushAutomatically} perche' la cancellazione deve arrivare al database
+     * <b>prima</b> delle scritture che seguono: il vincolo di esclusione del V15 non e'
+     * differito, e un blocco riscritto sulle stesse notti urterebbe quello vecchio che nel
+     * frattempo esiste ancora. Niente {@code clearAutomatically}, invece: staccherebbe
+     * dalla sessione la sorgente e la camera che il chiamante sta usando, e qui non c'e'
+     * niente di caricato che quella cancellazione renda obsoleto.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("delete from BloccoDisponibilita b where b.sorgenteCalendario.id = :sorgenteId")
+    int cancellaDellaSorgente(@Param("sorgenteId") Long sorgenteId);
 
 }

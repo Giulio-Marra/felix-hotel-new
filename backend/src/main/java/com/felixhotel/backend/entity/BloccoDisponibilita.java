@@ -30,11 +30,10 @@ import java.time.LocalDate;
  * evita ovunque: <i>un dato inventato e' peggio di un dato mancante</i>.
  *
  * <p><b>Un blocco vale una unita', sempre.</b> E' la regola che tiene insieme l'entita':
- * che si sappia <i>quale</i> camera ({@link #camera} valorizzata, il caso della
- * manutenzione) o solo che <i>una</i> di quella tipologia non e' vendibile
- * ({@code null}, il caso di un canale esterno che ha venduto senza dirci quale), alla
- * disponibilita' toglie uno. Senza questa regola servirebbero due tabelle, oppure una
- * colonna con la quantita' che nessuno saprebbe compilare per una manutenzione.
+ * che si sappia <i>quale</i> camera ({@link #camera} valorizzata) o solo che <i>una</i>
+ * di quella tipologia non e' vendibile ({@code null}), alla disponibilita' toglie uno.
+ * Senza questa regola servirebbero due tabelle, oppure una colonna con la quantita' che
+ * nessuno saprebbe compilare per una manutenzione.
  *
  * <p><b>Gli estremi si leggono come quelli di una prenotazione</b>: si entra il giorno
  * di inizio e si libera quello di fine. Un blocco dal 3 al 5 rende invendibili le notti
@@ -74,8 +73,12 @@ public class BloccoDisponibilita extends BaseAuditableEntity {
      * <p>Chi blocca per manutenzione la nomina — e' quella che ha il bagno rotto — e in
      * cambio ottiene l'unica cosa che il nome serve a fare: <b>il check-in non gliela
      * assegna</b>. Un blocco senza camera toglie una unita' alla disponibilita' e basta,
-     * il che e' esattamente quel che serve quando un canale esterno ha venduto una
-     * doppia senza dirci quale.
+     * il che e' quel che serve quando si sa che una doppia non e' vendibile ma non quale.
+     *
+     * <p><b>I blocchi importati da un canale la nominano</b>, al contrario di quel che il
+     * V15 prevedeva: una sorgente di calendario e' agganciata a una camera precisa — la
+     * stessa a cui abbiamo pubblicato il feed in uscita — quindi quale sia lo sappiamo.
+     * Il caso anonimo resta possibile e oggi lo produce solo chi scrive a mano.
      *
      * <p><b>Che sia della tipologia indicata non lo verifica il database</b>: un
      * {@code CHECK} non puo' leggere un'altra tabella. Lo pretende il Service, e la
@@ -108,16 +111,34 @@ public class BloccoDisponibilita extends BaseAuditableEntity {
     private OrigineBlocco origine;
 
     /**
-     * L'identificativo che il calendario esterno da' a quell'occupazione.
+     * L'identificativo che il calendario esterno da' a quell'occupazione (l'UID di una
+     * riga iCal). Null per i blocchi manuali.
      *
-     * <p><b>Nessun codice lo legge ancora</b>, e non e' una promessa senza codice nel
-     * senso della regola 17: non c'e' nessun contratto e nessun commento che dica cosa
-     * fa: e' una colonna che il branch dell'iCal riempira'. Sta qui adesso perche' e'
-     * l'unica di questa tabella che quel branch non potrebbe aggiungere senza una
-     * migration in piu'.
+     * <p><b>Serve a leggere il passato, non a decidere il presente.</b> La
+     * sincronizzazione non lo confronta con niente: ogni giro cancella i blocchi della
+     * propria sorgente e riscrive quel che il calendario dice adesso, che e' piu' semplice
+     * e non puo' sbagliarsi. Questo valore resta perche' e' l'unica cosa che permetta di
+     * ritrovare, davanti a un blocco che non si spiega, <i>quale</i> riga del calendario
+     * del canale lo abbia prodotto.
      */
     @Column(name = "riferimento_esterno", length = 255)
     private String riferimentoEsterno;
+
+    /**
+     * Da quale sorgente arriva questo blocco. Null per i manuali.
+     *
+     * <p><b>E' cio' che permette a un canale di rifare i propri blocchi senza toccare
+     * quelli degli altri.</b> Senza, "i propri" si potrebbe dedurre solo dall'origine, e
+     * allora il giro di Booking porterebbe via i blocchi di Airbnb sulla stessa camera. Il
+     * {@link #riferimentoEsterno} non basta: un UID e' unico dentro un calendario, non fra
+     * calendari diversi.
+     *
+     * <p><b>Le due colonne non possono contraddirsi</b>: il V17 pretende che un blocco
+     * abbia una sorgente <i>se e solo se</i> la sua origine e' {@code CANALE_ESTERNO}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sorgente_calendario_id")
+    private SorgenteCalendario sorgenteCalendario;
 
     /** Perche' la camera non e' vendibile, in parole. Facoltativo. */
     @Column(length = 500)

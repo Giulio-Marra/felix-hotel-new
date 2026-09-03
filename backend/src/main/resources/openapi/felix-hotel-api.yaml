@@ -3923,6 +3923,221 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/sorgenti-calendario:
+
+    get:
+      tags:
+        - Sorgenti calendario
+      operationId: elencaSorgentiCalendario
+      summary: I calendari esterni che leggiamo, e com'e' andata l'ultima lettura
+      description: >
+        L'elenco delle sorgenti configurate: da quale indirizzo si legge
+        l'occupazione di quale camera, e l'esito dell'ultimo giro. **STAFF o
+        ADMIN** in lettura: chi sta al banco deve poter vedere perche' una camera
+        risulta occupata, anche se configurarla non e' compito suo.
+        **L'esito e' uno stato e non un registro**: ogni sincronizzazione
+        sovrascrive quella precedente. Non e' una perdita — un conflitto vive
+        finche' vive la sua causa, quindi se c'e' ancora lo riscrive il giro
+        successivo, e quando qualcuno lo risolve sparisce da solo.
+        L'ordine e' per camera e poi per nome, cioe' come lo si legge: tutte le
+        sorgenti di una stanza vicine.
+        Risposta: busta ApiBaseResponsePaginated con un array di
+        **SorgenteCalendarioResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cameraId
+          in: query
+          required: false
+          description: Solo le sorgenti di questa camera. Omesso, tutte.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - $ref: '#/components/parameters/PaginaNumero'
+        - $ref: '#/components/parameters/PaginaDimensione'
+      responses:
+        '200':
+          description: Pagina di sorgenti ('data' = array di SorgenteCalendarioResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponsePaginated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Sorgenti calendario
+      operationId: creaSorgenteCalendario
+      summary: Leggi il calendario di un canale per una camera
+      description: >
+        Registra un indirizzo iCal da cui, ogni quarto d'ora, si legge quando quel
+        canale ha venduto quella camera. Riservato agli **ADMIN**, come pubblicare
+        il feed in uscita: e' l'altra meta' dello stesso gesto, e nessuna delle due
+        e' un'operazione di turno.
+        **Una sorgente sta su una camera e non su una tipologia**, per la stessa
+        ragione per cui ci sta il feed in uscita: iCal non sa esprimere le
+        quantita', quindi un calendario corrisponde a **una unita' vendibile**. Su
+        Booking e su Airbnb l'indirizzo si copia dalla scheda della camera, ed e'
+        la scheda che gli abbiamo pubblicato noi.
+        **Quel che ne nasce sono blocchi che nominano la camera**, quindi il
+        check-in smette di assegnare la stanza che il canale ha venduto. Vivono
+        quanto il calendario: ogni giro rifa' i propri e non tocca ne' quelli
+        manuali ne' quelli di un'altra sorgente.
+        **La creazione non scarica niente**: l'indirizzo si prova al primo giro, o
+        subito con 'POST /api/sorgenti-calendario/sincronizza'. E' voluto — un
+        canale lento o momentaneamente giu' non deve impedire di salvare una
+        configurazione giusta.
+        **409 se quell'indirizzo e' gia' registrato su quella camera**: leggerlo
+        due volte toglierebbe **due** unita' mentre la stanza e' una.
+        **400 se l'indirizzo non e' http o https.** Non e' una formalita': quel
+        valore diventa una richiesta che parte dal server, e gli altri schemi
+        servirebbero solo a fargli leggere qualcosa che non e' un calendario.
+        Risposta: busta ApiBaseResponse con **SorgenteCalendarioResponse** in
+        'data'.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SorgenteCalendarioRequest'
+      responses:
+        '201':
+          description: Sorgente registrata ('data' = SorgenteCalendarioResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Sorgente registrata
+                timestamp: 2026-09-03T16:30:00Z
+                data:
+                  id: 1
+                  camera:
+                    id: 12
+                    numero: "101"
+                    piano: 1
+                  nome: Booking
+                  url: https://admin.booking.com/hotel/ical/abc123.ics
+                  ultimaSincronizzazione: null
+                  ultimoEsito: null
+                  ultimoMessaggio: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/sorgenti-calendario/sincronizza:
+
+    post:
+      tags:
+        - Sorgenti calendario
+      operationId: sincronizzaSorgentiCalendario
+      summary: Rileggi subito tutti i calendari esterni
+      description: >
+        Fa partire adesso il giro che altrimenti parte da solo ogni quarto d'ora, e
+        restituisce com'e' andato. Riservato agli **ADMIN**.
+        **Serve a due momenti precisi**: subito dopo aver registrato una sorgente,
+        per sapere se quell'indirizzo funziona senza aspettare il primo giro; e
+        quando si sospetta che il canale abbia venduto qualcosa che da noi non
+        risulta ancora.
+        **Nessuna sorgente puo' far fallire le altre**: ogni calendario si legge per
+        conto suo, e un canale irraggiungibile diventa un esito ERRORE su quella
+        riga mentre le altre proseguono. Per questo la risposta e' **200 anche
+        quando qualcosa e' andato storto** — il giro e' stato fatto, ed e' il
+        contenuto a dire cosa ha trovato.
+        Risposta: busta ApiBaseResponse con **SincronizzazioneResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Giro eseguito ('data' = SincronizzazioneResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Sincronizzazione eseguita
+                timestamp: 2026-09-03T16:30:00Z
+                data:
+                  sorgenti: 4
+                  blocchiScritti: 11
+                  conConflitti: 1
+                  inErrore: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/sorgenti-calendario/{sorgenteId}:
+
+    delete:
+      tags:
+        - Sorgenti calendario
+      operationId: eliminaSorgenteCalendario
+      summary: Smetti di leggere un calendario esterno
+      description: >
+        Toglie la sorgente **e i blocchi che aveva scritto**, che e' la parte da
+        sapere prima di premere: quelle notti tornano vendibili all'istante.
+        Riservato agli **ADMIN**.
+        **E' la risposta giusta e non una semplificazione.** Smettere di leggere un
+        canale vuol dire che quel canale non ci dice piu' niente — non che l'ultima
+        cosa detta resta vera per sempre. Se quelle camere sono davvero occupate, il
+        blocco va rifatto a mano.
+        **Non c'e' una PUT**, come per i blocchi: una sorgente e' una camera, un
+        nome e un indirizzo, e non c'e' niente da correggere che non sia piu'
+        semplice cancellare e rifare.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sorgenteId
+          in: path
+          required: true
+          description: Identificativo della sorgente
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: Sorgente rimossa ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
 
   # Parametri riusabili, stessa logica dei responses qui sotto: si dichiarano
@@ -4957,6 +5172,136 @@ components:
             dell'applicazione ('felix.email.base-url'), quindi in un'installazione
             configurata male sarebbe giusto il token e sbagliato il dominio.
           example: http://localhost:8080/api/calendario/9xQm2K7bV1nR4tYw.ics
+
+    SorgenteCalendarioRequest:
+      type: object
+      description: >
+        Un calendario esterno da leggere per una camera. I limiti ricalcano le
+        colonne del database, vedi V17__sorgenti_calendario.sql.
+      required:
+        - cameraId
+        - nome
+        - url
+      properties:
+        cameraId:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            La camera di cui questo calendario racconta l'occupazione. **Una
+            camera e non una tipologia**: iCal non sa esprimere le quantita',
+            quindi un calendario corrisponde a una unita' vendibile.
+          example: 12
+        nome:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: >
+            Come si chiama il canale, per riconoscerlo in un elenco. **Testo
+            libero e non un elenco chiuso**: quali canali esistano cambia da
+            albergo ad albergo, e nessun codice qui dentro li guarda.
+          example: Booking
+        url:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            L'indirizzo iCal, come lo si copia dalla scheda della camera sul
+            canale. Deve essere **http o https**, altrimenti e' 400.
+            Va trattato come un segreto di chi ce lo ha dato: chi ce l'ha legge
+            l'occupazione di quella camera su quel canale.
+          example: https://admin.booking.com/hotel/ical/abc123.ics
+
+    SorgenteCalendarioResponse:
+      type: object
+      description: >
+        Una sorgente come viene restituita, con l'esito dell'ultimo giro.
+        **L'URL esce per esteso** — al contrario di un token, che non si mostra
+        mai — perche' non e' un segreto che emettiamo noi: e' un valore che
+        l'ADMIN ha incollato e che deve poter rileggere per correggerlo. Chi puo'
+        vederlo poteva gia' vedere la stessa occupazione da 'GET /api/blocchi'.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        camera:
+          $ref: '#/components/schemas/CameraSintesi'
+        nome:
+          type: string
+          example: Booking
+        url:
+          type: string
+          example: https://admin.booking.com/hotel/ical/abc123.ics
+        ultimaSincronizzazione:
+          type: string
+          format: date-time
+          description: >
+            Quando e' stato fatto l'ultimo giro. **Null vuol dire mai**, ed e'
+            l'unico modo di distinguere "non e' ancora partita" da "e' andata
+            bene": una sorgente appena registrata non ha ancora scaricato niente.
+          example: 2026-09-03T16:30:00Z
+        ultimoEsito:
+          allOf:
+            - $ref: '#/components/schemas/EsitoSincronizzazione'
+          description: Null finche' non e' mai stata sincronizzata.
+        ultimoMessaggio:
+          type: string
+          description: >
+            Cosa e' andato storto, in parole: l'errore di rete, oppure i conflitti
+            trovati. Null quando il giro non ha niente da dire.
+          example: >-
+            La camera 101 risulta venduta su questo canale dal 2026-09-10 al
+            2026-09-12, ma in quelle notti la tipologia e' gia' tutta occupata da
+            prenotazioni nostre
+
+    EsitoSincronizzazione:
+      type: string
+      description: >
+        Com'e' finito l'ultimo giro su una sorgente.
+        **Tre valori e non due**, perche' sono tre cose da fare diverse: OK non
+        chiede niente, ERRORE chiede di guardare l'indirizzo, CONFLITTI chiede di
+        guardare l'albergo. Confondere gli ultimi due vorrebbe dire cercare un
+        guasto tecnico davanti a un overbooking, che tecnicamente non e' rotto
+        niente.
+      enum:
+        - OK
+        - CONFLITTI
+        - ERRORE
+      example: OK
+
+    SincronizzazioneResponse:
+      type: object
+      description: >
+        Com'e' andato un giro completo. **Conta le sorgenti e non le occupazioni**:
+        il dettaglio di ognuna sta sulla sua riga, qui c'e' solo quel che serve a
+        decidere se andare a guardarle.
+      properties:
+        sorgenti:
+          type: integer
+          format: int32
+          description: Quante sorgenti sono state lette.
+          example: 4
+        blocchiScritti:
+          type: integer
+          format: int32
+          description: >
+            Quante notti-camera risultano ora occupate per via dei canali. E' il
+            totale riscritto, non la differenza rispetto a prima: ogni giro rifa'
+            i propri blocchi da capo.
+          example: 11
+        conConflitti:
+          type: integer
+          format: int32
+          description: >
+            Quante sorgenti hanno trovato qualcosa che non torna — un overbooking,
+            o un blocco manuale sulle stesse notti. Sono le righe da guardare.
+          example: 1
+        inErrore:
+          type: integer
+          format: int32
+          description: Quante sorgenti non si sono potute leggere affatto.
+          example: 1
 
     CameraSintesi:
       type: object

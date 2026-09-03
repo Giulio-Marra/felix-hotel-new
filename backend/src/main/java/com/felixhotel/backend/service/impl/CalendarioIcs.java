@@ -10,9 +10,9 @@ import java.util.List;
  * Il formato iCalendar (RFC 5545) nella sola forma che serve qui: un calendario di
  * periodi occupati.
  *
- * <p><b>E' scritto a mano e non con una libreria</b>, al contrario di quel che servira'
- * per <i>leggere</i> i calendari altrui. La differenza e' tutta qui: in scrittura si
- * produce un sottoinsieme che decidiamo noi — eventi di sole date, senza fusi orari,
+ * <p><b>E' scritto a mano e non con una libreria</b>, al contrario di {@link LetturaIcs},
+ * che i calendari altrui li legge con biweekly. La differenza e' tutta qui: in scrittura
+ * si produce un sottoinsieme che decidiamo noi — eventi di sole date, senza fusi orari,
  * senza ricorrenze, senza allegati — e sono trenta righe che si provano carattere per
  * carattere. In lettura arriva quel che manda Booking, con le righe spezzate a
  * settantacinque caratteri, le virgole protette e i fusi orari, e li' scriverne uno a
@@ -29,6 +29,19 @@ import java.util.List;
  * darebbe un file diverso a seconda di dove gira il backend.
  */
 public final class CalendarioIcs {
+
+    /**
+     * La parte finale degli UID che scriviamo noi.
+     *
+     * <p><b>Non e' decorativa: e' come ci si riconosce.</b> Diversi canali ripubblicano
+     * nel proprio calendario in uscita anche le occupazioni che hanno letto dal nostro, e
+     * la specifica pretende che in quel giro l'UID resti lo stesso. Senza un modo di dire
+     * "questo evento l'ho scritto io", {@link LetturaIcs} lo importerebbe come
+     * occupazione nuova: una nostra prenotazione tornerebbe indietro come blocco, la
+     * camera risulterebbe occupata due volte e ogni giro segnalerebbe un overbooking che
+     * non esiste. Vedi il filtro in {@code SincronizzatoreSorgente}.
+     */
+    public static final String DOMINIO_UID = "@felix-hotel";
 
     /** Le date in iCal: otto cifre, senza separatori. */
     private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -75,7 +88,7 @@ public final class CalendarioIcs {
             ics.append("UID:").append(periodo.inizio().format(DATA))
                     .append('-').append(periodo.fine().format(DATA))
                     .append('-').append(progressivo)
-                    .append("@felix-hotel").append(FINE_RIGA);
+                    .append(DOMINIO_UID).append(FINE_RIGA);
             ics.append("DTSTAMP:").append(generatoIl.format(DATA)).append("T000000Z").append(FINE_RIGA);
             ics.append("DTSTART;VALUE=DATE:").append(periodo.inizio().format(DATA)).append(FINE_RIGA);
             ics.append("DTEND;VALUE=DATE:").append(periodo.fine().format(DATA)).append(FINE_RIGA);

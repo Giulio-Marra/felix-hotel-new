@@ -24,14 +24,15 @@ public enum OrigineBlocco {
     MANUALE,
 
     /**
-     * Lo ha scritto l'import di un calendario esterno — Booking, Airbnb — dove quella
+     * Lo ha scritto la lettura di un calendario esterno — Booking, Airbnb — dove quella
      * camera risulta gia' venduta. <b>Vive quanto la sincronizzazione</b>: se
      * all'aggiornamento successivo quell'occupazione non c'e' piu', il blocco sparisce
      * con lei.
      *
-     * <p>Nessun codice lo scrive ancora: arriva col branch dell'iCal. Il valore esiste
-     * gia' perche' e' quello che da' un senso a questa colonna — vedi il commento del
-     * V15__blocchi_disponibilita.sql.
+     * <p><b>Non basta a dire "i miei"</b>, ed e' la ragione per cui il V17 ha aggiunto
+     * anche la sorgente: con due canali sulla stessa camera, il giro di Booking guardando
+     * solo questo valore porterebbe via i blocchi di Airbnb. Il vincolo del V17 tiene le
+     * due colonne d'accordo — questo valore e una sorgente vanno sempre insieme.
      */
     CANALE_ESTERNO
 }
