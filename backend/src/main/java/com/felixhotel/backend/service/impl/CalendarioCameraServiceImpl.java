@@ -173,4 +173,25 @@ public class CalendarioCameraServiceImpl implements CalendarioCameraService {
                         .numero(camera.getNumero())
                         .url(proprieta.baseUrl() + "/api/calendario/" + token + ".ics"));
     }
+
+    /**
+     * Spubblica il calendario di una camera.
+     *
+     * <p><b>Su una camera che non era pubblicata risponde lo stesso.</b> Non e' pigrizia
+     * nel controllare: chiedere che smetta una cosa che gia' non succede non e' un errore,
+     * perche' il risultato voluto — nessun indirizzo attivo — e' esattamente quello che si
+     * ottiene. Rispondere 404 costringerebbe chi chiama a distinguere due casi che per lui
+     * sono lo stesso.
+     */
+    @Override
+    @Transactional
+    public ApiBaseResponse spubblica(Long cameraId) {
+        Camera camera = cameraRepository.findById(cameraId)
+                .orElseThrow(() -> new NotFoundException("Camera non trovata"));
+
+        camera.setTokenCalendario(null);
+        cameraRepository.save(camera);
+
+        return apiResponseMapper.toResponse(HttpStatus.OK, "Calendario spubblicato", null);
+    }
 }

@@ -45,17 +45,42 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
      *
      * @param utenteId se null, non restringe a nessun cliente
      * @param stato    se null, non filtra per stato
+     *
+     * <p><b>I flag accanto ai filtri seguono la regola 25</b>, dal 2026-09-03: un
+     * parametro facoltativo compare <b>solo accanto alla sua colonna</b>, che gli da' il
+     * tipo, e a dire "questo filtro non si applica" ci pensa un booleano, che un tipo ce
+     * l'ha sempre. In {@code :filtro is null} non c'e' niente da cui Postgres possa
+     * dedurre un tipo — <i>qualunque cosa</i> puo' essere null — e quando non lo deduce
+     * appoggia al testo. Qui funzionava proprio per quello, e la forma e' stata comunque
+     * uniformata: la scappatoia del testo non esiste per le <b>date</b>, quindi il primo
+     * filtro di quel tipo aggiunto a questa query avrebbe dato un 500 che nei test non si
+     * vede (vedi il javadoc di {@code BloccoDisponibilitaRepository.cerca}, dove c'e'
+     * l'intera diagnosi).
      */
     @EntityGraph(attributePaths = {"utente", "tipologiaCamera", "gestitaDaStaff",
             "camera.tipologiaCamera"})
     @Query("""
             select p from Prenotazione p
-            where (:utenteId is null or p.utente.id = :utenteId)
-              and (:stato is null or p.stato = :stato)
+            where (:filtraUtente = false or p.utente.id = :utenteId)
+              and (:filtraStato  = false or p.stato     = :stato)
             """)
-    Page<Prenotazione> cerca(@Param("utenteId") Long utenteId,
+    Page<Prenotazione> cerca(@Param("filtraUtente") boolean filtraUtente,
+                             @Param("utenteId") Long utenteId,
+                             @Param("filtraStato") boolean filtraStato,
                              @Param("stato") StatoPrenotazione stato,
                              Pageable pageable);
+
+    /**
+     * La forma comoda per chi chiama: i due booleani si ricavano dai parametri invece di
+     * essere passati a mano.
+     *
+     * <p><b>Un {@code default} e non due firme distinte</b>: cosi' il Service continua a
+     * chiedere quel che gli interessa — "questo cliente, questo stato" — e la meccanica
+     * dei flag resta un fatto del repository, che e' l'unico posto in cui ha un senso.
+     */
+    default Page<Prenotazione> cerca(Long utenteId, StatoPrenotazione stato, Pageable pageable) {
+        return cerca(utenteId != null, utenteId, stato != null, stato, pageable);
+    }
 
     /** Lettura per id con le relazioni gia' caricate: e' il preambolo di ogni metodo che risponde. */
     @Override

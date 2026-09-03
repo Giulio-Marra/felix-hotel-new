@@ -49,12 +49,13 @@ public interface VoceCodificaRepository extends JpaRepository<VoceCodifica, Long
      * la guarda cerca un nome. L'indice {@code idx_voce_codifica_tipo_descrizione}
      * del V12 serve esattamente questa query, filtro compreso.
      *
-     * <p><b>Il {@code cast(:filtro as string)} non e' ornamento: senza, la query
-     * fallisce quando il filtro e' null.</b> Il parametro compare due volte — una in
-     * {@code is null}, che non dice niente sul tipo, e una dentro {@code concat} —
-     * quindi Postgres non ha nessun elemento per inferirlo e lo tratta come
-     * {@code bytea}, con un {@code ERROR: function lower(bytea) does not exist} che
-     * arriva a chi chiama come un 500.
+     * <p><b>Qui c'era un {@code cast(:filtro as string)}, e dal 2026-09-03 non serve
+     * piu'.</b> Il parametro compariva due volte — una in {@code is null}, che non dice
+     * niente sul tipo, e una dentro {@code concat} — quindi Postgres non aveva nessun
+     * elemento per inferirlo e lo trattava come {@code bytea}, con un
+     * {@code ERROR: function lower(bytea) does not exist} che arrivava a chi chiama come
+     * un 500. Il cast lo rimediava; il booleano <b>toglie la causa</b>, perche' adesso
+     * {@code :filtro} compare solo accanto alla colonna che gli da' il tipo (regola 25).
      *
      * <p><b>Il difetto e' rimasto nascosto ai test</b>, e vale la pena sapere
      * perche': Postgres tiene in cache il piano di un prepared statement sulla
@@ -67,13 +68,19 @@ public interface VoceCodificaRepository extends JpaRepository<VoceCodifica, Long
     @Query("""
             select v from VoceCodifica v
             where v.tipo = :tipo
-              and (:filtro is null
-                   or lower(v.descrizione) like lower(concat('%', cast(:filtro as string), '%')))
+              and (:filtra = false
+                   or lower(v.descrizione) like lower(concat('%', :filtro, '%')))
             order by v.descrizione
             """)
     Page<VoceCodifica> cerca(@Param("tipo") TipoCodifica tipo,
+                             @Param("filtra") boolean filtra,
                              @Param("filtro") String filtro,
                              Pageable pageable);
+
+    /** La forma comoda per chi chiama, vedi il gemello in {@code PrenotazioneRepository}. */
+    default Page<VoceCodifica> cerca(TipoCodifica tipo, String filtro, Pageable pageable) {
+        return cerca(tipo, filtro != null, filtro, pageable);
+    }
 
     /**
      * Le voci di una famiglia fra quelle con questi codici.

@@ -35,4 +35,15 @@ public interface CalendarioCameraService {
      * quando si revoca un accesso, ma va saputo prima.
      */
     ApiBaseResponse generaIndirizzo(Long cameraId);
+
+    /**
+     * Toglie l'indirizzo del calendario: da quel momento quel feed non esiste piu'.
+     *
+     * <p><b>Non e' rigenerare.</b> Rigenerare invalida il vecchio link ma ne crea uno
+     * nuovo altrettanto valido, e serve a chi ha perso il controllo di un indirizzo
+     * volendo continuare a pubblicare. Questo serve a chi ha pubblicato una camera per
+     * sbaglio, o l'ha tolta dalla vendita su quel canale: dopo, di indirizzi validi non ce
+     * n'e' nessuno.
+     */
+    ApiBaseResponse spubblica(Long cameraId);
 }

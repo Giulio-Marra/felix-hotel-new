@@ -58,16 +58,34 @@ public interface StaffRepository extends JpaRepository<Staff, Long> {
      * @param attivo    se null, non filtra per attivazione — ed e' il caso
      *                  normale: l'elenco del personale mostra anche chi non
      *                  lavora piu' qui
+     *
+     * <p><b>I flag accanto ai filtri seguono la regola 25</b>, dal 2026-09-03: un
+     * parametro facoltativo compare <b>solo accanto alla sua colonna</b>, che gli da' il
+     * tipo, e a dire "questo filtro non si applica" ci pensa un booleano, che un tipo ce
+     * l'ha sempre. In {@code :filtro is null} non c'e' niente da cui Postgres possa
+     * dedurre un tipo — <i>qualunque cosa</i> puo' essere null — e quando non lo deduce
+     * appoggia al testo. Qui funzionava proprio per quello, e la forma e' stata comunque
+     * uniformata: la scappatoia del testo non esiste per le <b>date</b>, quindi il primo
+     * filtro di quel tipo aggiunto a questa query avrebbe dato un 500 che nei test non si
+     * vede (vedi il javadoc di {@code BloccoDisponibilitaRepository.cerca}, dove c'e'
+     * l'intera diagnosi).
      */
     @EntityGraph(attributePaths = "ruolo")
     @Query("""
             select s from Staff s
-            where (:ruoloNome is null or s.ruolo.nome = :ruoloNome)
-              and (:attivo is null or s.attivo = :attivo)
+            where (:filtraRuolo  = false or s.ruolo.nome = :ruoloNome)
+              and (:filtraAttivo = false or s.attivo     = :attivo)
             """)
-    Page<Staff> cerca(@Param("ruoloNome") String ruoloNome,
+    Page<Staff> cerca(@Param("filtraRuolo") boolean filtraRuolo,
+                      @Param("ruoloNome") String ruoloNome,
+                      @Param("filtraAttivo") boolean filtraAttivo,
                       @Param("attivo") Boolean attivo,
                       Pageable pageable);
+
+    /** La forma comoda per chi chiama, vedi il gemello in {@code PrenotazioneRepository}. */
+    default Page<Staff> cerca(String ruoloNome, Boolean attivo, Pageable pageable) {
+        return cerca(ruoloNome != null, ruoloNome, attivo != null, attivo, pageable);
+    }
 
     /** Usato in creazione: l'email non deve appartenere a nessun altro membro del personale. */
     boolean existsByEmailIgnoreCase(String email);

@@ -44,4 +44,11 @@ public class CalendarioController implements CalendarioApi {
         ApiBaseResponse response = calendarioService.generaIndirizzo(id);
         return ResponseEntity.status(response.getStatus()).body(response);
     }
+
+    @Override
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiBaseResponse> spubblicaCalendario(Long id) {
+        ApiBaseResponse response = calendarioService.spubblica(id);
+        return ResponseEntity.status(response.getStatus()).body(response);
+    }
 }

@@ -3923,6 +3923,44 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+    delete:
+      tags:
+        - Calendario
+      operationId: spubblicaCalendario
+      summary: Smetti di pubblicare il calendario di una camera
+      description: >
+        Toglie l'indirizzo: da quel momento **quel feed non esiste piu'** e chi lo
+        scarica riceve 404. Riservato agli **ADMIN**, come pubblicarlo.
+        **Non e' la stessa cosa che rigenerarlo**, ed e' la ragione per cui questa
+        rotta esiste. Rigenerare invalida il vecchio indirizzo ma ne crea uno nuovo
+        altrettanto valido: serve a chi ha perso il controllo di un link e vuole
+        continuare a pubblicare. Questa serve a chi ha pubblicato una camera per
+        sbaglio, o l'ha tolta dalla vendita su quel canale, e non vuole **nessun**
+        indirizzo attivo.
+        **Su una camera che non era pubblicata risponde 200 lo stesso.** Chiedere
+        che smetta una cosa che gia' non succede non e' un errore: il risultato
+        voluto — nessun feed attivo — e' esattamente quello che si ottiene.
+        Risposta: busta ApiBaseResponse con 'data' null.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdCamera'
+      responses:
+        '200':
+          description: Calendario spubblicato ('data' = null)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/sorgenti-calendario:
 
     get:

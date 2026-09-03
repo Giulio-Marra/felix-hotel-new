@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -81,6 +82,58 @@ class CalendarioApiIT extends IntegrationTestBase {
                 .andExpect(status().isOk())
                 .andExpect(result -> assertThat(result.getResponse().getContentType())
                         .startsWith("text/calendar"));
+    }
+
+    @Test
+    @DisplayName("spubblicare una camera fa sparire il suo feed")
+    void spubblica_ilFeedNonEsistePiu() throws Exception {
+        // given: una camera pubblicata, il cui indirizzo funziona
+        String admin = tokenAdmin();
+        long tipologia = creaTipologia(admin);
+        long camera = creaCamera(admin, tipologia);
+        String token = tokenDa(generaIndirizzo(admin, camera));
+
+        mockMvc.perform(get("/api/calendario/" + token + ".ics"))
+                .andExpect(status().isOk());
+
+        // when
+        mockMvc.perform(delete(CAMERE + "/" + camera + "/calendario")
+                        .header("Authorization", "Bearer " + admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        // then: **non e' la stessa cosa che rigenerare.** Rigenerare invalida il vecchio
+        // indirizzo ma ne crea uno nuovo altrettanto valido; qui di indirizzi validi non
+        // ne resta nessuno, che e' quel che serve a chi ha pubblicato per sbaglio
+        mockMvc.perform(get("/api/calendario/" + token + ".ics"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("spubblicare una camera mai pubblicata risponde comunque 200")
+    void spubblica_cameraMaiPubblicata_risponde200() throws Exception {
+        // Chiedere che smetta una cosa che gia' non succede non e' un errore: il risultato
+        // voluto — nessun indirizzo attivo — e' esattamente quello che si ottiene, e un
+        // 404 costringerebbe chi chiama a distinguere due casi che per lui sono lo stesso
+        String admin = tokenAdmin();
+        long tipologia = creaTipologia(admin);
+        long camera = creaCamera(admin, tipologia);
+
+        mockMvc.perform(delete(CAMERE + "/" + camera + "/calendario")
+                        .header("Authorization", "Bearer " + admin))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("spubblicare e' degli ADMIN, come pubblicare")
+    void spubblica_daStaff_risponde403() throws Exception {
+        String admin = tokenAdmin();
+        long tipologia = creaTipologia(admin);
+        long camera = creaCamera(admin, tipologia);
+
+        mockMvc.perform(delete(CAMERE + "/" + camera + "/calendario")
+                        .header("Authorization", "Bearer " + tokenStaff()))
+                .andExpect(status().isForbidden());
     }
 
     @Test
