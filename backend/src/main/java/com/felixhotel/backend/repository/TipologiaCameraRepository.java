@@ -1,8 +1,10 @@
 package com.felixhotel.backend.repository;
 
 import com.felixhotel.backend.entity.TipologiaCamera;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -71,4 +73,33 @@ public interface TipologiaCameraRepository extends JpaRepository<TipologiaCamera
      * modificando — altrimenti riconfermarle il proprio nome darebbe 409.
      */
     boolean existsByNomeIgnoreCaseAndIdNot(String nome, Long id);
+
+    /**
+     * Prende il lock sulla riga di una tipologia, e non restituisce niente di utile.
+     *
+     * <p><b>Serializza chi vende la stessa tipologia.</b> Contare le camere e contare le
+     * occupate sono due letture, e fra la seconda e la scrittura che ne consegue non c'e'
+     * niente che impedisca a un'altra transazione di fare lo stesso conto: due conferme
+     * simultanee sull'ultima camera passano tutte e due, e l'albergo ha venduto una stanza
+     * che non ha. Prendendo prima questo lock, la seconda transazione aspetta la prima e
+     * poi rifa' il conto — trovandolo cambiato.
+     *
+     * <p><b>Sulla tipologia e non sulle prenotazioni</b>, ed e' la scelta che rende la cosa
+     * semplice: la riga da bloccare dev'essere una sola e sempre la stessa per tutti i
+     * concorrenti, e la tipologia e' esattamente l'oggetto di cui si contano le unita'.
+     * Bloccare le prenotazioni non servirebbe: il problema e' quella che <b>non c'e'
+     * ancora</b>.
+     *
+     * <p><b>Restituisce l'id e non l'entita'</b>, perche' l'entita' non serve a nessuno:
+     * chi chiama ce l'ha gia'. Serve solo il {@code SELECT ... FOR UPDATE} sulla riga, e
+     * caricare la tipologia intera si tirerebbe dietro le sue collezioni.
+     *
+     * <p><b>Il lock dura fino alla fine della transazione</b>, come tutti i lock di
+     * database: chi chiama non ha niente da rilasciare, ma deve sapere che da qui in poi
+     * gli altri aspettano — quindi va preso il piu' tardi possibile, e infatti si prende
+     * dentro il controllo di disponibilita' e non all'inizio del metodo.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t.id from TipologiaCamera t where t.id = :id")
+    Optional<Long> bloccaPerVendita(@Param("id") Long id);
 }

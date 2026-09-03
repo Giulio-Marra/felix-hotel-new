@@ -3,11 +3,13 @@ package com.felixhotel.backend.repository;
 import com.felixhotel.backend.entity.Camera;
 import com.felixhotel.backend.entity.enums.StatoCamera;
 import com.felixhotel.backend.entity.enums.StatoPrenotazione;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -216,4 +218,26 @@ public interface CameraRepository extends JpaRepository<Camera, Long> {
      */
     List<Camera> findByTipologiaCameraIdOrderByIdAsc(Long tipologiaCameraId);
 
+
+    /**
+     * Prende il lock sulla riga di una camera, e non restituisce niente di utile.
+     *
+     * <p><b>Serializza chi assegna la stessa stanza.</b> Il check-in cerca una camera
+     * assegnabile e poi la scrive: fra la ricerca e la scrittura, un secondo banco puo'
+     * aver fatto la stessa ricerca e ricevuto la stessa risposta. Prendendo il lock sulla
+     * riga <b>prima</b> dei controlli, il secondo aspetta il primo e poi li rifa' — e li
+     * trova falsi, perche' nel frattempo la stanza e' diventata OCCUPATA.
+     *
+     * <p><b>Sulla camera e non sulla tipologia</b>, al contrario di quello della vendita:
+     * li' si contano le unita' di una tipologia, qui si assegna una stanza precisa. Un
+     * lock sulla tipologia non basterebbe nemmeno, perche' l'upgrade assegna una camera
+     * di un'altra tipologia — e sarebbe il caso che scappa.
+     *
+     * <p>Restituisce l'id e non l'entita' per la stessa ragione del gemello in
+     * {@code TipologiaCameraRepository}: chi chiama la camera la carica comunque dopo, e
+     * qui serve solo il {@code SELECT ... FOR UPDATE} sulla riga.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c.id from Camera c where c.id = :id")
+    Optional<Long> bloccaPerAssegnazione(@Param("id") Long id);
 }

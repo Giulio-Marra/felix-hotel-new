@@ -548,7 +548,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * {@code CameraRepository.trovaAssegnabili}.
      */
     private Camera cameraScelta(Prenotazione prenotazione) {
-        return cameraRepository.trovaAssegnabili(
+        Camera candidata = cameraRepository.trovaAssegnabili(
                         prenotazione.getTipologiaCamera().getId(),
                         StatoCamera.LIBERA,
                         StatoPrenotazione.CHECK_IN,
@@ -559,6 +559,13 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                 .findFirst()
                 .orElseThrow(() -> new ConflictException(
                         "Nessuna camera di questa tipologia e' assegnabile per il periodo del soggiorno"));
+
+        // **La scelta si ricontrolla dopo aver preso il lock**, e per farlo si passa dalla
+        // stessa porta della camera nominata a mano. Fra questa ricerca e la scrittura che
+        // ne segue, un secondo banco puo' aver ricevuto la stessa risposta: senza il
+        // ricontrollo, due arrivi registrati nello stesso istante prendono la stessa
+        // stanza, e le due chiavi sono materialmente la stessa.
+        return cameraIndicata(prenotazione, candidata.getId());
     }
 
     /**
@@ -588,6 +595,10 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * "lo stato del mondo non lo permette".
      */
     private Camera cameraIndicata(Prenotazione prenotazione, Long cameraId) {
+        // Il lock **prima** dei due controlli qui sotto, che e' tutto il punto: controllare
+        // e poi bloccare lascerebbe la finestra aperta esattamente dov'era.
+        cameraRepository.bloccaPerAssegnazione(cameraId);
+
         Camera camera = cameraRepository.findById(cameraId)
                 .orElseThrow(() -> new BadRequestException("La camera indicata non esiste: " + cameraId));
 
@@ -892,6 +903,15 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      */
     private void verificaDisponibilita(TipologiaCamera tipologia, LocalDate dataCheckIn,
                                        LocalDate dataCheckOut, Long esclusa) {
+        // **Il lock sta qui e non nei due chiamanti**, ed e' la ragione per cui questo
+        // metodo esisteva gia': creazione e conferma fanno la stessa verifica, e un lock
+        // preso in uno solo dei due lascerebbe scoperto l'altro senza che si veda. Dentro
+        // il controllo, invece, chi lo chiama e' protetto per il fatto di chiamarlo.
+        //
+        // Dura fino alla fine della transazione, quindi va preso il piu' tardi possibile:
+        // da qui in poi chiunque venda questa tipologia aspetta.
+        tipologiaCameraRepository.bloccaPerVendita(tipologia.getId());
+
         long camereEsistenti = cameraRepository.countByTipologiaCameraId(tipologia.getId());
         long occupateNellaNottePeggiore = prenotazioneRepository.occupazioneMassimaDi(tipologia.getId(),
                 dataCheckIn, dataCheckOut, StatoPrenotazione.nomiCheOccupano(), esclusa);

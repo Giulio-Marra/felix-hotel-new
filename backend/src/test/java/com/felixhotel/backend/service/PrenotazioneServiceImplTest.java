@@ -385,6 +385,15 @@ class PrenotazioneServiceImplTest {
                 eq(StatoPrenotazione.CHECK_IN), any(LocalDate.class), any(LocalDate.class),
                 any(Limit.class)))
                 .thenReturn(List.of(camere));
+
+        // **Dal 2026-09-03 la camera scelta si rilegge per id**, dopo aver preso il lock
+        // sulla sua riga: fra la scelta e la scrittura un secondo banco puo' aver ricevuto
+        // la stessa risposta, e senza il ricontrollo i due arrivi prendono la stessa
+        // stanza. Qui va quindi insegnato al finto anche il secondo passaggio, altrimenti
+        // il Service trova un id che "non esiste".
+        for (Camera camera : camere) {
+            when(cameraRepository.findById(camera.getId())).thenReturn(Optional.of(camera));
+        }
     }
 
     /** La camera indicata non e' impegnata da nessun'altra prenotazione nel periodo. */
@@ -1465,8 +1474,14 @@ class PrenotazioneServiceImplTest {
             prenotazioneService.checkIn(ID_PRENOTAZIONE, new PrenotazioneCheckInRequest());
 
             // then: sono i due rami dello stesso ternario, e senza questo test quello
-            // del corpo presente ma vuoto non lo esercita nessuno
-            verify(cameraRepository, never()).findById(any());
+            // del corpo presente ma vuoto non lo esercita nessuno.
+            //
+            // **Si guarda che il Service abbia scelto**, e non piu' che non abbia letto
+            // una camera per id: dal 2026-09-03 anche il ramo automatico rilegge per id la
+            // camera che ha scelto, per bloccarne la riga e ricontrollarla. La domanda del
+            // test resta la stessa — chi ha scelto la stanza? — ma la si pone dove adesso
+            // ha una risposta.
+            verify(cameraRepository).trovaAssegnabili(eq(ID_TIPOLOGIA), any(), any(), any(), any(), any());
             verify(prenotazioneRepository).save(any(Prenotazione.class));
         }
     }
