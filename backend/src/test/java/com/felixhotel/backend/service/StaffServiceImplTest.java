@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,6 +44,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -431,6 +433,47 @@ class StaffServiceImplTest {
                     .hasMessageContaining("ultimo amministratore");
 
             verify(staffRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("il conteggio degli amministratori si fa dopo aver preso il lock")
+        void attivazione_prendeIlLockPrimaDiContare() {
+            // **Perche' questo test guarda una chiamata e non un esito.** La regola
+            // "l'ultimo ADMIN non si tocca" si verifica contando gli altri, e fra il
+            // conteggio e la scrittura c'e' una finestra: due disattivazioni simultanee su
+            // due ADMIN vedono ognuna *un altro* amministratore e passano tutte e due,
+            // lasciando il backoffice senza nessuno che possa entrarci.
+            //
+            // La corsa vera non si puo' mettere in scena come per le camere (vedi
+            // ConcorrenzaApiIT): il conteggio guarda **tutti** gli ADMIN attivi del
+            // database, e la suite ne crea a decine — "restano in due" non e' una
+            // situazione costruibile finche' gli IT condividono lo stesso database. Quel
+            // che si puo' provare e' che il lock venga preso, e **prima** del conteggio:
+            // preso dopo, lascerebbe la finestra esattamente dov'era.
+            when(staffRepository.findById(ID)).thenReturn(Optional.of(staffEsistente("ADMIN", true)));
+            when(staffRepository.countByRuoloNomeAndAttivoTrueAndIdNot("ADMIN", ID)).thenReturn(1L);
+            when(staffRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+            staffService.impostaAttivazione(ID, dati.staffAttivazioneRequest(false));
+
+            InOrder ordine = inOrder(ruoloRepository, staffRepository);
+            ordine.verify(ruoloRepository).bloccaPerConteggio("ADMIN");
+            ordine.verify(staffRepository).countByRuoloNomeAndAttivoTrueAndIdNot("ADMIN", ID);
+        }
+
+        @Test
+        @DisplayName("disattivando uno STAFF non prende nessun lock")
+        void attivazione_disattivandoUnoStaff_nonPrendeIlLock() {
+            // L'uscita anticipata viene prima del lock, ed e' voluto: chi non e' un ADMIN
+            // attivo non deve far aspettare chi lo e'. Un lock preso comunque sarebbe una
+            // coda su ogni disattivazione dell'albergo, per una regola che a quei conti non
+            // partecipa
+            when(staffRepository.findById(ID)).thenReturn(Optional.of(staffEsistente("STAFF", true)));
+            when(staffRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+            staffService.impostaAttivazione(ID, dati.staffAttivazioneRequest(false));
+
+            verify(ruoloRepository, never()).bloccaPerConteggio(any());
         }
 
         @Test

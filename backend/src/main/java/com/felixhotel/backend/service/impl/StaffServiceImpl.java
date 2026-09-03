@@ -300,6 +300,13 @@ public class StaffServiceImpl implements StaffService {
             return;
         }
 
+        // **Il lock dopo l'uscita anticipata e prima del conteggio.** Dopo, perche' chi non
+        // e' un ADMIN attivo non deve far aspettare nessuno; prima, perche' contare e poi
+        // bloccare lascerebbe la finestra dov'era. Due disattivazioni simultanee su due
+        // ADMIN vedrebbero altrimenti ognuna *un altro* amministratore, e passerebbero tutte
+        // e due lasciando il backoffice senza nessuno che possa entrarci.
+        ruoloRepository.bloccaPerConteggio(RUOLO_ADMIN);
+
         if (staffRepository.countByRuoloNomeAndAttivoTrueAndIdNot(RUOLO_ADMIN, staff.getId()) == 0) {
             throw new ConflictException(
                     motivo + ": e' l'ultimo amministratore attivo, e senza nessun ADMIN"
