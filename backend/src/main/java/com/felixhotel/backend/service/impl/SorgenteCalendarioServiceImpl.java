@@ -170,6 +170,13 @@ public class SorgenteCalendarioServiceImpl implements SorgenteCalendarioService 
      * previste la manterrebbe solo per quelle previste — bastera' una libreria che ne
      * sollevi una nuova per fermare di nuovo tutto il giro. Qui l'eccezione non e' un caso
      * da distinguere, e' un esito da annotare.
+     *
+     * <p><b>L'annotazione sta fuori dal {@code try} e non dentro i suoi due rami</b>, ed e'
+     * una correzione fatta rileggendo: scritta dentro, un fallimento dell'annotazione stessa
+     * nel ramo buono sarebbe caduto nel {@code catch}, che avrebbe riprovato ad annotare, e
+     * la seconda eccezione — questa fuori da ogni {@code try} — avrebbe fermato il giro.
+     * Cioe' esattamente la cosa che questa classe esiste per impedire, per una via che nessun
+     * test avrebbe percorso. Fuori, l'annotazione avviene una volta sola e sempre.
      */
     private Riepilogo giro() {
         List<Long> sorgenti = sorgenteRepository.tuttiGliId();
@@ -178,20 +185,26 @@ public class SorgenteCalendarioServiceImpl implements SorgenteCalendarioService 
         int inErrore = 0;
 
         for (Long sorgenteId : sorgenti) {
-            try {
-                EsitoSorgente esito = sincronizzatore.sincronizza(sorgenteId);
-                blocchi += esito.blocchiScritti();
+            EsitoSincronizzazione esito;
+            String messaggio;
 
-                if (esito.esito() == EsitoSincronizzazione.CONFLITTI) {
+            try {
+                EsitoSorgente risultato = sincronizzatore.sincronizza(sorgenteId);
+                esito = risultato.esito();
+                messaggio = risultato.messaggio();
+                blocchi += risultato.blocchiScritti();
+
+                if (esito == EsitoSincronizzazione.CONFLITTI) {
                     conConflitti++;
                 }
-                sincronizzatore.registraEsito(sorgenteId, esito.esito(), esito.messaggio());
-
             } catch (RuntimeException ex) {
+                esito = EsitoSincronizzazione.ERRORE;
+                messaggio = ex.getMessage();
                 inErrore++;
                 log.warn("Sorgente {} non sincronizzata: {}", sorgenteId, ex.getMessage());
-                sincronizzatore.registraEsito(sorgenteId, EsitoSincronizzazione.ERRORE, ex.getMessage());
             }
+
+            sincronizzatore.registraEsito(sorgenteId, esito, messaggio);
         }
 
         return new Riepilogo(sorgenti.size(), blocchi, conConflitti, inErrore);

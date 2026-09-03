@@ -226,6 +226,34 @@ class SincronizzatoreSorgenteTest {
     }
 
     @Test
+    @DisplayName("un identificativo piu' lungo della colonna si taglia, non fa fallire il blocco")
+    void sincronizza_uidLunghissimo_taglia() {
+        // Un UID e' lungo quanto vuole il canale. Senza tetto sarebbe una violazione di
+        // vincolo, e con essa un blocco non scritto — cioe' una camera venduta che torna
+        // in vendita. L'UID serve solo a ritrovare la riga del canale: tagliarlo costa la
+        // sua coda, non scriverlo costa un overbooking
+        feed(evento("x".repeat(400) + "@booking.com", "20260910", "20260913"));
+
+        sincronizzatore.sincronizza(ID_SORGENTE);
+
+        assertThat(bloccoScritto().getRiferimentoEsterno()).hasSize(255);
+    }
+
+    @Test
+    @DisplayName("un messaggio piu' lungo della colonna si taglia")
+    void registraEsito_messaggioLunghissimo_taglia() {
+        // Vale soprattutto per il ramo ERRORE, dove il messaggio arriva da un'eccezione di
+        // libreria e non ha nessun limite: una scrittura che fallisse qui farebbe saltare
+        // l'annotazione, e un canale rotto resterebbe rotto in silenzio
+        SorgenteCalendario sorgente = sorgente();
+        when(sorgenteRepository.findById(ID_SORGENTE)).thenReturn(Optional.of(sorgente));
+
+        sincronizzatore.registraEsito(ID_SORGENTE, EsitoSincronizzazione.ERRORE, "e".repeat(5000));
+
+        assertThat(sorgente.getUltimoMessaggio()).hasSize(1000);
+    }
+
+    @Test
     @DisplayName("l'esito si annota anche quando non c'e' niente da dire")
     void registraEsito_scriveSempre() {
         SorgenteCalendario sorgente = sorgente();

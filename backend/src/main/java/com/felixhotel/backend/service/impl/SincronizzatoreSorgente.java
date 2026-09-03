@@ -66,6 +66,22 @@ public class SincronizzatoreSorgente {
      */
     private static final int CONFLITTI_NEL_MESSAGGIO = 3;
 
+    /**
+     * Quanto puo' essere lungo un messaggio salvato, e quanto un riferimento esterno: sono
+     * le due colonne del V15 e del V17 che ricevono testo <b>scritto da qualcun altro</b>.
+     *
+     * <p><b>Si taglia invece di lasciar fallire</b>, ed e' una correzione fatta rileggendo.
+     * Un UID e' lungo quanto vuole il canale e il messaggio di un'eccezione quanto vuole la
+     * libreria che l'ha sollevata: senza un tetto, un valore troppo lungo diventerebbe una
+     * violazione di vincolo, e con essa un blocco non scritto — cioe' <i>una camera venduta
+     * che torna in vendita</i>. Nessuno dei due valori serve a decidere qualcosa: l'UID
+     * serve a ritrovare la riga del canale, il messaggio a raccontare. Tagliarli costa la
+     * coda di un testo, non scriverli costa un overbooking.
+     */
+    private static final int LUNGHEZZA_MESSAGGIO = 1000;
+
+    private static final int LUNGHEZZA_RIFERIMENTO = 255;
+
     private final SorgenteCalendarioRepository sorgenteRepository;
     private final BloccoDisponibilitaRepository bloccoRepository;
     private final PrenotazioneRepository prenotazioneRepository;
@@ -158,7 +174,7 @@ public class SincronizzatoreSorgente {
         sorgenteRepository.findById(sorgenteId).ifPresent(sorgente -> {
             sorgente.setUltimaSincronizzazione(LocalDateTime.now(clock));
             sorgente.setUltimoEsito(esito);
-            sorgente.setUltimoMessaggio(messaggio);
+            sorgente.setUltimoMessaggio(tagliato(messaggio, LUNGHEZZA_MESSAGGIO));
             sorgenteRepository.save(sorgente);
         });
     }
@@ -197,9 +213,17 @@ public class SincronizzatoreSorgente {
         blocco.setDataFine(occupazione.fine());
         blocco.setOrigine(OrigineBlocco.CANALE_ESTERNO);
         blocco.setSorgenteCalendario(sorgente);
-        blocco.setRiferimentoEsterno(occupazione.uid());
+        blocco.setRiferimentoEsterno(tagliato(occupazione.uid(), LUNGHEZZA_RIFERIMENTO));
         blocco.setNote("Venduta su " + sorgente.getNome());
         return blocco;
+    }
+
+    /** Vedi {@link #LUNGHEZZA_MESSAGGIO}: si taglia invece di lasciar fallire la scrittura. */
+    private static String tagliato(String testo, int lunghezza) {
+        if (testo == null || testo.length() <= lunghezza) {
+            return testo;
+        }
+        return testo.substring(0, lunghezza);
     }
 
     /**
