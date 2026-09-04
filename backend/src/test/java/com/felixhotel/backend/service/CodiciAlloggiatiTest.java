@@ -7,8 +7,11 @@ import com.felixhotel.backend.service.impl.CodiciAlloggiati;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,12 +54,91 @@ class CodiciAlloggiatiTest {
     }
 
     @Test
-    @DisplayName("ogni tipo di documento ha il suo codice")
-    void codice_ogniTipoDocumento_esiste() {
+    @DisplayName("ogni documento ammesso ha il suo codice, e il permesso di soggiorno non lo e'")
+    void codice_ogniTipoDocumentoAmmesso_esiste() {
+        // **Non tutti i nostri documenti sono esportabili**, ed e' la scoperta del
+        // confronto col file del Ministero (2026-09-03): fra i novantacinque documenti
+        // ammessi il permesso di soggiorno non c'e'. Prima era mappato su "PERMS", un
+        // codice inventato che il portale avrebbe rifiutato.
         for (TipoDocumento tipo : TipoDocumento.values()) {
-            assertThat(CodiciAlloggiati.codice(tipo))
-                    .as("codice ministeriale di %s", tipo)
-                    .isNotBlank();
+            if (CodiciAlloggiati.ammessoDalMinistero(tipo)) {
+                assertThat(CodiciAlloggiati.codice(tipo))
+                        .as("codice ministeriale di %s", tipo)
+                        .isNotBlank();
+            }
+        }
+
+        assertThat(CodiciAlloggiati.ammessoDalMinistero(TipoDocumento.PERMESSO_SOGGIORNO))
+                .as("il permesso di soggiorno non e' un documento che il Ministero accetta")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("i codici dei tipi di alloggiato sono quelli del file del Ministero")
+    void codiciTipoAlloggiato_combacianoConLaFonte() throws Exception {
+        // **Questo test e' la ragione per cui le due tabelle stanno fra le risorse.** Fino
+        // al 2026-09-03 queste costanti erano l'unico punto del progetto scritto senza una
+        // fonte davanti, e il gap lo diceva. Adesso la fonte c'e' e il confronto si rifa'
+        // ad ogni build: se il Ministero cambia un codice, a dirlo e' una build rossa e non
+        // una schedina rifiutata.
+        Map<String, String> ufficiali = tabella("tipi-alloggiato.csv");
+
+        for (TipoAlloggiato tipo : TipoAlloggiato.values()) {
+            assertThat(ufficiali)
+                    .as("il codice %s di %s deve esistere nella tabella del Ministero",
+                            CodiciAlloggiati.codice(tipo), tipo)
+                    .containsKey(CodiciAlloggiati.codice(tipo));
+        }
+
+        // E il verso opposto: i cinque valori del nostro enum coprono i cinque della
+        // tabella, quindi non c'e' un tipo di alloggiato che non sapremmo dichiarare
+        assertThat(ufficiali).hasSize(TipoAlloggiato.values().length);
+    }
+
+    @Test
+    @DisplayName("i codici dei documenti sono quelli del file del Ministero")
+    void codiciTipoDocumento_combacianoConLaFonte() throws Exception {
+        Map<String, String> ufficiali = tabella("tipi-documento.csv");
+
+        for (TipoDocumento tipo : TipoDocumento.values()) {
+            if (CodiciAlloggiati.ammessoDalMinistero(tipo)) {
+                assertThat(ufficiali)
+                        .as("il codice %s di %s deve esistere nella tabella del Ministero",
+                                CodiciAlloggiati.codice(tipo), tipo)
+                        .containsKey(CodiciAlloggiati.codice(tipo));
+            }
+        }
+
+        // I tre codici usati, con la descrizione che il Ministero gli da': e' il controllo
+        // che prende lo **scambio**, cioe' l'errore che un semplice "esiste" non vedrebbe.
+        // Un PASOR messo sulla patente esisterebbe eccome.
+        assertThat(ufficiali.get(CodiciAlloggiati.codice(TipoDocumento.CARTA_IDENTITA)))
+                .isEqualTo("CARTA DI IDENTITA'");
+        assertThat(ufficiali.get(CodiciAlloggiati.codice(TipoDocumento.PASSAPORTO)))
+                .isEqualTo("PASSAPORTO ORDINARIO");
+        assertThat(ufficiali.get(CodiciAlloggiati.codice(TipoDocumento.PATENTE)))
+                .isEqualTo("PATENTE DI GUIDA");
+    }
+
+    /**
+     * Una tabella ufficiale, letta da {@code src/test/resources/alloggiati/}.
+     *
+     * <p>Il formato e' quello che il portale scarica: una riga di intestazione e poi
+     * {@code codice,descrizione}. Vedi {@code PROVENIENZA.txt} accanto ai file per gli
+     * indirizzi da cui si riscaricano.
+     */
+    private static Map<String, String> tabella(String nome) throws Exception {
+        try (var flusso = CodiciAlloggiatiTest.class.getResourceAsStream("/alloggiati/" + nome)) {
+            assertThat(flusso).as("la tabella %s deve stare fra le risorse di test", nome).isNotNull();
+
+            Map<String, String> righe = new LinkedHashMap<>();
+            for (String riga : new String(flusso.readAllBytes(), StandardCharsets.UTF_8).split("\\R")) {
+                String[] campi = riga.split(",", 2);
+                if (campi.length == 2 && !"Codice".equals(campi[0])) {
+                    righe.put(campi[0].trim(), campi[1].trim());
+                }
+            }
+            return righe;
         }
     }
 
@@ -79,8 +161,14 @@ class CodiciAlloggiatiTest {
         // controllo di esistenza se ne accorgerebbe: il codice duplicato esiste
         assertThat(codiciDistinti(TipoAlloggiato.values(), CodiciAlloggiati::codice))
                 .isEqualTo(TipoAlloggiato.values().length);
-        assertThat(codiciDistinti(TipoDocumento.values(), CodiciAlloggiati::codice))
-                .isEqualTo(TipoDocumento.values().length);
+        // Solo i documenti ammessi: dal 2026-09-03 il permesso di soggiorno non ha un
+        // codice, perche' il Ministero non lo accetta — chiederglielo qui solleverebbe
+        // l'eccezione che segnala una mappa incompleta, che non e' il caso.
+        TipoDocumento[] ammessi = Arrays.stream(TipoDocumento.values())
+                .filter(CodiciAlloggiati::ammessoDalMinistero)
+                .toArray(TipoDocumento[]::new);
+        assertThat(codiciDistinti(ammessi, CodiciAlloggiati::codice))
+                .isEqualTo(ammessi.length);
         assertThat(codiciDistinti(Sesso.values(), CodiciAlloggiati::codice))
                 .isEqualTo(Sesso.values().length);
     }

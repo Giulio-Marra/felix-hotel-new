@@ -20,11 +20,17 @@ import java.util.Map;
  * nostra: la voce lasciata aperta il 2026-09-01 chiudendo
  * {@code feature/codifiche-ministeriali}.
  *
- * <p><b>Le costanti qui dentro sono l'unico punto del branch che non si e' potuto
- * verificare contro una fonte</b>, e va detto invece che nascosto. I codici veri si
- * leggono dalle tabelle che il portale Alloggiati pubblica, e quelle tabelle qui non
- * ci sono — per la stessa decisione che ha lasciato {@code voce_codifica} vuota:
- * scriverle a memoria vorrebbe dire inventare dati che devono essere esatti.
+ * <p><b>Confrontate col file del Ministero il 2026-09-03</b>, che e' quel che questa
+ * classe aspettava dal 2026-09-01. Le due tabelle ufficiali si scaricano da
+ * {@code alloggiatiweb.poliziadistato.it/portalealloggiati/tabelle.aspx} e stanno in
+ * {@code src/test/resources/alloggiati/}, cosi' il confronto non e' un ricordo di una
+ * sessione ma un test che gira ad ogni build ({@code CodiciAlloggiatiTest}).
+ *
+ * <p><b>Il confronto ha trovato un errore vero</b>: il permesso di soggiorno era mappato
+ * su {@code PERMS}, che nella tabella del Ministero <b>non esiste</b> — e non esiste
+ * nemmeno un codice giusto da metterci al posto suo, perche' fra i novantacinque
+ * documenti ammessi il permesso di soggiorno non c'e'. Vedi
+ * {@link #TIPI_DOCUMENTO}, dove adesso quella voce e' assente apposta.
  *
  * <p><b>Cio' che il codice puo' fare, e fa, e' non lasciare che un errore qui
  * diventi silenzioso.</b> Ogni codice che questa classe restituisce viene cercato
@@ -81,8 +87,7 @@ public final class CodiciAlloggiati {
             new EnumMap<>(Map.of(
                     TipoDocumento.CARTA_IDENTITA, "IDENT",
                     TipoDocumento.PASSAPORTO, "PASOR",
-                    TipoDocumento.PATENTE, "PATEN",
-                    TipoDocumento.PERMESSO_SOGGIORNO, "PERMS"));
+                    TipoDocumento.PATENTE, "PATEN"));
 
     /**
      * Il sesso come lo vuole il tracciato: una cifra.
@@ -115,6 +120,22 @@ public final class CodiciAlloggiati {
     /** La cifra del tracciato per il sesso. */
     public static String codice(Sesso sesso) {
         return richiedi(SESSI.get(sesso), sesso);
+    }
+
+    /**
+     * Se quel documento il Ministero lo accetta sulla schedina.
+     *
+     * <p><b>Esiste perche' la risposta non e' sempre si'</b>, ed e' la scoperta del
+     * confronto col file ufficiale: il permesso di soggiorno non compare fra i
+     * novantacinque documenti ammessi, e non e' una svista della tabella — la schedina
+     * chiede un documento di identita', e un permesso di soggiorno non lo e'.
+     *
+     * <p>Chi chiama deve usarlo <b>prima</b> di {@link #codice(TipoDocumento)}: quello,
+     * per un documento non ammesso, solleverebbe l'eccezione che segnala una mappa
+     * incompleta — cioe' darebbe la colpa a noi per una regola del Ministero.
+     */
+    public static boolean ammessoDalMinistero(TipoDocumento documento) {
+        return TIPI_DOCUMENTO.containsKey(documento);
     }
 
     /**

@@ -239,31 +239,37 @@ class TracciatoAlloggiatiTest {
         }
 
         @Test
-        @DisplayName("novanta notti ci stanno: e' il massimo che una prenotazione possa durare")
-        void formatta_novantaNotti_ciSta() {
+        @DisplayName("trenta notti ci stanno: e' il massimo che il Ministero accetti")
+        void formatta_trentaNotti_ciSta() {
             // when
             String testo = TracciatoAlloggiati.formatta(
-                    new RigaSchedina("16", ARRIVO, 90, "ROSSI", "MARIO", "1", NASCITA,
+                    new RigaSchedina("16", ARRIVO, 30, "ROSSI", "MARIO", "1", NASCITA,
                             "058091", "RM", null, "100000100", "IDENT", "CA1", "058091"));
 
-            // then: il tetto delle 90 notti (deciso il 2026-09-01) sta sotto le due cifre
-            // del tracciato, e questo test e' cio' che se ne accorgerebbe se salisse
-            assertThat(testo.substring(PERMANENZA_DA, PERMANENZA_A)).isEqualTo("90");
+            // then: 30 e non 99. Fino al 2026-09-03 questo test diceva 90, perche' il
+            // limite era stato letto sulla larghezza del campo invece che sulla sua
+            // regola — la tabella ufficiale, accanto a "Numero Giorni di Permanenza",
+            // dice "Massimo 30 gg"
+            assertThat(testo.substring(PERMANENZA_DA, PERMANENZA_A)).isEqualTo("30");
         }
 
         @Test
-        @DisplayName("oltre le due cifre si ferma invece di scrivere una riga storta")
+        @DisplayName("oltre i trenta si ferma invece di scrivere una riga che verra' rifiutata")
         void formatta_permanenzaFuoriScala_sollevaIllegalState() {
-            // given: non raggiungibile da nessuna prenotazione valida, perche' il tetto
-            // e' 90. Il controllo esiste per il giorno in cui quel tetto cambiasse
-            RigaSchedina riga = new RigaSchedina("16", ARRIVO, 100, "ROSSI", "MARIO", "1",
+            // given: 31, cioe' il primo giorno che il Ministero non accetta. **E'
+            // raggiungibile**, e questa e' la differenza col caso di prima: il progetto
+            // vende soggiorni fino a 90 notti, quindi fra 31 e 90 c'e' un intervallo di
+            // prenotazioni legittime che qui non passano
+            RigaSchedina riga = new RigaSchedina("16", ARRIVO, 31, "ROSSI", "MARIO", "1",
                     NASCITA, "058091", "RM", null, "100000100", "IDENT", "CA1", "058091");
 
-            // when/then: IllegalStateException e non una riga di 169 caratteri. Il difetto
-            // sarebbe nostro, non di chi chiama
+            // when/then: IllegalStateException e non una riga formalmente giusta che il
+            // portale rifiuterebbe due giorni dopo senza dire perche'. Chi arriva fin qui
+            // ha aggirato il 409 del Service, che e' il posto in cui il caso si spiega:
+            // questa e' la rete sotto, e infatti parla di un difetto nostro
             assertThatThrownBy(() -> TracciatoAlloggiati.formatta(riga))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("100");
+                    .hasMessageContaining("31");
         }
     }
 

@@ -72,15 +72,25 @@ public final class TracciatoAlloggiati {
     private static final int LUNGHEZZA_LUOGO_RILASCIO = 9;
 
     /**
-     * Il massimo che le due cifre della permanenza sanno scrivere.
+     * Il massimo che il Ministero accetta: <b>30 giorni</b>.
      *
-     * <p>Non e' un limite che questa classe imponga: un soggiorno non puo' superare
-     * le 90 notti (deciso il 2026-09-01, applicato da ricerca e creazione), quindi il
-     * caso non e' raggiungibile da nessuna prenotazione valida. Sta qui perche' se un
-     * giorno quel tetto salisse sopra 99, e' questo il posto che si rompe — e meglio
-     * che si rompa dicendolo.
+     * <p><b>Corretto il 2026-09-03, e prima era 99.</b> Novantanove era il massimo che
+     * due cifre sanno scrivere, ed era una lettura del tracciato fatta guardando la
+     * larghezza del campo invece della sua regola: la tabella ufficiale, accanto a
+     * "Numero Giorni di Permanenza", dice <i>Massimo 30 gg</i>. Il campo ne accetta due
+     * di cifre, ma non tutti i numeri a due cifre.
+     *
+     * <p><b>La conseguenza era raggiungibile</b>, e questo e' il punto: il progetto vende
+     * soggiorni fino a <b>90 notti</b> (deciso il 2026-09-01), quindi ogni soggiorno fra
+     * 31 e 90 notti produceva una riga formalmente giusta che il portale avrebbe
+     * rifiutato — due giorni dopo, senza spiegare perche'. Adesso si ferma qui, dicendolo.
+     *
+     * <p><b>Il rimedio vero non e' questo numero</b> ma cosa fare di un soggiorno lungo:
+     * il Ministero vuole che venga dichiarato a scaglioni, e quello e' dominio che
+     * qualcuno deve decidere. Sta nei gap con l'innesco. Finche' non e' deciso, meglio un
+     * rifiuto che si legge qui che un file rifiutato la' senza motivo.
      */
-    private static final int PERMANENZA_MASSIMA = 99;
+    private static final int PERMANENZA_MASSIMA = 30;
 
     /**
      * I caratteri che il tracciato accetta dopo la traslitterazione: lettere,
@@ -238,7 +248,8 @@ public final class TracciatoAlloggiati {
     private static String permanenza(int giorni) {
         if (giorni < 1 || giorni > PERMANENZA_MASSIMA) {
             throw new IllegalStateException("Permanenza di " + giorni
-                    + " notti: il tracciato ne scrive al massimo " + PERMANENZA_MASSIMA);
+                    + " notti: il Ministero ne accetta al massimo " + PERMANENZA_MASSIMA
+                    + " per schedina");
         }
         return String.format(Locale.ROOT, "%02d", giorni);
     }

@@ -344,6 +344,71 @@ class AlloggiatiServiceImplTest {
                     .isInstanceOf(ConflictException.class);
             verifyNoInteractions(apiResponseMapper);
         }
+
+        @Test
+        @DisplayName("un permesso di soggiorno e' 409: il Ministero non lo accetta come documento")
+        void esporta_permessoDiSoggiorno_sollevaConflict() {
+            // given: un documento che sappiamo registrare e che la schedina non prevede.
+            // Fra i novantacinque della tabella ufficiale il permesso di soggiorno non
+            // c'e' — confrontato col file del Ministero il 2026-09-03 — e fino ad allora
+            // veniva esportato come "PERMS", un codice inventato
+            autenticaStaff();
+            Prenotazione prenotazione = prenotazione();
+            Ospite ospite = ospiteCompleto("ROSSI", "MARIO", TipoAlloggiato.OSPITE_SINGOLO, prenotazione);
+            ospite.setTipoDocumento(TipoDocumento.PERMESSO_SOGGIORNO);
+            arrivi(prenotazione, List.of(ospite));
+            codificheComplete();
+
+            // when/then: 409 e non 500. Non e' rotto niente da noi: e' chi sta al banco a
+            // dover chiedere un altro documento, e il messaggio glielo dice
+            assertThatThrownBy(() -> alloggiatiService.esportaSchedine(ARRIVO))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("documenti ammessi dal Ministero")
+                    .hasMessageContaining("passaporto");
+        }
+
+        @Test
+        @DisplayName("un soggiorno di trentuno notti e' 409: una schedina ne dichiara trenta")
+        void esporta_soggiornoOltreTrentaNotti_sollevaConflict() {
+            // given: trentuno notti, cioe' la prima durata che il Ministero non accetta su
+            // una schedina sola. **E' una prenotazione legittima**: questo progetto ne
+            // vende fino a 90 (deciso il 2026-09-01), quindi l'intervallo fra 31 e 90
+            // esiste davvero e prima produceva un file che il portale avrebbe rifiutato
+            // due giorni dopo, senza dire perche'
+            autenticaStaff();
+            Prenotazione prenotazione = prenotazione();
+            prenotazione.setDataCheckOut(ARRIVO.plusDays(31));
+            Ospite ospite = ospiteCompleto("ROSSI", "MARIO", TipoAlloggiato.OSPITE_SINGOLO, prenotazione);
+            arrivi(prenotazione, List.of(ospite));
+            codificheComplete();
+
+            // when/then: 409, e il messaggio dice sia il limite sia cosa manca al progetto
+            // per gestirlo — dichiarare il soggiorno a scaglioni
+            assertThatThrownBy(() -> alloggiatiService.esportaSchedine(ARRIVO))
+                    .isInstanceOf(ConflictException.class)
+                    .hasMessageContaining("30")
+                    .hasMessageContaining("scaglioni");
+        }
+
+        @Test
+        @DisplayName("trenta notti passano: il limite e' il primo valore fuori, non l'ultimo dentro")
+        void esporta_soggiornoDiTrentaNotti_passa() {
+            // given: la stessa prenotazione di sopra, una notte piu' corta. Serve a
+            // provare che il confine sia dove deve essere: un controllo con il segno
+            // sbagliato rifiuterebbe anche questa, e il test di sopra passerebbe lo stesso
+            autenticaStaff();
+            Prenotazione prenotazione = prenotazione();
+            prenotazione.setDataCheckOut(ARRIVO.plusDays(30));
+            Ospite ospite = ospiteCompleto("ROSSI", "MARIO", TipoAlloggiato.OSPITE_SINGOLO, prenotazione);
+            arrivi(prenotazione, List.of(ospite));
+            codificheComplete();
+
+            // when
+            alloggiatiService.esportaSchedine(ARRIVO);
+
+            // then: una schedina, scritta
+            assertThat(rispostaCatturata().getNumeroSchedine()).isEqualTo(1);
+        }
     }
 
     @Nested

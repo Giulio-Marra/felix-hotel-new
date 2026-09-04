@@ -1,0 +1,15 @@
+Le due tabelle in questa cartella sono i file ufficiali del Ministero, scaricati il
+2026-09-03 da:
+
+  https://alloggiatiweb.poliziadistato.it/portalealloggiati/tabelle.aspx
+    -> ashx/Download.ashx?ID=2   (tipi di documento, 95 codici)
+    -> ashx/Download.ashx?ID=3   (tipi di alloggiato, 5 codici)
+
+Non si modificano a mano: sono la FONTE contro cui CodiciAlloggiatiTest confronta le
+costanti del progetto. Se un giorno il Ministero le cambia, si riscaricano da quegli
+indirizzi e si lascia che il test dica cosa non torna piu'.
+
+Sono qui e non fra le migration per una ragione precisa: quel che il Ministero pubblica
+lo importa l'ADMIN in `voce_codifica` (V12, regola 24, quarta riga). Queste copie non
+servono all'applicazione, servono a **provare** che la nostra tabella di traduzione dica
+i codici giusti — sono materiale di test, non dati.

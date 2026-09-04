@@ -65,6 +65,17 @@ import java.util.stream.Collectors;
 public class AlloggiatiServiceImpl implements AlloggiatiService {
 
     /**
+     * Quanti giorni di permanenza il Ministero accetta su una schedina sola.
+     *
+     * <p>Trenta, e lo dice il tracciato ufficiale accanto al campo "Numero Giorni di
+     * Permanenza". Sta qui e non in {@code TracciatoAlloggiati} perche' li' sarebbe un
+     * {@code IllegalStateException} — cioe' un 500 — mentre un soggiorno di quarantacinque
+     * notti non e' un guasto nostro: e' una prenotazione legittima che quel modulo non sa
+     * dichiarare. Il limite del tracciato resta comunque, come rete sotto.
+     */
+    private static final int GIORNI_MASSIMI_PER_SCHEDINA = 30;
+
+    /**
      * Gli stati che vogliono dire "questa persona e' arrivata davvero".
      *
      * <p><b>Non e' {@code StatoPrenotazione.occupaCamera()}</b>, che comprende anche
@@ -270,9 +281,15 @@ public class AlloggiatiServiceImpl implements AlloggiatiService {
         stati.addAll(valori(schedine, s -> s.ospite().getCittadinanza()));
         stati.addAll(luoghiRilascio);
 
+        // I documenti che il Ministero non ammette si saltano qui, e non perche' non
+        // contino: chiederne il codice solleverebbe l'eccezione delle mappe incomplete —
+        // cioe' un 500 — mentre questo stadio serve solo a sapere quali codifiche
+        // leggere. Il rifiuto lo dice il controllo per ospite, con un 409 che spiega
+        // cosa fare
         Set<String> tipiDocumento = schedine.stream()
                 .map(s -> s.ospite().getTipoDocumento())
                 .filter(Objects::nonNull)
+                .filter(CodiciAlloggiati::ammessoDalMinistero)
                 .map(CodiciAlloggiati::codice)
                 .collect(Collectors.toSet());
 
@@ -356,6 +373,19 @@ public class AlloggiatiServiceImpl implements AlloggiatiService {
         assicuraCodice(codifiche.stati(), ospite.getCittadinanza(), TipoCodifica.STATO, ospite);
 
         if (ospite.getTipoDocumento() != null) {
+            // **Il Ministero non accetta tutti i documenti che sappiamo registrare.** Fra i
+            // novantacinque della sua tabella il permesso di soggiorno non c'e' — verificato
+            // sul file ufficiale il 2026-09-03 — quindi non c'e' nessun codice da scrivere in
+            // quella casella. Si dice qui e si dice chiaro: senza questo controllo verrebbe
+            // fuori un 500, cioe' "e' rotto qualcosa da noi", mentre non e' rotto niente ed e'
+            // chi sta al banco a dover chiedere un altro documento.
+            if (!CodiciAlloggiati.ammessoDalMinistero(ospite.getTipoDocumento())) {
+                throw new ConflictException("Il documento di " + ospite.getCognome() + " "
+                        + ospite.getNome() + " e' un " + ospite.getTipoDocumento().name()
+                        + ", che non compare fra i documenti ammessi dal Ministero:"
+                        + " la schedina va rifatta con un altro documento (di solito il passaporto)");
+            }
+
             assicuraCodice(codifiche.tipiDocumento(), CodiciAlloggiati.codice(ospite.getTipoDocumento()),
                     TipoCodifica.TIPO_DOCUMENTO, ospite);
 
@@ -425,7 +455,23 @@ public class AlloggiatiServiceImpl implements AlloggiatiService {
      * stessa sottrazione che il tracciato chiama "giorni di permanenza".
      */
     private int notti(Prenotazione prenotazione) {
-        return (int) ChronoUnit.DAYS.between(prenotazione.getDataCheckIn(), prenotazione.getDataCheckOut());
+        int giorni = (int) ChronoUnit.DAYS.between(
+                prenotazione.getDataCheckIn(), prenotazione.getDataCheckOut());
+
+        // **Il Ministero accetta al massimo 30 giorni per schedina** (verificato sul
+        // tracciato ufficiale il 2026-09-03), mentre questo progetto vende soggiorni fino
+        // a 90 notti: fra 31 e 90 il file sarebbe formalmente giusto e verrebbe rifiutato
+        // dal portale due giorni dopo, senza dire perche'. Meglio fermarsi qui.
+        //
+        // 409 e non 500: la prenotazione e' legittima e non c'e' niente di rotto da noi.
+        // Cosa farne — dichiararla a scaglioni, che e' quel che il Ministero si aspetta —
+        // e' dominio che nessuno ha ancora deciso, e sta nei gap.
+        if (giorni > GIORNI_MASSIMI_PER_SCHEDINA) {
+            throw new ConflictException("Il soggiorno di " + giorni + " notti supera i "
+                    + GIORNI_MASSIMI_PER_SCHEDINA + " giorni che il Ministero accetta su una"
+                    + " schedina: va dichiarato a scaglioni, e il progetto non sa ancora farlo");
+        }
+        return giorni;
     }
 
     /**
