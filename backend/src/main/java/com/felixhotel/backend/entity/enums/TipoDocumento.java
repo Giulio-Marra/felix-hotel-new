@@ -3,9 +3,16 @@ package com.felixhotel.backend.entity.enums;
 /**
  * Che documento un {@link Ospite} ha esibito al banco.
  *
- * <p>L'elenco ricalca quello che la Questura accetta sulla schedina alloggiati
- * ed e' volutamente corto: sono i quattro documenti che una reception vede
- * davvero. Aggiungerne uno e' una modifica al solo contratto e a questo enum.
+ * <p>L'elenco e' volutamente corto: sono i quattro documenti che una reception
+ * vede davvero. Aggiungerne uno e' una modifica al solo contratto e a questo enum.
+ *
+ * <p><b>Non coincide con quel che la Questura accetta sulla schedina</b>, e fino al
+ * 2026-09-04 questo javadoc diceva il contrario. Il permesso di soggiorno si
+ * registra qui — e' un documento vero, esibito davvero al banco — ma fra i
+ * novantacinque della tabella ministeriale non c'e', perche' la schedina chiede un
+ * documento di <i>identita</i>. Chi esporta deve quindi chiedere prima
+ * {@code CodiciAlloggiati.ammessoDalMinistero}: registrare e dichiarare sono due
+ * obblighi diversi, e questo enum serve al primo.
  *
  * <p><b>Al contrario di {@link StatoPrenotazione} e {@link CanalePrenotazione},
  * il database non lo verifica.</b> Quei due hanno un {@code CHECK} nel DDL che
@@ -35,6 +42,9 @@ public enum TipoDocumento {
     /** Patente di guida. */
     PATENTE,
 
-    /** Permesso di soggiorno. */
+    /**
+     * Permesso di soggiorno. <b>Si registra ma non si esporta</b>: e' l'unico valore
+     * di questo elenco che il Ministero non accetta sulla schedina alloggiati.
+     */
     PERMESSO_SOGGIORNO
 }
