@@ -2575,6 +2575,163 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/prenotazioni/{id}/pagamenti:
+
+    get:
+      tags:
+        - Pagamenti
+      operationId: elencaPagamentiPrenotazione
+      summary: Cosa e' stato versato su questa prenotazione, e quanto manca
+      description: >
+        L'estratto dei versamenti incassati su una prenotazione, con in testa il
+        conto che serve a chi sta al banco: quanto costa il soggiorno, quanto se
+        ne doveva in anticipo, quanto e' entrato e **quanto resta da incassare**.
+
+        La vedono **STAFF** e **ADMIN** su qualunque prenotazione, e il **cliente
+        sulla propria** — sono i suoi soldi, e nascondergli quanto ha versato non
+        avrebbe nessun senso. La prenotazione di un altro cliente risponde **404 e
+        non 403**, come ogni altra rotta sotto /api/prenotazioni.
+
+        **Il riepilogo si ricalcola ad ogni chiamata e non e' memorizzato da
+        nessuna parte.** 'incassato' e' la somma dei versamenti, 'residuo' una
+        sottrazione: un totale scritto in una colonna sarebbe una seconda verita'
+        libera di divergere dalla prima, e in un registro di denaro due numeri che
+        non tornano sono peggio di un numero solo.
+
+        **'caparraDovuta' e' una fotografia della politica di oggi, non di quella
+        del giorno della prenotazione**: si calcola con la percentuale che
+        l'albergo ha configurato adesso (PUT /api/impostazioni). Se la percentuale
+        cambia, cambia anche quel che risulta dovuto in anticipo sulle
+        prenotazioni gia' prese — al contrario di 'importoTotale', che invece resta
+        quello fissato alla creazione. Sono due scelte diverse e volute: il prezzo
+        e' un accordo gia' preso col cliente, la caparra e' una regola di incasso
+        della struttura.
+
+        **Su una prenotazione senza versamenti risponde 200 con l'elenco vuoto**, e
+        non 404: "non ha ancora pagato niente" e' una risposta, non un errore.
+
+        Risposta: busta ApiBaseResponse con **RiepilogoPagamentiResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      responses:
+        '200':
+          description: Riepilogo dei pagamenti ('data' = RiepilogoPagamentiResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 200
+                message: Pagamenti della prenotazione
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  importoTotale: 360.00
+                  caparraDovuta: 108.00
+                  incassato: 108.00
+                  residuo: 252.00
+                  saldata: false
+                  pagamenti:
+                    - id: 7
+                      importo: 108.00
+                      metodo: BONIFICO
+                      incassatoIl: 2026-09-02T09:15:00
+                      riferimento: CRO 1234567890
+                      registratoDa:
+                        id: 3
+                        nome: Anna
+                        cognome: Bianchi
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags:
+        - Pagamenti
+      operationId: registraPagamento
+      summary: Registra un incasso su questa prenotazione
+      description: >
+        Scrive un versamento nel registro: contanti al banco, un bonifico arrivato
+        sul conto, una carta passata sul POS. **Solo STAFF e ADMIN**, e qui il
+        cliente non entra nemmeno sulla propria prenotazione — dichiarare di aver
+        pagato non e' un gesto che possa fare chi paga.
+
+        **Registra un incasso avvenuto, non lo esegue.** Nessun denaro si muove per
+        effetto di questa chiamata: il pagamento online, quello in cui il denaro si
+        muove davvero, arrivera' con l'integrazione del fornitore e avra' una rotta
+        sua.
+
+        **Non si puo' incassare piu' del dovuto**: se l'importo supera quel che
+        resta da pagare e' **409**, e il messaggio dice quanto sarebbe il residuo.
+        Non e' una raffinatezza contabile ma la difesa dall'errore di digitazione
+        che capita davvero — un 1080 al posto di 108 — e che senza questo controllo
+        finirebbe nel registro senza che nessuno se ne accorga fino ai conti di fine
+        mese.
+
+        **Su una prenotazione ANNULLATA e' 409.** Incassare su un soggiorno che non
+        avverra' e' quasi sempre uno sbaglio di persona; e se davvero l'albergo
+        tiene una penale, quella e' una decisione contabile che questo registro non
+        sa ancora rappresentare.
+
+        **Si puo' invece incassare su una prenotazione ancora IN_ATTESA**, ed e'
+        voluto: la caparra e' spesso proprio la cosa che precede la conferma. Le due
+        macchine sono indipendenti — confermare non pretende di aver incassato, e
+        incassare non conferma niente.
+
+        **Quel che si registra non si cancella**: non c'e' nessuna rotta che tolga
+        un pagamento. Un incasso sbagliato si corregge con la stessa strada con cui
+        si corregge in contabilita' — una scrittura che lo compensa — che questo
+        branch non ha ancora, e sta nei debiti.
+
+        Risposta: busta ApiBaseResponse con **PagamentoResponse** in 'data'.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPrenotazione'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PagamentoRequest'
+      responses:
+        '201':
+          description: Pagamento registrato ('data' = PagamentoResponse)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiBaseResponse'
+              example:
+                status: 201
+                message: Pagamento registrato
+                timestamp: 2026-09-10T15:04:00Z
+                data:
+                  id: 7
+                  importo: 108.00
+                  metodo: BONIFICO
+                  incassatoIl: 2026-09-02T09:15:00
+                  riferimento: CRO 1234567890
+                  registratoDa:
+                    id: 3
+                    nome: Anna
+                    cognome: Bianchi
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/disponibilita:
 
     get:
@@ -6472,6 +6629,27 @@ components:
             Identificativo assegnato dalla Questura per l'invio delle schedine
             ad Alloggiati Web. Senza, le schedine non si possono trasmettere.
           example: "RN012345"
+        percentualeCaparra:
+          type: number
+          description: >
+            Quanto si chiede in anticipo, in percentuale sull'importo totale del
+            soggiorno. La usa il riepilogo dei pagamenti per dire quanto sarebbe
+            dovuto: GET /api/prenotazioni/{id}/pagamenti.
+
+            **Gli estremi sono due politiche vere e non due casi limite**: 0 vuol
+            dire "nessuna caparra, si paga tutto in struttura" ed e' il default; 100
+            vuol dire "si paga tutto alla conferma", che e' la politica delle
+            tariffe non rimborsabili.
+
+            **Cambiarla non tocca il denaro gia' incassato**, ma cambia quel che
+            risulta dovuto in anticipo sulle prenotazioni gia' prese: e' una regola
+            di incasso della struttura, non un accordo preso col singolo cliente.
+
+            Al massimo **due decimali**, come ogni altro numero in colonna
+            NUMERIC(_,2) del progetto.
+          minimum: 0
+          maximum: 100
+          example: 30.00
 
     ImpostazioniHotelResponse:
       type: object
@@ -6523,6 +6701,12 @@ components:
         codiceStrutturaAlloggiati:
           type: string
           example: "RN012345"
+        percentualeCaparra:
+          type: number
+          description: >
+            Percentuale dell'importo totale richiesta in anticipo. Zero vuol dire
+            che la struttura non chiede caparra.
+          example: 30.00
 
     ImpostazioniHotelPubblicheResponse:
       type: object
@@ -6966,6 +7150,167 @@ components:
             prenotazione ancora IN_ATTESA, dove nessuno e' stato registrato.
           items:
             $ref: '#/components/schemas/TassaSoggiornoOspite'
+
+    MetodoPagamento:
+      type: string
+      description: >
+        Come il denaro e' arrivato.
+
+        **Tre valori e non quattro: manca il pagamento online**, e l'assenza e'
+        deliberata. Nascera' con l'integrazione del fornitore, insieme al codice
+        che lo produce: dichiararlo adesso vorrebbe dire una voce che nessuna
+        risposta puo' contenere, cioe' un menu che il frontend disegna e che non
+        funziona.
+
+        Non e' l'elenco dei modi di pagare di un albergo, e' l'elenco di quelli
+        che questo registro sa **distinguere**: un assegno o un buono vacanza si
+        registrano per quel che sono in 'riferimento'.
+      enum:
+        - CONTANTI
+        - BONIFICO
+        - POS
+      example: BONIFICO
+
+    PagamentoRequest:
+      type: object
+      description: >
+        Un incasso avvenuto, che si sta scrivendo nel registro. I limiti ricalcano
+        le colonne del database, vedi V19__pagamenti.sql.
+
+        **Non c'e' un campo per dire "questa e' la caparra"**: e' un'etichetta che
+        si ricava — la caparra dovuta e' una percentuale dell'importo totale e il
+        residuo e' una sottrazione — e scriverla vorrebbe dire la stessa verita' in
+        due posti, con la seconda libera di divergere dalla prima.
+
+        **Non c'e' nemmeno un campo per chi lo registra**: e' chi sta chiamando,
+        preso dal token. Lasciarlo scegliere vorrebbe dire un registro di denaro in
+        cui si puo' firmare col nome di un altro.
+      required:
+        - importo
+        - metodo
+      properties:
+        importo:
+          type: number
+          description: >
+            Quanto e' stato versato, in euro. **Maggiore di zero**: un versamento
+            da zero non e' un versamento, e un rimborso non e' un importo negativo
+            — quello sara' una scrittura sua, con la sua causale.
+
+            Non puo' superare quel che resta da pagare: e' 409, e il messaggio dice
+            quanto sarebbe il residuo.
+
+            Al massimo **due decimali**, come ogni altro importo del progetto: la
+            colonna e' NUMERIC(10,2) e un terzo decimale verrebbe troncato in
+            silenzio, cioe' la risposta direbbe un numero e il database ne
+            conserverebbe un altro.
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 99999999.99
+          example: 108.00
+        metodo:
+          $ref: '#/components/schemas/MetodoPagamento'
+        incassatoIl:
+          type: string
+          format: date-time
+          description: >
+            **Quando il denaro e' arrivato**, che non e' quando lo si sta
+            scrivendo qui: un bonifico si vede sul conto il lunedi' e lo si
+            registra il martedi'.
+
+            Facoltativo: omesso vale adesso, che e' il caso dei contanti e del POS.
+            **Non puo' stare nel futuro** — un incasso che deve ancora avvenire non
+            e' un incasso — ed e' 400.
+          example: 2026-09-02T09:15:00
+        riferimento:
+          type: string
+          maxLength: 100
+          description: >
+            Il numero del bonifico, l'identificativo della transazione POS, il
+            numero della ricevuta. Facoltativo: i contanti non ne hanno uno, e
+            inventarne uno sarebbe peggio che lasciarlo vuoto.
+          example: CRO 1234567890
+
+    PagamentoResponse:
+      type: object
+      description: >
+        Un versamento come viene restituito.
+
+        **Chi l'ha registrato esce in sintesi** (id, nome, cognome) e non per
+        esteso: serve a sapere a chi chiedere spiegazioni il giorno in cui i conti
+        non tornano, non a leggere la scheda di quella persona. Manca sui pagamenti
+        che un domani arriveranno da un fornitore, che nessuno registra a mano.
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 7
+        importo:
+          type: number
+          example: 108.00
+        metodo:
+          $ref: '#/components/schemas/MetodoPagamento'
+        incassatoIl:
+          type: string
+          format: date-time
+          description: Il momento in cui il denaro e' arrivato.
+          example: 2026-09-02T09:15:00
+        riferimento:
+          type: string
+          example: CRO 1234567890
+        registratoDa:
+          $ref: '#/components/schemas/StaffSintesi'
+
+    RiepilogoPagamentiResponse:
+      type: object
+      description: >
+        Il conto dei pagamenti di una prenotazione: prima i numeri che servono a
+        decidere, poi l'elenco dei versamenti.
+
+        **Sono tutti calcolati al momento della lettura.** Nessuno di questi campi
+        vive in una colonna: 'incassato' e' la somma dei versamenti, 'residuo' e
+        'saldata' sono sottrazioni. Una somma non va mai fuori sincrono con i suoi
+        addendi, una colonna si'.
+      properties:
+        importoTotale:
+          type: number
+          description: >
+            Quanto costa il soggiorno, cioe' l''importoTotale' della prenotazione:
+            la fotografia presa alla creazione, che il listino di domani non tocca.
+          example: 360.00
+        caparraDovuta:
+          type: number
+          description: >
+            Quanto si sarebbe dovuto versare in anticipo, secondo la percentuale
+            configurata dalla struttura **oggi**.
+
+            **Zero vuol dire che l'albergo non chiede caparra**, non che e' gia'
+            stata versata: e' la configurazione di default, e per un albergo che
+            incassa tutto all'arrivo e' la risposta giusta.
+          example: 108.00
+        incassato:
+          type: number
+          description: La somma di tutti i versamenti registrati. Zero se non ce n'e' nessuno.
+          example: 108.00
+        residuo:
+          type: number
+          description: >
+            Quanto resta da incassare: 'importoTotale' meno 'incassato'. **Non
+            scende mai sotto zero**, perche' non si puo' incassare piu' del dovuto.
+          example: 252.00
+        saldata:
+          type: boolean
+          description: >
+            Se il soggiorno e' pagato per intero, cioe' se 'residuo' e' zero.
+
+            **E' un comodo, non una verita' in piu'**: dice la stessa cosa del
+            residuo, ed esiste perche' un frontend che deve solo colorare una riga
+            non debba confrontare due decimali per saperlo.
+          example: false
+        pagamenti:
+          type: array
+          description: I versamenti, dal piu' vecchio al piu' recente.
+          items:
+            $ref: '#/components/schemas/PagamentoResponse'
 
     PeriodoTariffarioRequest:
       type: object

@@ -1,6 +1,8 @@
 package com.felixhotel.backend.api;
 
 import com.felixhotel.backend.dto.CameraStatoRequest;
+import com.felixhotel.backend.dto.MetodoPagamento;
+import com.felixhotel.backend.dto.PagamentoRequest;
 import com.felixhotel.backend.dto.PrenotazioneRequest;
 import com.felixhotel.backend.dto.RegisterRequest;
 import com.felixhotel.backend.dto.StatoCamera;
@@ -12,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,12 +25,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * I due punti in cui due richieste simultanee potevano vendere la stessa cosa due volte.
+ *
+ * <p><b>Dal 2026-09-04 i punti sono tre</b>: il terzo e' il registro dei pagamenti, dove
+ * due incassi simultanei potevano far risultare versato piu' del dovuto.
  *
  * <p><b>E' l'unico test del progetto che manda due richieste insieme</b>, e non poteva
  * essere altrimenti: il difetto che protegge non esiste finche' le richieste sono una per
@@ -129,6 +136,47 @@ class ConcorrenzaApiIT extends IntegrationTestBase {
                 .containsExactlyInAnyOrder(200, 409);
     }
 
+    @Test
+    @DisplayName("due saldi sulla stessa prenotazione: ne passa uno solo")
+    void pagamento_dueSimultanei_nePassaUno() throws Exception {
+        // given: una prenotazione confermata e due persone al banco che registrano lo
+        // stesso saldo nello stesso momento — succede davvero quando qualcuno "controlla
+        // se e' stato inserito" e nel frattempo lo inserisce anche un altro
+        String admin = tokenAdmin();
+        long tipologia = creaTipologia(admin);
+        creaCamera(admin, tipologia);
+
+        String cliente = tokenCliente();
+        long prenotazione = creaPrenotazione(cliente, tipologia, LocalDate.now().plusDays(310));
+        mockMvc.perform(put(PRENOTAZIONI + "/" + prenotazione + "/conferma")
+                        .header("Authorization", "Bearer " + cliente))
+                .andExpect(status().isOk());
+
+        BigDecimal totale = totaleDa(prenotazione, admin);
+        String pagamento = json(new PagamentoRequest()
+                .importo(totale)
+                .metodo(MetodoPagamento.CONTANTI));
+
+        // when: i due incassi partono insieme
+        List<Integer> esiti = insieme(
+                () -> stato(post(PRENOTAZIONI + "/" + prenotazione + "/pagamenti")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(pagamento)),
+                () -> stato(post(PRENOTAZIONI + "/" + prenotazione + "/pagamenti")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(pagamento)));
+
+        // then: uno solo entra nel registro. Senza il lock passerebbero tutti e due, e
+        // il soggiorno risulterebbe incassato il doppio del suo prezzo — un errore che
+        // non si vede finche' non si chiudono i conti
+        assertThat(esiti)
+                .as("un incasso solo deve passare, altrimenti il registro dice che si e'"
+                        + " incassato piu' del dovuto")
+                .containsExactlyInAnyOrder(201, 409);
+    }
+
     // ---------------------------------------------------------------- supporto
 
     /**
@@ -207,6 +255,16 @@ class ConcorrenzaApiIT extends IntegrationTestBase {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(risposta).path("data").path("id").asLong();
+    }
+
+    /** L'importo totale della prenotazione, che e' anche il residuo finche' nessuno paga. */
+    private BigDecimal totaleDa(long prenotazione, String token) throws Exception {
+        String risposta = mockMvc.perform(get(PRENOTAZIONI + "/" + prenotazione + "/pagamenti")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        return objectMapper.readTree(risposta).path("data").path("importoTotale").decimalValue();
     }
 
     private long creaTipologia(String tokenAdmin) throws Exception {

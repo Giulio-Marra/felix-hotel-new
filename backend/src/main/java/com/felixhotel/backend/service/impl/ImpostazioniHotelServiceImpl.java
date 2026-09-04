@@ -3,6 +3,7 @@ package com.felixhotel.backend.service.impl;
 import com.felixhotel.backend.dto.ApiBaseResponse;
 import com.felixhotel.backend.dto.ImpostazioniHotelRequest;
 import com.felixhotel.backend.entity.ImpostazioniHotel;
+import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.ImpostazioniHotelMapper;
 import com.felixhotel.backend.repository.ImpostazioniHotelRepository;
@@ -11,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
 
 /**
  * Implementazione dell'anagrafica della struttura.
@@ -75,6 +78,7 @@ public class ImpostazioniHotelServiceImpl implements ImpostazioniHotelService {
     public ApiBaseResponse aggiorna(ImpostazioniHotelRequest request) {
         ImpostazioniHotel impostazioni = trovaLaRigaUnica();
 
+        verificaDecimaliCaparra(request);
         applicaCampi(impostazioni, request);
 
         // save e non saveAndFlush: negli altri Service il flush esplicito serve a
@@ -85,6 +89,23 @@ public class ImpostazioniHotelServiceImpl implements ImpostazioniHotelService {
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Impostazioni aggiornate",
                 impostazioniHotelMapper.toResponse(salvate));
+    }
+
+    /**
+     * Rifiuta una percentuale con piu' di due decimali.
+     *
+     * <p>Stessa regola dei prezzi e delle aliquote, e per la stessa ragione: la colonna
+     * e' {@code NUMERIC(5,2)} e Postgres troncherebbe in silenzio, quindi la risposta
+     * direbbe un numero e il database ne conserverebbe un altro. Qui pesa piu' che altrove,
+     * perche' da questa percentuale esce un importo che si chiede a un cliente.
+     */
+    private void verificaDecimaliCaparra(ImpostazioniHotelRequest request) {
+        BigDecimal percentuale = request.getPercentualeCaparra();
+
+        if (percentuale != null && percentuale.stripTrailingZeros().scale() > 2) {
+            throw new BadRequestException(
+                    "La percentuale della caparra non puo' avere piu' di due decimali");
+        }
     }
 
     /**
@@ -123,5 +144,12 @@ public class ImpostazioniHotelServiceImpl implements ImpostazioniHotelService {
         impostazioni.setComune(request.getComune());
         impostazioni.setCodiceIstatComune(request.getCodiceIstatComune());
         impostazioni.setCodiceStrutturaAlloggiati(request.getCodiceStrutturaAlloggiati());
+
+        // **Omessa vuol dire zero e non "lasciala com'era".** Questa PUT sostituisce, e
+        // ogni altro campo facoltativo omesso qui si svuota: farne l'unica eccezione
+        // vorrebbe dire un campo che non si puo' piu' riportare a zero senza saperlo.
+        // Zero e' anche il default della colonna, cioe' "nessuna caparra".
+        impostazioni.setPercentualeCaparra(
+                request.getPercentualeCaparra() == null ? BigDecimal.ZERO : request.getPercentualeCaparra());
     }
 }

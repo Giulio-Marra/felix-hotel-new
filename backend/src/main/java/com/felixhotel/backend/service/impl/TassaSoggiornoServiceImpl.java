@@ -5,16 +5,11 @@ import com.felixhotel.backend.dto.TassaSoggiornoOspite;
 import com.felixhotel.backend.entity.AliquotaTassaSoggiorno;
 import com.felixhotel.backend.entity.Ospite;
 import com.felixhotel.backend.entity.Prenotazione;
-import com.felixhotel.backend.exception.NotFoundException;
-import com.felixhotel.backend.exception.UnauthorizedException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.TassaSoggiornoMapper;
 import com.felixhotel.backend.repository.AliquotaTassaSoggiornoRepository;
 import com.felixhotel.backend.repository.OspiteRepository;
-import com.felixhotel.backend.repository.PrenotazioneRepository;
-import com.felixhotel.backend.security.AppUserPrincipal;
-import com.felixhotel.backend.security.ChiamanteCorrente;
-import com.felixhotel.backend.security.TipoAccount;
+import com.felixhotel.backend.security.AccessoPrenotazioni;
 import com.felixhotel.backend.service.TassaSoggiornoService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -73,31 +68,28 @@ import java.util.List;
 @Service
 public class TassaSoggiornoServiceImpl implements TassaSoggiornoService {
 
-    private final PrenotazioneRepository prenotazioneRepository;
     private final OspiteRepository ospiteRepository;
     private final AliquotaTassaSoggiornoRepository aliquotaRepository;
     private final TassaSoggiornoMapper tassaSoggiornoMapper;
     private final ApiResponseMapper apiResponseMapper;
-    private final ChiamanteCorrente chiamanteCorrente;
+    private final AccessoPrenotazioni accessoPrenotazioni;
 
-    public TassaSoggiornoServiceImpl(PrenotazioneRepository prenotazioneRepository,
-                                     OspiteRepository ospiteRepository,
+    public TassaSoggiornoServiceImpl(OspiteRepository ospiteRepository,
                                      AliquotaTassaSoggiornoRepository aliquotaRepository,
                                      TassaSoggiornoMapper tassaSoggiornoMapper,
                                      ApiResponseMapper apiResponseMapper,
-                                     ChiamanteCorrente chiamanteCorrente) {
-        this.prenotazioneRepository = prenotazioneRepository;
+                                     AccessoPrenotazioni accessoPrenotazioni) {
         this.ospiteRepository = ospiteRepository;
         this.aliquotaRepository = aliquotaRepository;
         this.tassaSoggiornoMapper = tassaSoggiornoMapper;
         this.apiResponseMapper = apiResponseMapper;
-        this.chiamanteCorrente = chiamanteCorrente;
+        this.accessoPrenotazioni = accessoPrenotazioni;
     }
 
     @Override
     @Transactional(readOnly = true)
     public ApiBaseResponse calcola(Long prenotazioneId) {
-        Prenotazione prenotazione = trovaVisibileOrElseThrow(prenotazioneId);
+        Prenotazione prenotazione = accessoPrenotazioni.visibileOrElseThrow(prenotazioneId);
 
         List<LocalDate> notti = nottiDel(prenotazione);
         List<AliquotaTassaSoggiorno> aliquote = notti.isEmpty()
@@ -251,50 +243,5 @@ public class TassaSoggiornoServiceImpl implements TassaSoggiornoService {
      */
     private int nottiNonCoperte(List<LocalDate> notti, List<AliquotaTassaSoggiorno> aliquote) {
         return (int) notti.stream().filter(notte -> aliquotaDi(notte, aliquote) == null).count();
-    }
-
-    /**
-     * La prenotazione, ma solo se chi chiede ha il diritto di vederla.
-     *
-     * <p>Copia deliberata della stessa regola di {@code PrenotazioneServiceImpl}:
-     * il personale vede tutto, il cliente vede la propria, e la prenotazione di un
-     * altro cliente e' <b>404 e non 403</b> — un 403 direbbe "esiste, ma non e'
-     * tua", cioe' regalerebbe l'informazione che quell'id e' valido.
-     *
-     * <p><b>Che sia una copia e' un difetto noto</b>: la stessa decisione vive ora
-     * in due Service, ed e' scritta nei gap insieme alla condizione che la rendera'
-     * urgente. Spostarla in {@code ChiamanteCorrente} non basterebbe, perche' quella
-     * classe non conosce le prenotazioni; servirebbe un componente di autorizzazione
-     * suo, che e' la stessa cosa che chiuderebbe il gap piu' vecchio sulla regola
-     * "ruolo <i>e</i> tipo".
-     */
-    private Prenotazione trovaVisibileOrElseThrow(Long prenotazioneId) {
-        Prenotazione prenotazione = prenotazioneRepository.findById(prenotazioneId)
-                .orElseThrow(() -> new NotFoundException("Prenotazione non trovata"));
-
-        AppUserPrincipal chiamante = chiamanteCorrente.autenticato();
-        if (!chiamanteCorrente.personale(chiamante)
-                && !prenotazione.getUtente().getId().equals(idClienteChiamante(chiamante))) {
-            throw new NotFoundException("Prenotazione non trovata");
-        }
-
-        return prenotazione;
-    }
-
-    /**
-     * L'id del cliente che sta chiamando, con 401 se l'account non e' di un
-     * cliente.
-     *
-     * <p>401 e non 403 per la stessa ragione gia' scritta altrove: non e' una
-     * questione di permessi, e' un token che vale per un account che non e' quello
-     * che dice di essere — il ruolo dice una cosa e la tabella in cui vive ne dice
-     * un'altra.
-     */
-    private Long idClienteChiamante(AppUserPrincipal chiamante) {
-        if (chiamante.getTipo() != TipoAccount.CLIENTE) {
-            throw new UnauthorizedException("L'account autenticato non e' quello di un cliente");
-        }
-
-        return chiamante.getUserId();
     }
 }

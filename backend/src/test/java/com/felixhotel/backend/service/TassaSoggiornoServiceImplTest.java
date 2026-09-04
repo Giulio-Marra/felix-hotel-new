@@ -15,6 +15,7 @@ import com.felixhotel.backend.mapper.TassaSoggiornoMapper;
 import com.felixhotel.backend.repository.AliquotaTassaSoggiornoRepository;
 import com.felixhotel.backend.repository.OspiteRepository;
 import com.felixhotel.backend.repository.PrenotazioneRepository;
+import com.felixhotel.backend.security.AccessoPrenotazioni;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
@@ -82,9 +83,13 @@ class TassaSoggiornoServiceImplTest {
 
     @BeforeEach
     void inizializza() {
-        tassaSoggiornoService = new TassaSoggiornoServiceImpl(prenotazioneRepository,
-                ospiteRepository, aliquotaRepository, new TassaSoggiornoMapper(),
-                new ApiResponseMapper(), new ChiamanteCorrente());
+        // AccessoPrenotazioni vero e non finto, come il ChiamanteCorrente che si porta
+        // dentro: e' lui che decide se una prenotazione sia visibile a chi chiama, ed e'
+        // una delle cose che questi test verificano. Con un finto la regola non verrebbe
+        // esercitata da nessuno.
+        tassaSoggiornoService = new TassaSoggiornoServiceImpl(ospiteRepository, aliquotaRepository,
+                new TassaSoggiornoMapper(), new ApiResponseMapper(),
+                new AccessoPrenotazioni(prenotazioneRepository, new ChiamanteCorrente()));
     }
 
     @AfterEach

@@ -96,4 +96,26 @@ public class ChiamanteCorrente {
 
         return RUOLO_ADMIN.equals(chiamante.getRuoloNome()) || RUOLO_STAFF.equals(chiamante.getRuoloNome());
     }
+
+    /**
+     * L'id del cliente che sta chiamando, con 401 se l'account non e' di un cliente.
+     *
+     * <p><b>401 e non 403</b>: non e' una questione di permessi, e' un token che vale per
+     * un account che non e' quello che dice di essere — il ruolo dice una cosa e la
+     * tabella in cui vive ne dice un'altra. E' la stessa asimmetria di
+     * {@link #personale(AppUserPrincipal)}, guardata dall'altro capo.
+     *
+     * <p><b>E' salita qui il 2026-09-04</b>, da tre copie identiche in altrettanti punti
+     * che chiedevano "questa roba e' tua?". Non ha bisogno di nessun repository — guarda
+     * solo il principal — quindi sta bene in questa classe, che di repository non ne ha e
+     * non deve averne: chi deve anche <i>trovare</i> la prenotazione passa da
+     * {@link AccessoPrenotazioni}.
+     */
+    public Long idCliente(AppUserPrincipal chiamante) {
+        if (chiamante.getTipo() != TipoAccount.CLIENTE) {
+            throw new UnauthorizedException("L'account autenticato non e' quello di un cliente");
+        }
+
+        return chiamante.getUserId();
+    }
 }

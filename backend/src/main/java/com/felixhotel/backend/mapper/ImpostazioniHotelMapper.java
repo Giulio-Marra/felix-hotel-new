@@ -55,7 +55,8 @@ public class ImpostazioniHotelMapper {
                 .cin(impostazioni.getCin())
                 .comune(impostazioni.getComune())
                 .codiceIstatComune(impostazioni.getCodiceIstatComune())
-                .codiceStrutturaAlloggiati(impostazioni.getCodiceStrutturaAlloggiati());
+                .codiceStrutturaAlloggiati(impostazioni.getCodiceStrutturaAlloggiati())
+                .percentualeCaparra(impostazioni.getPercentualeCaparra());
     }
 
     /** La vista pubblica: recapiti e orari, niente identita' fiscale. */

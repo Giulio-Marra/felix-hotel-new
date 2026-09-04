@@ -15,7 +15,6 @@ import com.felixhotel.backend.entity.enums.StatoCamera;
 import com.felixhotel.backend.entity.enums.StatoPrenotazione;
 import com.felixhotel.backend.exception.BadRequestException;
 import com.felixhotel.backend.exception.ConflictException;
-import com.felixhotel.backend.exception.NotFoundException;
 import com.felixhotel.backend.exception.UnauthorizedException;
 import com.felixhotel.backend.mapper.ApiResponseMapper;
 import com.felixhotel.backend.mapper.PrenotazioneMapper;
@@ -27,6 +26,7 @@ import com.felixhotel.backend.repository.PreventivoTipologia;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.security.AccessoPrenotazioni;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
@@ -138,6 +138,15 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     private final ChiamanteCorrente chiamanteCorrente;
 
     /**
+     * Chi puo' vedere quale prenotazione.
+     *
+     * <p>La regola stava qui, scritta a mano, e da qui era stata copiata in un secondo
+     * Service. Dal 2026-09-04 ha una classe sua, perche' i pagamenti sono la terza
+     * risorsa che deve rispondere alla stessa domanda — vedi {@link AccessoPrenotazioni}.
+     */
+    private final AccessoPrenotazioni accessoPrenotazioni;
+
+    /**
      * Da cosa dipende "oggi", che qui e' una regola di dominio e non un
      * dettaglio: una prenotazione non puo' cominciare nel passato.
      */
@@ -159,14 +168,16 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    ServizioNotifiche servizioNotifiche,
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
-                                   ChiamanteCorrente chiamanteCorrente) {
+                                   ChiamanteCorrente chiamanteCorrente,
+                                   AccessoPrenotazioni accessoPrenotazioni) {
         // Il fuso e' quello di sistema e non UTC, al contrario dei contatori del
         // ritardo progressivo: quelli misurano durate, a cui il fuso non serve, mentre
         // "oggi" per un albergo e' il giorno che si legge sul calendario alla
         // reception. Con UTC, alle due di notte in Italia sarebbe ancora ieri.
         this(prenotazioneRepository, tipologiaCameraRepository, cameraRepository, utenteRepository,
                 staffRepository, ospiteRepository, periodoTariffarioRepository, servizioNotifiche,
-                prenotazioneMapper, apiResponseMapper, chiamanteCorrente, Clock.systemDefaultZone());
+                prenotazioneMapper, apiResponseMapper, chiamanteCorrente, accessoPrenotazioni,
+                Clock.systemDefaultZone());
     }
 
     /**
@@ -186,6 +197,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
                                    PrenotazioneMapper prenotazioneMapper,
                                    ApiResponseMapper apiResponseMapper,
                                    ChiamanteCorrente chiamanteCorrente,
+                                   AccessoPrenotazioni accessoPrenotazioni,
                                    Clock clock) {
         this.prenotazioneRepository = prenotazioneRepository;
         this.tipologiaCameraRepository = tipologiaCameraRepository;
@@ -198,6 +210,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         this.prenotazioneMapper = prenotazioneMapper;
         this.apiResponseMapper = apiResponseMapper;
         this.chiamanteCorrente = chiamanteCorrente;
+        this.accessoPrenotazioni = accessoPrenotazioni;
         this.clock = clock;
     }
 
@@ -218,7 +231,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
         // Null vuol dire "tutte" ed e' un privilegio, non l'assenza di un filtro: lo
         // ottiene solo chi e' del personale. Per un cliente l'id e' sempre il proprio,
         // e non perche' l'abbia chiesto.
-        Long utenteId = chiamanteCorrente.personale(chiamante) ? null : idClienteChiamante(chiamante);
+        Long utenteId = chiamanteCorrente.personale(chiamante) ? null : chiamanteCorrente.idCliente(chiamante);
 
         Page<Prenotazione> pagina = prenotazioneRepository.cerca(
                 utenteId,
@@ -232,7 +245,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Override
     @Transactional(readOnly = true)
     public ApiBaseResponse dettaglio(Long id) {
-        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+        Prenotazione prenotazione = accessoPrenotazioni.visibileOrElseThrow(id);
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Prenotazione recuperata",
                 prenotazioneMapper.toResponse(prenotazione));
@@ -328,7 +341,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Override
     @Transactional
     public ApiBaseResponse conferma(Long id) {
-        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+        Prenotazione prenotazione = accessoPrenotazioni.visibileOrElseThrow(id);
 
         if (prenotazione.getStato() != StatoPrenotazione.IN_ATTESA) {
             throw new ConflictException(
@@ -392,7 +405,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Override
     @Transactional
     public ApiBaseResponse checkIn(Long id, PrenotazioneCheckInRequest request) {
-        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+        Prenotazione prenotazione = accessoPrenotazioni.visibileOrElseThrow(id);
 
         if (prenotazione.getStato() != StatoPrenotazione.CONFERMATA) {
             throw new ConflictException(
@@ -442,7 +455,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Override
     @Transactional
     public ApiBaseResponse checkOut(Long id) {
-        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+        Prenotazione prenotazione = accessoPrenotazioni.visibileOrElseThrow(id);
 
         if (prenotazione.getStato() != StatoPrenotazione.CHECK_IN) {
             throw new ConflictException(
@@ -629,7 +642,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     @Override
     @Transactional
     public ApiBaseResponse annulla(Long id, PrenotazioneAnnullamentoRequest request) {
-        Prenotazione prenotazione = trovaVisibileOrElseThrow(id);
+        Prenotazione prenotazione = accessoPrenotazioni.visibileOrElseThrow(id);
 
         StatoPrenotazione stato = prenotazione.getStato();
         if (stato != StatoPrenotazione.IN_ATTESA
@@ -648,28 +661,6 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
 
         return apiResponseMapper.toResponse(HttpStatus.OK, "Prenotazione annullata",
                 prenotazioneMapper.toResponse(salvata));
-    }
-
-    /**
-     * Lettura per id che applica anche il permesso, perche' le due cose non sono
-     * separabili: "non esiste" e "non e' tua" devono dare la stessa risposta.
-     *
-     * <p><b>404 e non 403</b>, ed e' deliberato: un 403 direbbe "esiste, ma non e'
-     * tua", cioe' permetterebbe di scoprire quali id esistono provandoli uno per
-     * uno. Il 403 di questo progetto e' per il ruolo insufficiente, che e' una
-     * cosa che si puo' dire senza rivelare niente; questo non lo e'.
-     */
-    private Prenotazione trovaVisibileOrElseThrow(Long id) {
-        Prenotazione prenotazione = prenotazioneRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Prenotazione non trovata"));
-
-        AppUserPrincipal chiamante = chiamanteCorrente.autenticato();
-        if (!chiamanteCorrente.personale(chiamante)
-                && !prenotazione.getUtente().getId().equals(idClienteChiamante(chiamante))) {
-            throw new NotFoundException("Prenotazione non trovata");
-        }
-
-        return prenotazione;
     }
 
     /**
@@ -760,28 +751,6 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
     }
 
     /**
-     * L'id del cliente che sta chiamando, <b>senza toccare il database</b>: per
-     * un account di tipo CLIENTE l'id del principal e' gia' la chiave di
-     * {@code utente}, e finche' serve solo confrontarlo non c'e' niente da
-     * leggere. E' il caso di gran lunga piu' frequente — ogni lettura di un
-     * cliente passa di qui.
-     *
-     * <p>Il controllo sul tipo non e' una formalita': un account che sta nella
-     * tabella del personale ma porta il ruolo USER arriverebbe fin qui, e usare
-     * il suo id come se fosse quello di un cliente vorrebbe dire mostrargli le
-     * prenotazioni di un utente che non ha niente a che fare con lui. E' 401 e
-     * non 403 perche' non e' una questione di permessi: quel token vale per un
-     * account che non e' quello che dice di essere.
-     */
-    private Long idClienteChiamante(AppUserPrincipal chiamante) {
-        if (chiamante.getTipo() != TipoAccount.CLIENTE) {
-            throw new UnauthorizedException("L'account autenticato non e' quello di un cliente");
-        }
-
-        return chiamante.getUserId();
-    }
-
-    /**
      * Il cliente corrispondente a chi chiama, quando serve l'entita' e non il
      * solo id — cioe' solo per intestargli una prenotazione.
      *
@@ -789,7 +758,7 @@ public class PrenotazioneServiceImpl implements PrenotazioneService {
      * per un account che non c'e' piu'.
      */
     private Utente clienteChiamante(AppUserPrincipal chiamante) {
-        return utenteRepository.findById(idClienteChiamante(chiamante))
+        return utenteRepository.findById(chiamanteCorrente.idCliente(chiamante))
                 .orElseThrow(() -> new UnauthorizedException("L'account autenticato non esiste piu'"));
     }
 

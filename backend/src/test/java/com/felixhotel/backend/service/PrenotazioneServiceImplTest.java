@@ -30,6 +30,7 @@ import com.felixhotel.backend.repository.PreventivoTipologia;
 import com.felixhotel.backend.repository.StaffRepository;
 import com.felixhotel.backend.repository.TipologiaCameraRepository;
 import com.felixhotel.backend.repository.UtenteRepository;
+import com.felixhotel.backend.security.AccessoPrenotazioni;
 import com.felixhotel.backend.security.AppUserPrincipal;
 import com.felixhotel.backend.security.ChiamanteCorrente;
 import com.felixhotel.backend.security.TipoAccount;
@@ -161,6 +162,7 @@ class PrenotazioneServiceImplTest {
                 cameraRepository, utenteRepository, staffRepository, ospiteRepository,
                 periodoTariffarioRepository, servizioNotifiche, prenotazioneMapper, apiResponseMapper,
                 new ChiamanteCorrente(),
+                new AccessoPrenotazioni(prenotazioneRepository, new ChiamanteCorrente()),
                 new OrologioPilotato(OGGI.atStartOfDay().toInstant(ZoneOffset.UTC)));
 
         // Il preventivo di default: tre notti a 120, nessun soggiorno minimo. E'

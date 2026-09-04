@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalTime;
 
 /**
@@ -130,4 +131,23 @@ public class ImpostazioniHotel extends BaseAuditableEntity {
      */
     @Column(name = "codice_struttura_alloggiati", length = 20)
     private String codiceStrutturaAlloggiati;
+
+    /**
+     * Quanto si chiede in anticipo, in percentuale sull'importo totale del soggiorno.
+     *
+     * <p><b>Sta qui e non nel codice per la regola 24</b>: due alberghi la vogliono
+     * diversa — c'e' chi chiede il 30%, chi niente — quindi la decide l'albergatore.
+     *
+     * <p><b>Gli estremi sono due politiche vere e non due casi limite da tollerare</b>:
+     * zero vuol dire "nessuna caparra, si paga tutto in struttura" ed e' il default che la
+     * migration mette a chi aggiorna; cento vuol dire "si paga tutto alla conferma", che
+     * e' la politica delle tariffe non rimborsabili.
+     *
+     * <p><b>Non e' un importo ma una regola di calcolo</b>, ed e' la differenza che spiega
+     * perche' cambiarla cambi anche quel che risulta dovuto sulle prenotazioni gia' prese:
+     * l'importo del soggiorno e' un accordo preso col cliente e resta fotografato, la
+     * caparra e' una politica di incasso della struttura e vale quella in vigore.
+     */
+    @Column(name = "percentuale_caparra", nullable = false, precision = 5, scale = 2)
+    private BigDecimal percentualeCaparra;
 }

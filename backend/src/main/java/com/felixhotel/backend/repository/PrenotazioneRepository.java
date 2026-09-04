@@ -2,10 +2,12 @@ package com.felixhotel.backend.repository;
 
 import com.felixhotel.backend.entity.Prenotazione;
 import com.felixhotel.backend.entity.enums.StatoPrenotazione;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -339,4 +341,27 @@ public interface PrenotazioneRepository extends JpaRepository<Prenotazione, Long
                 .map(OccupazioneTipologia::getOccupate)
                 .orElse(0L);
     }
+
+    /**
+     * Blocca la riga della prenotazione per chi ci sta registrando un incasso.
+     *
+     * <p><b>Serializza chi incassa sulla stessa prenotazione.</b> Leggere quanto e' gia'
+     * stato versato e scrivere il versamento nuovo sono due gesti, e fra i due
+     * un'altra transazione puo' fare lo stesso conto: due saldi registrati insieme
+     * passerebbero tutti e due, e il totale incassato supererebbe il dovuto senza che
+     * nessuno abbia sbagliato a digitare niente. Con questo lock la seconda aspetta la
+     * prima e poi rifa' la somma, trovandola cambiata.
+     *
+     * <p><b>Sulla prenotazione e non sui pagamenti</b>, per la stessa ragione per cui il
+     * lock della vendita sta sulla tipologia: la riga da bloccare dev'essere una sola e
+     * sempre la stessa per tutti i concorrenti, e qui l'oggetto di cui si conta il
+     * residuo e' la prenotazione. Bloccare i pagamenti non servirebbe — il problema e'
+     * quello che <b>non c'e' ancora</b>.
+     *
+     * <p><b>Restituisce l'id e non l'entita'</b>: chi chiama la prenotazione ce l'ha
+     * gia', qui serve solo il {@code SELECT ... FOR UPDATE} sulla riga.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p.id from Prenotazione p where p.id = :id")
+    Optional<Long> bloccaPerIncasso(@Param("id") Long id);
 }
